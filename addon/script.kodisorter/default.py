@@ -1332,7 +1332,8 @@ def main():
                            "View the report from the last move",
                            "Send Kodi's log to my phone now (xbox-share must be running)",
                            "Find missing episodes in my TV library",
-                           "Where to watch a show..."])
+                           "Where to watch a show...",
+                           "View a text / NFO file"])
         if pick < 0:
             return
         if pick == 2:
@@ -1346,6 +1347,9 @@ def main():
             return
         if pick == 6:
             where_to_watch_menu(dlg)
+            return
+        if pick == 7:
+            view_text_file(dlg)
             return
         if pick == 3:
             text = read_text(data_file("last_report.txt"))
@@ -1603,6 +1607,42 @@ def where_to_watch_menu(dlg):
              "Availability can differ by season; the missing-episodes list checks each season.",
              whereto.ATTRIBUTION]
     dlg.textviewer("%s - where to watch" % ADDON, "\n".join(lines))
+
+
+TEXT_TYPES = ".nfo|.txt|.srt|.ass|.ssa|.sub|.vtt|.log|.md|.diz|.sfv|.xml|.json|.ini|.cfg"
+
+
+def decode_text(raw):
+    """NFO files are often old DOS text (box-drawing art), not UTF-8."""
+    if raw[:3] == b"\xef\xbb\xbf":
+        raw = raw[3:]
+    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return raw.decode("utf-16", "replace")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp437", "replace")
+
+
+def view_text_file(dlg):
+    """Pick an .nfo/.txt/subtitle file anywhere Kodi can reach and show it."""
+    last = load_cache(data_file("last_settings.json")).get("src", "")
+    start = "" if "@%s:" % PHONE in last else last
+    while True:
+        path = dlg.browse(1, "Pick a text / NFO file", "files", TEXT_TYPES, False, False, start)
+        if not path or path == start:
+            return
+        try:
+            f = xbmcvfs.File(path)
+            try:
+                raw = bytes(f.readBytes(2 * 1024 * 1024))
+            finally:
+                f.close()
+        except Exception as e:
+            dlg.ok(ADDON, "Couldn't open %s:\n%s" % (base_of(path), e))
+            return
+        dlg.textviewer(base_of(path), decode_text(raw) or "(empty file)")
+        start = parent_of(path)
 
 
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode):

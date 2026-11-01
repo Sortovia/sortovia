@@ -36,7 +36,8 @@ ASK, ALWAYS, NEVER = 0, 1, 2
 # Background moves: Kodi's home window holds two flags so that opening Kodi Sorter
 # again while a move is running offers to stop it instead of starting a second run.
 PROP_RUN = "kodisorter.running"   # status text, e.g. "12 of 41" - empty when idle
-PROP_STOP = "kodisorter.stop"     # "1" = stop after the current file
+PROP_STOP = "kodisorter.stop"     # STOP_NOW or STOP_AFTER
+STOP_NOW, STOP_AFTER = "1", "after"
 
 
 def home():
@@ -60,11 +61,14 @@ class Progress(object):
         else:
             self.dlg.update(pct, text)
 
-    def canceled(self):
+    def canceled(self, mid_file=False):
+        """mid_file=True is asked during a copy: only "stop now" interrupts it;
+        "stop after this file" is seen between files."""
         if self.monitor.abortRequested():
             return True
         if self.background:
-            return home().getProperty(PROP_STOP) == "1"
+            flag = home().getProperty(PROP_STOP)
+            return flag == STOP_NOW or (flag == STOP_AFTER and not mid_file)
         return self.dlg.iscanceled()
 
     def close(self):
@@ -1093,13 +1097,25 @@ def main():
     dlg = xbmcgui.Dialog()
     status = home().getProperty(PROP_RUN)
     if status:
-        if home().getProperty(PROP_STOP) == "1":
+        flag = home().getProperty(PROP_STOP)
+        if flag == STOP_NOW:
             dlg.ok(ADDON, "Already stopping (%s) - give it a few seconds." % status)
-        elif dlg.yesno(ADDON, "Kodi Sorter is moving files in the background (%s).\n"
-                       "Stop now? A half-copied file is removed (the original stays). Open Kodi "
-                       "Sorter later and choose Resume to finish the rest." % status, nolabel="Keep going", yeslabel="Stop"):
-            home().setProperty(PROP_STOP, "1")
-            toast("Stopping...")
+            return
+        opts = ["Keep going",
+                "Stop after this file (finish it first)",
+                "Stop now (the half-copied file is removed, the original stays)"]
+        if flag == STOP_AFTER:
+            opts[0] = "Keep going (cancel the stop)"
+            opts[1] = "Stop after this file - already chosen"
+        pick = dlg.select("Kodi Sorter is moving files (%s)" % status, opts)
+        if pick == 0:
+            home().clearProperty(PROP_STOP)
+        elif pick == 1:
+            home().setProperty(PROP_STOP, STOP_AFTER)
+            toast("Will stop after this file. Open Kodi Sorter later and choose Resume.")
+        elif pick == 2:
+            home().setProperty(PROP_STOP, STOP_NOW)
+            toast("Stopping now. Open Kodi Sorter later and choose Resume.")
         return
     send_logs("start")
     if check_for_update(dlg):
@@ -1245,7 +1261,7 @@ def file_progress(prog, i, count, short):
                 line += " - about %s left" % ("%d min" % (left // 60 + 1) if left >= 60 else "%d s" % left)
             prog.update(int((i + min(frac, 1)) * 100 / count), "%s\n%s" % (line, short))
             home().setProperty(PROP_RUN, "%d of %d, %d%% of this file" % (i + 1, count, frac * 100))
-        return prog.canceled()
+        return prog.canceled(mid_file=True)
     return hook
 
 

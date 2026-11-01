@@ -6,9 +6,13 @@
 # Can check audio tracks and keep only files with English audio.
 # Nothing is overwritten without your OK; replaced copies go to <dest>/_Replaced
 # unless you choose to delete them.
+import hashlib
+import io
 import json
+import os
 import re
 import time
+import zipfile
 import xbmc
 import xbmcaddon
 import xbmcgui
@@ -425,9 +429,88 @@ def cache_key(path, size):
     return "%s|%d" % (path, size)
 
 
+# ---------- self-update ----------
+# The "repository" add-on can't connect on this Xbox, but Kodi can read the
+# same web page fine, so the add-on checks it directly on every run.
+UPDATE_BASE = "https://akaguyver.github.io/kodi-repo/"
+ADDON_ID = "script.kodisorter"
+
+
+def _vtuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
+
+
+def _fetch(url):
+    f = xbmcvfs.File(url)
+    try:
+        return bytes(f.readBytes())
+    finally:
+        f.close()
+
+
+def latest_version():
+    """Newest version on the web page, or None if it can't be checked."""
+    xml = _fetch(UPDATE_BASE + "addons.xml").decode("utf-8", "ignore")
+    m = re.search(r'<addon[^>]*id="%s"[^>]*version="([^"]+)"' % re.escape(ADDON_ID), xml)
+    return m.group(1) if m else None
+
+
+def install_update(version, folder):
+    """Download, verify and unpack the new version over this add-on's folder."""
+    url = "%s%s/%s-%s.zip" % (UPDATE_BASE, ADDON_ID, ADDON_ID, version)
+    data = _fetch(url)
+    want = _fetch(url + ".md5").decode("ascii", "ignore").strip().split(" ")[0]
+    if not data or hashlib.md5(data).hexdigest() != want:
+        raise ValueError("download damaged (checksum mismatch)")
+    prefix = ADDON_ID + "/"
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        members = [n for n in z.namelist() if n.startswith(prefix) and not n.endswith("/")]
+        if not any(n == prefix + "addon.xml" for n in members):
+            raise ValueError("download is not a Kodi Sorter add-on")
+        for n in members:
+            rel = n[len(prefix):]
+            if rel.startswith(("/", "\\")) or ".." in rel.replace("\\", "/").split("/"):
+                raise ValueError("bad path in download: %s" % n)
+        for n in members:
+            out = os.path.join(folder, *n[len(prefix):].split("/"))
+            if not os.path.isdir(os.path.dirname(out)):
+                os.makedirs(os.path.dirname(out))
+            with open(out + ".new", "wb") as fh:
+                fh.write(z.read(n))
+            os.replace(out + ".new", out)
+    xbmc.executebuiltin("UpdateLocalAddons")
+
+
+def check_for_update(dlg):
+    """Returns True if an update was installed (caller should stop)."""
+    try:
+        me = xbmcaddon.Addon()
+        current = me.getAddonInfo("version")
+        folder = xbmcvfs.translatePath(me.getAddonInfo("path"))
+        newest = latest_version()
+    except Exception as e:
+        log("update check skipped: %s" % e)
+        return False
+    if not newest or _vtuple(newest) <= _vtuple(current):
+        return False
+    if not dlg.yesno(ADDON, "Kodi Sorter %s is available (you have %s).\nUpdate now?" % (newest, current),
+                     nolabel="Not now", yeslabel="Update"):
+        return False
+    try:
+        install_update(newest, folder)
+    except Exception as e:
+        log("update failed: %s" % e)
+        dlg.ok(ADDON, "Update failed: %s\nNothing was changed. Carrying on with %s." % (e, current))
+        return False
+    dlg.ok(ADDON, "Updated to %s.\nOpen Kodi Sorter again to use the new version." % newest)
+    return True
+
+
 # ---------- main ----------
 def main():
     dlg = xbmcgui.Dialog()
+    if check_for_update(dlg):
+        return
     src = dlg.browse(0, "Kodi Sorter: pick SOURCE folder (downloads)", "files")
     if not src:
         return

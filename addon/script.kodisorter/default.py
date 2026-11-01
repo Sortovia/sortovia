@@ -496,7 +496,7 @@ def plan_for(path, filename, dest):
     """Returns (target or None, kind or skip reason, note)."""
     if split_name(filename)[1] in VIDEO and 0 <= size_of(path) < MIN_VIDEO_BYTES:
         return None, "sample/too small", ""
-    parts, kind, note = plan_name(filename)
+    parts, kind, note = plan_name(filename, parent_of(path))
     if parts is None:
         return None, kind, ""
     return join(dest, *parts), kind.upper(), note

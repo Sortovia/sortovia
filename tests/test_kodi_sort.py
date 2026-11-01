@@ -146,6 +146,18 @@ class Skips(unittest.TestCase):
     def test_comic(self):
         self.assertEqual(rel("Ironclad v01.cbz")[0], "Comics/Ironclad v01.cbz")
 
+    def test_pdf_not_a_comic_by_default(self):
+        # bills and manuals in a phone's Download folder were sent as comics
+        target, kind, _ = ks.target_for("Verizon_bill_December_18_2022.pdf", D, "/storage/emulated/0/Download")
+        self.assertIsNone(target)
+        self.assertIn("document", kind)
+
+    def test_pdf_in_comics_folder(self):
+        target = ks.target_for("Nightwarden 001.pdf", D, "/downloads/Nightwarden Comics")[0]
+        self.assertEqual(str(target.relative_to(D)), "Comics/Nightwarden 001.pdf")
+        target = ks.target_for("Berserk v01.epub", D, "/downloads/manga/Berserk")[0]
+        self.assertEqual(str(target.relative_to(D)), "Comics/Berserk v01.epub")
+
     def test_hidden_file(self):
         with tempfile.TemporaryDirectory() as t:
             p = Path(t, ".pending-123-Show.S01E01.mkv")

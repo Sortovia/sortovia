@@ -31,10 +31,10 @@ from sortlib import (  # noqa: E402,F401
 KODI_FOLDERS = ("TV", "Movies", "Comics")
 
 
-def target_for(name: str, dest: Path):
+def target_for(name: str, dest: Path, folder: str = ""):
     """Work out where a file called `name` belongs. Pure: no disk access.
     Returns (target or None, kind, note)."""
-    parts, kind, note = plan_name(name)
+    parts, kind, note = plan_name(name, folder)
     if parts is None:
         return None, f"skip ({kind})", note
     return dest.joinpath(*parts), kind, note
@@ -46,7 +46,7 @@ def plan_for(path: Path, dest: Path):
         return None, "skip (hidden / still downloading)", ""
     if path.suffix.lower() in VIDEO and path.stat().st_size < MIN_VIDEO_BYTES:
         return None, "skip (too small - sample?)", ""
-    return target_for(path.name, dest)
+    return target_for(path.name, dest, str(path.parent))
 
 
 def under(p: Path, folder: Path) -> bool:

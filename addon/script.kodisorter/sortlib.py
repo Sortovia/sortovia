@@ -12,7 +12,11 @@ from pathlib import PurePath
 
 VIDEO = {".mkv", ".mp4", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".webm"}
 SUBS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
-COMICS = {".cbz", ".cbr", ".cb7", ".cbt", ".pdf", ".epub"}
+COMICS = {".cbz", ".cbr", ".cb7", ".cbt"}
+# PDFs/EPUBs are usually bills, manuals, receipts: only comics when they sit
+# in a folder whose name says so ("Comics", "Manga", "Nightwarden comics" ...).
+BOOKS = {".pdf", ".epub"}
+COMIC_FOLDER_RE = re.compile(r"comic|manga", re.I)
 MIN_VIDEO_BYTES = 50 * 1024 * 1024  # smaller videos are samples/clips
 
 # SxxEyy, optional second episode only with an explicit E / -E (never resolution digits)
@@ -164,8 +168,9 @@ def parse_episode(stem):
     return None
 
 
-def plan_name(name):
+def plan_name(name, folder=""):
     """Where a file called `name` belongs, relative to the destination.
+    `folder` is the folder it's in (only used to decide if a PDF is a comic).
     Returns (parts or None, kind, note). kind is 'tv', 'movie' or 'comic' when
     parts is set, otherwise the reason it was skipped."""
     path = PurePath(name)
@@ -176,6 +181,10 @@ def plan_name(name):
         return None, "hidden / still downloading", ""
     if ext in COMICS:
         return ("Comics", name), "comic", ""
+    if ext in BOOKS:
+        if COMIC_FOLDER_RE.search(folder or ""):
+            return ("Comics", name), "comic", ""
+        return None, "document - PDFs/EPUBs are only moved from a Comics or Manga folder", ""
     if ext not in VIDEO and ext not in SUBS:
         return None, "not video/sub/comic", ""
     if ext in VIDEO and "sample" in stem.lower():

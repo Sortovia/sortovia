@@ -9,13 +9,17 @@
 import re
 import time
 import xbmc
+import xbmcaddon
 import xbmcgui
 import xbmcvfs
 
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
 from sortlib import VIDEO, MIN_VIDEO_BYTES, plan_name
 
-ADDON = "Kodi Sorter"
+try:
+    ADDON = "Kodi Sorter " + xbmcaddon.Addon().getAddonInfo("version")
+except Exception:
+    ADDON = "Kodi Sorter"
 RES_RE = re.compile(r"(?<![0-9])(2160|1440|1080|720|576|480|360)[pi](?![a-z0-9])", re.I)
 
 ASK, ALWAYS, NEVER = 0, 1, 2

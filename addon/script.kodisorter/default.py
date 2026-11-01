@@ -1182,13 +1182,31 @@ def toast(msg, ms=4000):
         log(msg)
 
 
+# The repo's files straight from GitHub: there the new zip exists the moment
+# it's pushed. The Pages site can lag a minute or more behind (seen: version
+# found via the API, zip still 404 on Pages), so it's only the fallback.
+RAW_BASE = "https://raw.githubusercontent.com/akaguyver/kodi-repo/main/"
+
+
+def _download_zip(version):
+    errors = []
+    for base in (RAW_BASE, UPDATE_BASE):
+        url = "%s%s/%s-%s.zip" % (base, ADDON_ID, ADDON_ID, version)
+        try:
+            data = _fetch(url)
+            want = _fetch(url + ".md5").decode("ascii", "ignore").strip().split(" ")[0]
+        except Exception as e:
+            errors.append("%s: %s" % (base.split("/")[2], e))
+            continue
+        if data and hashlib.md5(data).hexdigest() == want:
+            return data
+        errors.append("%s: checksum mismatch" % base.split("/")[2])
+    raise IOError("download failed (%s)" % "; ".join(errors))
+
+
 def install_update(version, folder):
     """Download, verify and unpack the new version over this add-on's folder."""
-    url = "%s%s/%s-%s.zip" % (UPDATE_BASE, ADDON_ID, ADDON_ID, version)
-    data = _fetch(url)
-    want = _fetch(url + ".md5").decode("ascii", "ignore").strip().split(" ")[0]
-    if not data or hashlib.md5(data).hexdigest() != want:
-        raise ValueError("download damaged (checksum mismatch)")
+    data = _download_zip(version)
     prefix = ADDON_ID + "/"
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         members = [n for n in z.namelist() if n.startswith(prefix) and not n.endswith("/")]

@@ -620,12 +620,14 @@ def _fetch_kodi(url):
         f.close()
 
 
-def _fetch_python(url):
+def _fetch_python(url, headers=None):
     try:
         from urllib.request import urlopen, Request
     except ImportError:
         from urllib2 import urlopen, Request
-    req = Request(url, headers={"User-Agent": "KodiSorter", "Cache-Control": "no-cache"})
+    h = {"User-Agent": "KodiSorter", "Cache-Control": "no-cache"}
+    h.update(headers or {})
+    req = Request(url, headers=h)
     resp = urlopen(req, timeout=20)
     try:
         return resp.read()
@@ -655,9 +657,36 @@ def _fetch(url):
     raise IOError("could not download %s" % url.split("?")[0].rsplit("/", 1)[-1])
 
 
+# GitHub's API serves the file straight from the repo. The Pages site sits
+# behind a cache that can hand out the old addons.xml for ~10 minutes after
+# a release, which looked like "no update" on the Xbox.
+UPDATE_API = "https://api.github.com/repos/akaguyver/kodi-repo/contents/addons.xml"
+
+
+def _fetch_api():
+    hdr = {"Accept": "application/vnd.github.raw"}
+    try:
+        data = _fetch_kodi(UPDATE_API + "|" + "&".join("%s=%s" % (k, quote(v)) for k, v in
+                                                        dict(hdr, **{"User-Agent": "KodiSorter"}).items()))
+        if data and b"<addons" in data:
+            FETCH_LOG.append("GitHub API (Kodi): OK")
+            return data
+    except Exception as e:
+        FETCH_LOG.append("GitHub API (Kodi): %s" % e)
+    try:
+        data = _fetch_python(UPDATE_API, hdr)
+        if data and b"<addons" in data:
+            FETCH_LOG.append("GitHub API (Python): OK")
+            return data
+    except Exception as e:
+        FETCH_LOG.append("GitHub API (Python): %s" % e)
+    return None
+
+
 def latest_version():
-    """Newest version on the web page. Raises if it can't be read."""
-    xml = _fetch(UPDATE_BASE + "addons.xml").decode("utf-8", "ignore")
+    """Newest version on GitHub. Raises if it can't be read."""
+    data = _fetch_api() or _fetch(UPDATE_BASE + "addons.xml")
+    xml = data.decode("utf-8", "ignore")
     if not xml.strip():
         raise IOError("empty reply from GitHub")
     m = re.search(r'<addon[^>]*id="%s"[^>]*version="([^"]+)"' % re.escape(ADDON_ID), xml)
@@ -721,8 +750,8 @@ def check_for_update(dlg, manual=False):
         else:
             toast("Up to date (%s)" % current, 3000)
         return False
-    if not dlg.yesno(ADDON, "Kodi Sorter %s is available (you have %s).\nUpdate now?" % (newest, current),
-                     nolabel="Not now", yeslabel="Update"):
+    if not yesno_default_yes(dlg, "Kodi Sorter %s is available (you have %s).\nUpdate now?" % (newest, current),
+                             nolabel="Not now", yeslabel="Update"):
         return False
     try:
         install_update(newest, folder)
@@ -732,6 +761,15 @@ def check_for_update(dlg, manual=False):
         return False
     dlg.ok(ADDON, "Updated to %s.\nOpen Kodi Sorter again to use the new version." % newest)
     return True
+
+
+def yesno_default_yes(dlg, msg, nolabel, yeslabel):
+    """Yes/no with the YES button highlighted (Kodi 20+), plain yes/no on older Kodi."""
+    try:
+        return dlg.yesno(ADDON, msg, nolabel=nolabel, yeslabel=yeslabel,
+                         defaultbutton=xbmcgui.DLG_YESNO_YES_BTN)
+    except (TypeError, AttributeError):
+        return dlg.yesno(ADDON, msg, nolabel=nolabel, yeslabel=yeslabel)
 
 
 # ---------- main ----------
@@ -744,10 +782,10 @@ def main():
     prev = load_cache(spath)
     if prev.get("src") and prev.get("dest"):
         where = "while moving files" if prev.get("stage") == "moving" else "while scanning"
-        if dlg.yesno(ADDON, "The last run (%s) didn't finish - it stopped %s.\nFrom: %s\nTo: %s\n"
-                     "Resume with the same folders and choices?" % (
-                         prev.get("started", "?"), where, prev["src"], prev["dest"]),
-                     nolabel="Start over", yeslabel="Resume"):
+        if yesno_default_yes(dlg, "The last run (%s) didn't finish - it stopped %s.\nFrom: %s\nTo: %s\n"
+                             "Resume with the same folders and choices?" % (
+                                 prev.get("started", "?"), where, prev["src"], prev["dest"]),
+                             nolabel="Start over", yeslabel="Resume"):
             remove_partial_copy(prev)
             run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"])
             return

@@ -1318,7 +1318,8 @@ def main():
                                  prev.get("started", "?"), where, masked(prev["src"]), prev["dest"]),
                              nolabel="Start over", yeslabel="Resume"):
             remove_partial_copy(prev)
-            run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"])
+            run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"],
+                prev.get("nfo_mode", 0))
             return
         clear_session(spath)
 
@@ -1356,7 +1357,8 @@ def main():
             dlg.textviewer("%s - last report" % ADDON, text or "No report saved yet.")
             return
         if pick == 0:
-            run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"])
+            run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"],
+                last.get("nfo_mode", 0))
             return
 
     where = dlg.select("Where are the downloads?",
@@ -1394,7 +1396,11 @@ def main():
                             "Don't check audio languages"])
     if lang_mode < 0:
         return
-    run(dlg, spath, src, dest, mode, delete_old, lang_mode)
+    import nfos
+    nfo_mode = dlg.select("Release .nfo files (the text notes that come with downloads):", nfos.NFO_CHOICES)
+    if nfo_mode < 0:
+        return
+    run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode)
 
 
 MODE_NAMES = ["ask each time", "always keep the better copy", "never replace"]
@@ -1645,11 +1651,146 @@ def view_text_file(dlg):
         start = parent_of(path)
 
 
-def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
-    log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s" % (
-        masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode]))
+# ---------- after a sort: release NFOs and empty folders ----------
+def _under(path, folder):
+    return _norm(path).startswith(_norm(folder) + "/")
+
+
+def tidy_after_sort(src, dest, moved, release_nfos, nfo_mode, report):
+    """For folders that videos were moved out of: turn release NFOs into Kodi
+    .nfo files (IMDb link) if asked, move them to <src>/_Unpacked (or delete or
+    leave them), then delete folders left empty. The source folder itself is
+    never deleted, and nothing is touched in folders no video came from."""
+    import nfos
+    root = _norm(src)
+    real_dirs = dict((_norm(parent_of(it["src"])), parent_of(it["src"])) for it in moved if not it["arc"])
+    real_dirs.pop(root, None)
+    done_dirs = set(real_dirs)
+    if not done_dirs:
+        return
+
+    def related(nfo_path):
+        d = _norm(parent_of(nfo_path))
+        return d != root and any(x == d or x.startswith(d + "/") for x in done_dirs)
+
+    made = 0
+    for path in release_nfos:
+        if not related(path):
+            continue
+        try:
+            f = xbmcvfs.File(path)
+            try:
+                text = decode_text(bytes(f.readBytes(512 * 1024)))
+            finally:
+                f.close()
+        except Exception:
+            text = ""
+        if nfos.is_kodi_nfo(text):
+            # Kodi's own format belongs with its video: move it alongside,
+            # renamed to match ("Movie.Name.2019.nfo" -> "Movie Name (2019).nfo").
+            stem = split_name(base_of(path))[0].lower()
+            for it in moved:
+                if not it["arc"] and split_name(base_of(it["src"]))[0].lower() == stem and \
+                        _norm(parent_of(it["src"])) == _norm(parent_of(path)):
+                    new = split_name(it["target"])[0] + ".nfo"
+                    if not xbmcvfs.exists(new):
+                        ok, how = move_file(path, new)
+                        report.append("%s  %s -> %s  (Kodi .nfo moved with its video)" % (
+                            "OK " if ok else "ERR", base_of(path), new.replace(dest, "")))
+                    break
+            continue
+        name = base_of(path)
+        if nfo_mode in nfos.MAKE_KODI:
+            items = [it for it in moved if not it["arc"] and
+                     (_norm(parent_of(it["src"])) == _norm(parent_of(path)) or _under(it["src"], parent_of(path)))]
+            for line in make_kodi_nfos(nfos.imdb_ids(text), items, dest, nfos):
+                report.append("NFO  %s -> %s" % (name, line))
+                made += 1
+        if nfo_mode == 3:
+            continue
+        if nfo_mode == 1:
+            ok = xbmcvfs.delete(path)
+            report.append("%s  %s  (release .nfo %s)" % ("OK " if ok else "ERR", name,
+                                                        "deleted" if ok else "could not be deleted"))
+        else:
+            rel = path[len(ensure_slash(src)):] if path.startswith(ensure_slash(src)) else name
+            ok, how = move_file(path, join(src, "_Unpacked", *re.split(r"[\\/]", rel)))
+            report.append("%s  %s  (release .nfo %s)" % ("OK " if ok else "ERR", name,
+                                                        "moved to _Unpacked" if ok else how))
+    for p in release_nfos:
+        if related(p):
+            real_dirs[_norm(parent_of(p))] = parent_of(p)
+    removed = remove_empty_folders(src, list(real_dirs.values()))
+    if removed:
+        report.append("OK   removed %d empty folder(s): %s" % (len(removed), ", ".join(removed[:10]) +
+                                                            (" ..." if len(removed) > 10 else "")))
+    log("tidy-up: %d Kodi .nfo made, %d empty folder(s) removed" % (made, len(removed)))
+
+
+def make_kodi_nfos(ids, items, dest, nfos):
+    """Write URL nfos for the moved items; returns report lines. Never overwrites."""
+    out = []
+    if not ids or not items:
+        return out
+    movies = [it for it in items if it["kind"] == "MOVIE"]
+    shows = {}
+    for it in items:
+        if it["kind"] == "TV":
+            shows[parent_of(parent_of(it["target"]))] = show_of(it["target"], dest)
+    if len(movies) == 1 and len(ids) >= 1 and not shows:
+        target = movies[0]["target"]
+        nfo = split_name(target)[0] + ".nfo"
+        if not xbmcvfs.exists(nfo) and write_text(nfo, nfos.url_nfo(ids[0])):
+            out.append("%s (IMDb %s)" % (nfo.replace(dest, ""), ids[0]))
+    for show_dir, show in shows.items():
+        nfo = show_dir + "tvshow.nfo"
+        if xbmcvfs.exists(nfo):
+            continue
+        for tid in ids[:3]:  # the show's own id, not an episode's: check with TVmaze
+            try:
+                import missing
+                found = missing._get("%s/lookup/shows?imdb=%s" % (missing.TVMAZE, tid))
+            except Exception:
+                found = None
+            if found and nfos.same_show(found.get("name"), re.sub(r"\s*\(\d{4}\)$", "", show)):
+                if write_text(nfo, nfos.url_nfo(tid)):
+                    out.append("%s (IMDb %s, %s)" % (nfo.replace(dest, ""), tid, found.get("name")))
+                break
+    return out
+
+
+def remove_empty_folders(src, folders):
+    """Delete folders (deepest first) that are now empty, then their parents if
+    they become empty too - never the source folder itself. Real paths are
+    kept as they are: the phone share is case-sensitive."""
+    root = _norm(src)
+    removed, seen = [], set()
+    todo = list(folders)
+    while todo:
+        todo.sort(key=lambda d: _norm(d).count("/"))
+        d = todo.pop()  # deepest first
+        n = _norm(d)
+        if n in seen or n == root or not n.startswith(root + "/"):
+            continue
+        seen.add(n)
+        try:
+            dirs, files = xbmcvfs.listdir(ensure_slash(d))
+        except Exception:
+            continue
+        if dirs or files:
+            continue
+        if xbmcvfs.rmdir(ensure_slash(d)) or xbmcvfs.rmdir(d.rstrip("/\\")):
+            removed.append(d[len(ensure_slash(src)):].rstrip("/\\") or d)
+            todo.append(parent_of(d))
+    return removed
+
+
+def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
+    log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s  nfo=%d" % (
+        masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode],
+        nfo_mode))
     try:
-        _run(dlg, spath, src, dest, mode, delete_old, lang_mode)
+        _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode)
     except Exception:
         import traceback
         log_block("ERROR", traceback.format_exc())
@@ -1663,15 +1804,15 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     send_logs("end")
 
 
-def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
+def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     check_lang = lang_mode != 3
     session = {"src": src, "dest": dest, "mode": mode, "delete_old": delete_old,
-               "lang_mode": lang_mode, "stage": "scanning",
+               "lang_mode": lang_mode, "nfo_mode": nfo_mode, "stage": "scanning",
                "started": time.strftime("%Y-%m-%d %H:%M")}
     if not save_cache(spath, session):
         toast("Couldn't save progress - Resume won't be offered if this run is interrupted", 6000)
     save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
-                                                     ("src", "dest", "mode", "delete_old", "lang_mode")))
+                                                     ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode")))
     src = resolve_src(src, dlg)
     if base_of(dest).lower() in [f.lower() for f in KODI_FOLDERS]:
         # Picked the TV (or Movies/Comics) folder itself: files would go to TV/TV/...
@@ -1686,7 +1827,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         session["dest"] = dest
         save_cache(spath, session)
         save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
-                                                         ("src", "dest", "mode", "delete_old", "lang_mode")))
+                                                         ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode")))
         log("destination changed to %s (%s was the %s folder itself)" % (dest, picked, base_of(picked)))
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
         dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start xbox-share (Termux) or primitive ftpd, "
@@ -1703,8 +1844,11 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     skip = sorted_folders(dest)
     if _norm(dest).startswith(_norm(src)):
         log("destination is inside the source: skipping its TV/Movies/Comics folders")
+    release_nfos = []
     for path, name in walk(src, skip):
         ext = split_name(name)[1]
+        if ext == ".nfo":
+            release_nfos.append(path)
         if ext not in ARCHIVES:
             files.append((path, name, None))
             continue
@@ -1907,6 +2051,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     if background:
         toast("Moving %d file(s) in the background. Open Kodi Sorter again to stop." % len(plan), 6000)
     report, ok_count = [], 0
+    moved_ok = []
     arc_ok, arc_count = {}, {}
     cancelled = False
     for i, it in enumerate(plan):
@@ -1931,6 +2076,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         else:
             ok, how = move_file(it["src"], it["target"])
         ok_count += ok
+        if ok:
+            moved_ok.append(it)
         if it["arc"]:
             arc_ok[it["arc"]] = arc_ok.get(it["arc"], True) and ok
             arc_count[it["arc"]] = arc_count.get(it["arc"], 0) + 1
@@ -1973,6 +2120,13 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
                           "archive moved to _Unpacked" if parked else "unpacked OK; archive left where it is - delete it when you're happy"))
         elif arc in arc_ok:
             report.append("NOTE  %s  (not every video came out OK - archive left where it is)" % name)
+    if not cancelled:
+        prog.update(100, "Tidying up: release .nfo files and empty folders")
+        try:
+            tidy_after_sort(src, dest, moved_ok, release_nfos, nfo_mode, report)
+        except Exception as e:  # tidying must never spoil a finished sort
+            log("tidy-up failed: %s" % e)
+            report.append("NOTE  tidy-up of .nfo files / empty folders failed: %s" % e)
     prog.close()
 
     stamp = time.strftime("%Y-%m-%d %H:%M")

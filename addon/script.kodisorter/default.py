@@ -203,11 +203,14 @@ def archive_volumes(path):
 
 
 def park_archive(path):
-    """Move a fully unpacked archive (all volumes) into _Unpacked beside it."""
+    """Move a fully unpacked archive (all volumes) into _Unpacked beside it.
+    Rename only: on the Xbox that fails, and copying gigabytes of archive
+    just to tidy up isn't worth it, so the archive is then left where it is."""
     results = []
     for vol in archive_volumes(path):
-        ok, how = move_file(vol, join(parent_of(vol), "_Unpacked", base_of(vol)))
-        results.append(ok)
+        target = join(parent_of(vol), "_Unpacked", base_of(vol))
+        xbmcvfs.mkdirs(parent_of(target))
+        results.append(bool(xbmcvfs.rename(vol, target)))
     return all(results)
 
 
@@ -521,15 +524,16 @@ def step(name, text):
 
 def copy_with_progress(src, dst, total):
     """Copy in chunks so progress can be shown and a copy can be stopped part
-    way. Writes to dst + PART and renames it when complete, so a half-copied
-    file never looks like a finished one."""
+    way. Writes straight to dst: the Xbox's drives can't rename files, so a
+    temp-name-then-rename copy doesn't work there. A half copy is deleted on
+    failure, and on Resume by remove_partial_copy (size check)."""
     hook = COPY_HOOK[0]
     part = dst + PART
-    if xbmcvfs.exists(part):
+    if xbmcvfs.exists(part):  # left by 1.11.x
         log("removing a half copy left by an earlier run: %s" % base_of(part))
         xbmcvfs.delete(part)
     fin = xbmcvfs.File(src)
-    fout = xbmcvfs.File(part, "w")
+    fout = xbmcvfs.File(dst, "w")
     done, ok = 0, False
     try:
         # Stop at the known size instead of reading until the end: on the Xbox
@@ -553,11 +557,7 @@ def copy_with_progress(src, dst, total):
         step(name, "closing new file (saving it to the drive)")
         fout.close()
         if not ok:
-            xbmcvfs.delete(part)
-    step(name, "renaming the finished copy")
-    if not xbmcvfs.rename(part, dst):
-        xbmcvfs.delete(part)
-        raise IOError("could not rename the finished copy")
+            xbmcvfs.delete(dst)
     return True
 
 
@@ -575,7 +575,10 @@ def move_file(src, dst):
         return False, "stopped part way - half copy removed, original kept"
     except Exception as e:
         log("chunked copy of %s failed (%s), trying Kodi's copy" % (base_of(dst), e))
-        if xbmcvfs.exists(dst) or not xbmcvfs.copy(src, dst):
+        step(base_of(dst), "trying again with Kodi's own copy (no progress shown)")
+        if xbmcvfs.exists(dst):
+            xbmcvfs.delete(dst)
+        if not xbmcvfs.copy(src, dst):
             return False, "copy failed (%s) - original kept" % e
     step(base_of(dst), "checking the size of the copy")
     dst_size = size_of(dst)
@@ -609,23 +612,25 @@ def replaced_path(old, dest):
 
 def replace_file(src, dst, old, dest, delete_old):
     """Move the old copy aside (or delete it), then move the new one in. Restores on failure."""
+    # No renames here: the Xbox's drives can't rename, so every "move" is a
+    # copy + delete. The new file stays at the source until its copy is checked.
     if delete_old:
-        parked = None
-    else:
-        parked = replaced_path(old, dest)
-        ok, how = move_file(old, parked)
-        if not ok:
-            return False, "couldn't move old copy aside (%s) - nothing changed" % how
-    if delete_old:
-        # Copy new file in under a temp name first so the old one is only deleted after success.
-        tmp = dst + ".kodisorter.tmp"
-        ok, how = move_file(src, tmp)
+        if old.replace("\\", "/").lower() == dst.replace("\\", "/").lower():
+            step(base_of(dst), "deleting the old lower-quality copy")
+            xbmcvfs.delete(old)  # same name: must go first (new one is still safe at the source)
+            ok, how = move_file(src, dst)
+            return (True, "replaced (old deleted)") if ok else (False, "new copy failed (%s) - "
+                                                                "old copy was deleted, new one is still at the source" % how)
+        ok, how = move_file(src, dst)
         if not ok:
             return False, "new copy failed (%s) - old copy kept" % how
         xbmcvfs.delete(old)
-        if xbmcvfs.rename(tmp, dst):
-            return True, "replaced (old deleted)"
-        return False, "new file left as %s - rename it by hand" % base_of(tmp)
+        return True, "replaced (old deleted)"
+    parked = replaced_path(old, dest)
+    step(base_of(dst), "moving the old copy to _Replaced first")
+    ok, how = move_file(old, parked)
+    if not ok:
+        return False, "couldn't move old copy aside (%s) - nothing changed" % how
     ok, how = move_file(src, dst)
     if ok:
         return True, "replaced (old copy in _Replaced)"
@@ -1211,25 +1216,30 @@ def write_text(path, text):
 
 
 def gb(n):
-    return "%.1f GB" % (n / 1e9) if n >= 1e9 else "%d MB" % (n / 1e6)
+    # same units as the scan report (1 GB = 1024 MB)
+    return "%.1f GB" % (n / 1024.0 ** 3) if n >= 1024 ** 3 else "%d MB" % (n / 1024.0 ** 2)
 
 
 def file_progress(prog, i, count, short):
     """Progress hook for one file: bar moves through this file's share of the
     run; text shows e.g. "3 of 41 - 1.2 of 3.7 GB - 24 MB/s - about 2 min left"."""
-    start = time.time()
+    start = [time.time()]
     last = [0.0]
+    prev = [0]
 
     def hook(done, total):
         now = time.time()
+        if done < prev[0]:  # a second copy for this item (old copy to _Replaced, then the new one)
+            start[0] = now
+        prev[0] = done
         if now - last[0] >= 1 or (total > 0 and done >= total):
             last[0] = now
             frac = float(done) / total if total > 0 else 0
-            speed = done / max(now - start, 0.001)
+            speed = done / max(now - start[0], 0.001)
             line = "%d of %d - %s" % (i + 1, count, gb(done))
             if total > 0:
                 line += " of %s (%d%%)" % (gb(total), frac * 100)
-            line += " - %.0f MB/s" % (speed / 1e6)
+            line += " - %.0f MB/s" % (speed / 1024.0 ** 2)
             if total > 0 and speed > 0 and done < total:
                 left = (total - done) / speed
                 line += " - about %s left" % ("%d min" % (left // 60 + 1) if left >= 60 else "%d s" % left)
@@ -1410,8 +1420,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     if notes or unknown_audio or archive_fail or unpacking:
         lines.append("Notes:")
         if unpacking:
-            lines.append("  will unpack videos from %d archive(s), then move each archive to an "
-                         "_Unpacked folder beside it: %s" % (len(unpacking), ", ".join(unpacking)))
+            lines.append("  will unpack videos from %d archive(s), each archive is then moved to an "
+                         "_Unpacked folder if the drive allows it, else left where it is: %s" % (len(unpacking), ", ".join(unpacking)))
         if archive_fail:
             lines.append("  " + ARCHIVE_HELP)
         for note, shows in sorted(notes.items()):
@@ -1544,8 +1554,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         name = archive_of[arc]
         if arc_ok.get(arc) and arc_count.get(arc, 0) == n:
             parked = park_archive(arc)
-            report.append("%s  %s  (%s)" % ("OK " if parked else "ERR", name,
-                          "archive moved to _Unpacked" if parked else "unpacked, but archive could not be moved - delete it by hand"))
+            report.append("%s  %s  (%s)" % ("OK " if parked else "NOTE", name,
+                          "archive moved to _Unpacked" if parked else "unpacked OK; archive left where it is - delete it when you're happy"))
         elif arc in arc_ok:
             report.append("NOTE  %s  (not every video came out OK - archive left where it is)" % name)
     prog.close()

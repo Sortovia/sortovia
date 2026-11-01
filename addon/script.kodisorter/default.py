@@ -143,7 +143,20 @@ def size_of(path):
         return -1
 
 
-def walk(folder):
+KODI_FOLDERS = ("TV", "Movies", "Comics")
+
+
+def _norm(path):
+    return re.sub(r"[\\/]+", "/", path).rstrip("/").lower()
+
+
+def sorted_folders(dest):
+    """The destination's TV/Movies/Comics folders: skipped when the source is
+    the same drive/folder (or contains it), so sorted files aren't re-sorted."""
+    return set(_norm(join(dest, f)) for f in KODI_FOLDERS)
+
+
+def walk(folder, skip=()):
     folder = ensure_slash(folder)
     dirs, files = xbmcvfs.listdir(folder)
     for f in files:
@@ -151,7 +164,9 @@ def walk(folder):
     for d in dirs:
         if d.lower() in ("_replaced", "_no english", "_unpacked", LOG_DIR.lower()):
             continue
-        for item in walk(folder + d):
+        if skip and _norm(folder + d) in skip:
+            continue
+        for item in walk(folder + d, skip):
             yield item
 
 
@@ -809,10 +824,11 @@ def _scan_subnet(port, me):
 
     def probe(n):
         ip = prefix + str(n)
-        if ip != me and not found and _is_share(ip, port):
+        # Devices on the hotspot answer in a few ms; 0.6 s is plenty.
+        if ip != me and not found and _is_share(ip, port, 0.6):
             found.append(ip)
-    for start in range(1, 255, 64):  # 64 at a time keeps it gentle and quick
-        threads = [threading.Thread(target=probe, args=(n,)) for n in range(start, min(start + 64, 255))]
+    for start in (1, 128):  # two batches: about a second when the phone isn't sharing
+        threads = [threading.Thread(target=probe, args=(n,)) for n in range(start, min(start + 127, 255))]
         for t in threads:
             t.daemon = True
             t.start()
@@ -1429,7 +1445,10 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     files = []
     archive_fail = []
     archive_of = {}
-    for path, name in walk(src):
+    skip = sorted_folders(dest)
+    if _norm(dest).startswith(_norm(src)):
+        log("destination is inside the source: skipping its TV/Movies/Comics folders")
+    for path, name in walk(src, skip):
         ext = split_name(name)[1]
         if ext not in ARCHIVES:
             files.append((path, name, None))

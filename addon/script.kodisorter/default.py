@@ -496,6 +496,52 @@ def find_existing(target):
 
 
 # ---------- file operations ----------
+# Set by the move loop: called as hook(bytes_done, bytes_total) while a file
+# copies; returns True to stop the copy (the half-copied file is removed).
+COPY_HOOK = [None]
+COPY_CHUNK = 4 * 1024 * 1024
+PART = ".kodisorter.part"
+
+
+class CopyStopped(Exception):
+    pass
+
+
+def copy_with_progress(src, dst, total):
+    """Copy in chunks so progress can be shown and a copy can be stopped part
+    way. Writes to dst + PART and renames it when complete, so a half-copied
+    file never looks like a finished one."""
+    hook = COPY_HOOK[0]
+    part = dst + PART
+    if xbmcvfs.exists(part):
+        xbmcvfs.delete(part)
+    fin = xbmcvfs.File(src)
+    fout = xbmcvfs.File(part, "w")
+    done, ok = 0, False
+    try:
+        while True:
+            data = fin.readBytes(COPY_CHUNK)
+            if not data:
+                break
+            if not fout.write(data):
+                raise IOError("write failed (drive full?)")
+            done += len(data)
+            if hook and hook(done, total):
+                raise CopyStopped()
+        if total > 0 and done != total:
+            raise IOError("read %d of %d bytes" % (done, total))
+        ok = True
+    finally:
+        fin.close()
+        fout.close()
+        if not ok:
+            xbmcvfs.delete(part)
+    if not xbmcvfs.rename(part, dst):
+        xbmcvfs.delete(part)
+        raise IOError("could not rename the finished copy")
+    return True
+
+
 def move_file(src, dst):
     """Rename if possible (same drive, instant); else copy, check size, delete."""
     if xbmcvfs.exists(dst):
@@ -504,8 +550,14 @@ def move_file(src, dst):
     if xbmcvfs.rename(src, dst) and xbmcvfs.exists(dst):
         return True, "moved"
     src_size = size_of(src)
-    if not xbmcvfs.copy(src, dst):
-        return False, "copy failed - original kept"
+    try:
+        copy_with_progress(src, dst, src_size)
+    except CopyStopped:
+        return False, "stopped part way - half copy removed, original kept"
+    except Exception as e:
+        log("chunked copy of %s failed (%s), trying Kodi's copy" % (base_of(dst), e))
+        if xbmcvfs.exists(dst) or not xbmcvfs.copy(src, dst):
+            return False, "copy failed (%s) - original kept" % e
     dst_size = size_of(dst)
     if in_archive(src):
         # The archive itself is kept (parked in _Unpacked), so nothing is lost
@@ -598,10 +650,10 @@ def remove_partial_copy(prev):
     src, dst = cur.get("src"), cur.get("dst")
     if not dst:
         return
-    tmp = dst + ".kodisorter.tmp"
-    if xbmcvfs.exists(tmp):
-        xbmcvfs.delete(tmp)
-        log("removed half-copied %s" % tmp)
+    for tmp in (dst + ".kodisorter.tmp", dst + PART):
+        if xbmcvfs.exists(tmp):
+            xbmcvfs.delete(tmp)
+            log("removed half-copied %s" % tmp)
     src_size = size_of(src) if src else -1
     if src_size >= 0 and xbmcvfs.exists(dst) and size_of(dst) != src_size:
         xbmcvfs.delete(dst)
@@ -944,12 +996,12 @@ def main():
     status = home().getProperty(PROP_RUN)
     if status:
         if home().getProperty(PROP_STOP) == "1":
-            dlg.ok(ADDON, "Already stopping - it will stop after the file it is moving now (%s)." % status)
+            dlg.ok(ADDON, "Already stopping (%s) - give it a few seconds." % status)
         elif dlg.yesno(ADDON, "Kodi Sorter is moving files in the background (%s).\n"
-                       "Stop after the current file? Open Kodi Sorter later and choose Resume "
-                       "to finish the rest." % status, nolabel="Keep going", yeslabel="Stop"):
+                       "Stop now? A half-copied file is removed (the original stays). Open Kodi "
+                       "Sorter later and choose Resume to finish the rest." % status, nolabel="Keep going", yeslabel="Stop"):
             home().setProperty(PROP_STOP, "1")
-            toast("Stopping after the current file...")
+            toast("Stopping...")
         return
     if check_for_update(dlg):
         return
@@ -1053,6 +1105,35 @@ def write_text(path, text):
         return False
 
 
+def gb(n):
+    return "%.1f GB" % (n / 1e9) if n >= 1e9 else "%d MB" % (n / 1e6)
+
+
+def file_progress(prog, i, count, short):
+    """Progress hook for one file: bar moves through this file's share of the
+    run; text shows e.g. "3 of 41 - 1.2 of 3.7 GB - 24 MB/s - about 2 min left"."""
+    start = time.time()
+    last = [0.0]
+
+    def hook(done, total):
+        now = time.time()
+        if now - last[0] >= 1 or (total > 0 and done >= total):
+            last[0] = now
+            frac = float(done) / total if total > 0 else 0
+            speed = done / max(now - start, 0.001)
+            line = "%d of %d - %s" % (i + 1, count, gb(done))
+            if total > 0:
+                line += " of %s (%d%%)" % (gb(total), frac * 100)
+            line += " - %.0f MB/s" % (speed / 1e6)
+            if total > 0 and speed > 0 and done < total:
+                left = (total - done) / speed
+                line += " - about %s left" % ("%d min" % (left // 60 + 1) if left >= 60 else "%d s" % left)
+            prog.update(int((i + min(frac, 1)) * 100 / count), "%s\n%s" % (line, short))
+            home().setProperty(PROP_RUN, "%d of %d, %d%% of this file" % (i + 1, count, frac * 100))
+        return prog.canceled()
+    return hook
+
+
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s" % (
         masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode]))
@@ -1064,6 +1145,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         dlg.ok(ADDON, "Something went wrong - nothing more was moved.\n"
                "Details are in Kodi's log: use the Kodi Logfile Uploader add-on.")
     finally:
+        COPY_HOOK[0] = None
         home().clearProperty(PROP_RUN)
         home().clearProperty(PROP_STOP)
     log("RUN END")
@@ -1300,6 +1382,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         short = it["target"].replace(dest, "")
         home().setProperty(PROP_RUN, "%d of %d" % (i + 1, len(plan)))
         prog.update(int(i * 100 / len(plan)), "%d of %d\n%s" % (i + 1, len(plan), short))
+        COPY_HOOK[0] = file_progress(prog, i, len(plan), short)
         session["in_progress"] = {"src": it["src"], "dst": it["target"]}
         save_cache(spath, session)
         if it.get("old"):
@@ -1313,8 +1396,15 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         if it["arc"]:
             arc_ok[it["arc"]] = arc_ok.get(it["arc"], True) and ok
             arc_count[it["arc"]] = arc_count.get(it["arc"], 0) + 1
-        report.append("%s  %s -> %s  (%s)" % ("OK " if ok else "ERR", it["label"], short, how))
+        COPY_HOOK[0] = None
+        stopped = how.startswith("stopped part way")
+        report.append("%s  %s -> %s  (%s)" % ("OK " if ok else ("STOP" if stopped else "ERR"),
+                                              it["label"], short, how))
         log(report[-1])
+        if stopped:
+            cancelled = True
+            report.append("STOPPED - remaining files untouched. Open Kodi Sorter again and choose Resume.")
+            break
     for it in no_eng:
         if cancelled or prog.canceled():
             cancelled = True

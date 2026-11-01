@@ -39,6 +39,7 @@ echo
 echo " On the Xbox: Kodi Sorter > Choose folders again >"
 echo "   My phone over Wi-Fi - phone storage"
 echo " Keep Termux open while files copy. Ctrl+C stops sharing."
+echo " (The NOTICE lines below are normal - it is working.)"
 echo "============================================"
 exec rclone serve webdav "$DIR" --addr ":$PORT" --user kodi --pass "$PASS" \
   --dir-cache-time 5s --poll-interval 0 --log-level NOTICE

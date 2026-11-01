@@ -526,6 +526,7 @@ def copy_with_progress(src, dst, total):
     hook = COPY_HOOK[0]
     part = dst + PART
     if xbmcvfs.exists(part):
+        log("removing a half copy left by an earlier run: %s" % base_of(part))
         xbmcvfs.delete(part)
     fin = xbmcvfs.File(src)
     fout = xbmcvfs.File(part, "w")

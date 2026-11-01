@@ -113,11 +113,13 @@ def find_missing(progress=None, cancelled=None):
         missing = sorted(k for k in aired if k[0] in seasons and k not in have)
         other = sorted(set(s for s, _ in aired) - set(seasons))
         results.append({"title": title, "tvmaze": maze.get("url"), "seasons": seasons,
+                        "year": show.get("year"), "ids": show.get("uniqueid") or {},
                         "missing": [{"season": s, "episode": e, "name": aired[(s, e)][0],
                                      "aired": aired[(s, e)][1]} for s, e in missing],
                         "seasons_not_in_library": other})
         time.sleep(0.3)  # stay well under TVmaze's rate limit
-    return _report(results, problems, len(shows)), {"date": today, "shows": results, "problems": problems}
+    data = {"date": today, "shows": results, "problems": problems}
+    return report(data), data
 
 
 def _ranges(nums):
@@ -135,7 +137,8 @@ def _ranges(nums):
     return ", ".join(str(a) if a == b else "%d-%d" % (a, b) for a, b in out)
 
 
-def _report(results, problems, total):
+def report(data, footer=""):
+    results, problems = data["shows"], data["problems"]
     gaps = [r for r in results if r["missing"]]
     n_missing = sum(len(r["missing"]) for r in results)
     lines = ["Missing episodes - %s" % time.strftime("%Y-%m-%d %H:%M"),
@@ -146,8 +149,13 @@ def _report(results, problems, total):
         by_season = {}
         for m in r["missing"]:
             by_season.setdefault(m["season"], []).append(m)
+        where = r.get("where") or {}
+        if "all" in where:
+            lines.append("  Where to watch: " + where["all"])
         for season, eps in sorted(by_season.items()):
             lines.append("  Season %02d: E%s" % (season, _ranges([m["episode"] for m in eps]).replace(", ", ", E")))
+            if str(season) in where:
+                lines.append("    Where to watch: " + where[str(season)])
             for m in eps:
                 lines.append("      S%02dE%02d  %s  (aired %s)" % (season, m["episode"], m["name"], m["aired"]))
         lines.append("")
@@ -163,4 +171,6 @@ def _report(results, problems, total):
     if problems:
         lines.append("Couldn't check:")
         lines.extend("  " + p for p in problems)
+    if footer:
+        lines.extend(["", footer])
     return "\n".join(lines)

@@ -1331,7 +1331,8 @@ def main():
                            "Check for updates now",
                            "View the report from the last move",
                            "Send Kodi's log to my phone now (xbox-share must be running)",
-                           "Find missing episodes in my TV library"])
+                           "Find missing episodes in my TV library",
+                           "Where to watch a show..."])
         if pick < 0:
             return
         if pick == 2:
@@ -1342,6 +1343,9 @@ def main():
             return
         if pick == 5:
             find_missing_episodes(dlg)
+            return
+        if pick == 6:
+            where_to_watch_menu(dlg)
             return
         if pick == 3:
             text = read_text(data_file("last_report.txt"))
@@ -1474,6 +1478,7 @@ def find_missing_episodes(dlg):
         dlg.ok(ADDON, "Couldn't check for missing episodes:\n%s\n(This needs internet for TVmaze.)" % e)
         return
     prog.close()
+    text = add_where_to_watch(dlg, data) or text
     write_text(data_file("missing_episodes.txt"), text)
     save_cache(data_file("missing_episodes.json"), data)
     log("missing episodes: %s" % text.splitlines()[1] if len(text.splitlines()) > 1 else "")
@@ -1482,6 +1487,122 @@ def find_missing_episodes(dlg):
         ("missing-episodes-%s.txt" % stamp, text.encode("utf-8")),
         ("missing-episodes-%s.json" % stamp, json.dumps(data, indent=1).encode("utf-8"))])
     dlg.textviewer("%s - missing episodes (phone: %s)" % (ADDON, sent), text)
+
+
+# ---------- where to watch (TMDb) ----------
+WATCH_FILE = "watch.json"
+
+
+def watch_settings(dlg, change=False):
+    """Returns (TMDb, region, [service ids]) or None. Asks for whatever is missing
+    (everything when change=True): API key, country, the services you pay for."""
+    import whereto
+    cfg = load_cache(data_file(WATCH_FILE))
+    if change or not cfg.get("key"):
+        if not cfg.get("key"):
+            dlg.ok(ADDON, "Where-to-watch uses TMDb's free streaming data. It needs a free API key, once:\n"
+                   "On your phone: themoviedb.org > sign up > Settings > API > create (personal use).\n"
+                   "Then copy the 'API Key' and paste it in the next box (Kore's keyboard can paste).")
+        key = dlg.input("TMDb API key", cfg.get("key", ""))
+        if not key:
+            return None
+        tm = whereto.TMDb(key)
+        try:
+            regions = tm.regions()
+        except Exception as e:
+            dlg.ok(ADDON, "That key didn't work: %s" % e)
+            return None
+        cfg["key"] = key.strip()
+        save_cache(data_file(WATCH_FILE), cfg)
+    tm = whereto.TMDb(cfg["key"])
+    if change or not cfg.get("region"):
+        regions = tm.regions()
+        codes = [c for c, _ in regions]
+        cur = cfg.get("region") or "US"
+        pick = dlg.select("Your country", ["%s (%s)" % (n, c) for c, n in regions],
+                          preselect=codes.index(cur) if cur in codes else -1)
+        if pick < 0:
+            return None
+        cfg["region"] = codes[pick]
+        save_cache(data_file(WATCH_FILE), cfg)
+    if change or "services" not in cfg:
+        services = tm.services(cfg["region"])
+        ids = [i for i, _ in services]
+        chosen = dlg.multiselect("Tick the streaming services you pay for",
+                                 [n for _, n in services],
+                                 preselect=[ids.index(i) for i in cfg.get("services", []) if i in ids])
+        if chosen is None:
+            if "services" not in cfg:
+                return None
+        else:
+            cfg["services"] = [ids[i] for i in chosen]
+            save_cache(data_file(WATCH_FILE), cfg)
+    return tm, cfg["region"], cfg.get("services", [])
+
+
+def add_where_to_watch(dlg, data):
+    """Add where-to-watch lines to the missing-episodes data; returns the new report or None."""
+    import missing
+    import whereto
+    if not any(r.get("missing") for r in data.get("shows", [])):
+        return None
+    if not load_cache(data_file(WATCH_FILE)).get("key"):
+        if not dlg.yesno(ADDON, "Also show where each missing season is streaming (your services, free "
+                         "services, buy/rent)? Needs a free TMDb key - takes a few minutes once.",
+                         nolabel="Not now", yeslabel="Set it up"):
+            return None
+    setup = watch_settings(dlg)
+    if not setup:
+        return None
+    tm, region, mine = setup
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, "Checking where to watch...")
+    try:
+        whereto.annotate(data, tm, region, mine, lambda i, n, t: prog.update(
+            int(i * 100 / max(n, 1)), "Where to watch: show %d of %d\n%s" % (i + 1, n, t)))
+    finally:
+        prog.close()
+    return missing.report(data, footer=whereto.ATTRIBUTION + " Country: %s." % region)
+
+
+def where_to_watch_menu(dlg):
+    import whereto
+    pick = dlg.select("Where to watch", ["Search for a show",
+                                         "Change my country / streaming services / TMDb key"])
+    if pick == 1:
+        if watch_settings(dlg, change=True):
+            toast("Where-to-watch settings saved")
+        return
+    if pick != 0:
+        return
+    setup = watch_settings(dlg)
+    if not setup:
+        return
+    tm, region, mine = setup
+    title = dlg.input("Show name")
+    if not title:
+        return
+    try:
+        hits = tm.search(title)
+    except Exception as e:
+        dlg.ok(ADDON, "TMDb search failed: %s" % e)
+        return
+    if not hits:
+        dlg.ok(ADDON, "No show called '%s' on TMDb." % title)
+        return
+    choice = dlg.select("Which one?", [label for _, label in hits]) if len(hits) > 1 else 0
+    if choice < 0:
+        return
+    tid, label = hits[choice]
+    s = whereto.summarize(tm.providers(tid, region), mine)
+    lines = ["%s - where to watch (%s)" % (label, region), "",
+             "On your services: " + (", ".join(s["yours"]) or "none"),
+             "Free (with ads): " + (", ".join(s["free"]) or "none"),
+             "Other subscriptions: " + (", ".join(s["other_subs"]) or "none"),
+             "Buy / rent: " + (", ".join(s["buy_rent"]) or "none"), "",
+             "Availability can differ by season; the missing-episodes list checks each season.",
+             whereto.ATTRIBUTION]
+    dlg.textviewer("%s - where to watch" % ADDON, "\n".join(lines))
 
 
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode):

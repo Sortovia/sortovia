@@ -749,26 +749,117 @@ def masked(path):
     return re.sub(r"^([a-z]+://[^:/@]+):[^@/]*@", r"\1:***@", path or "")
 
 
-def phone_address(dlg, ask=True):
-    """The phone's address on the hotspot: Kodi's gateway, else the last one typed."""
+IP_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
+
+
+def _port_open(ip, port, wait=1.0):
+    import socket
+    try:
+        socket.create_connection((ip, port), wait).close()
+        return True
+    except Exception:
+        return False
+
+
+def _is_share(ip, port, wait=1.5):
+    """Is the phone's share listening here? For xbox-share (WebDAV) the reply
+    must come from rclone: Kodi's own web server (the Kore remote) also uses
+    port 8080, on the Xbox and maybe other devices. FTP: an open port is enough."""
+    if not _port_open(ip, port, wait):
+        return False
+    if port == int(PHONE_KINDS["ftp"]["port"]):
+        return True
+    try:
+        from urllib.request import Request, urlopen
+    except ImportError:
+        from urllib2 import Request, urlopen
+    req = Request("http://%s:%d/" % (ip, port), headers={"Depth": "0"})
+    req.get_method = lambda: "PROPFIND"
+    try:
+        resp = urlopen(req, timeout=4)
+        headers = resp.info()
+        resp.close()
+    except Exception as e:
+        headers = getattr(e, "headers", None) or getattr(e, "hdrs", None)
+    realm = (headers.get("WWW-Authenticate", "") if headers is not None else "") or ""
+    return "rclone" in realm.lower()
+
+
+def _my_ip():
+    """The Xbox's own address on the hotspot."""
+    ip = (xbmc.getInfoLabel("Network.IPAddress") or "").strip()
+    if IP_RE.match(ip) and not ip.startswith(("0.", "127.")):
+        return ip
+    import socket
+    try:  # no packet is sent: this only asks which local address would be used
+        sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sk.connect(("192.0.2.1", 9))
+        ip = sk.getsockname()[0]
+        sk.close()
+        return ip
+    except Exception:
+        return ""
+
+
+def _scan_subnet(port, me):
+    """Look for the phone's share on the Xbox's own network (x.x.x.1-254)."""
+    import threading
+    prefix = me.rsplit(".", 1)[0] + "."
+    found = []
+
+    def probe(n):
+        ip = prefix + str(n)
+        if ip != me and not found and _is_share(ip, port):
+            found.append(ip)
+    for start in range(1, 255, 64):  # 64 at a time keeps it gentle and quick
+        threads = [threading.Thread(target=probe, args=(n,)) for n in range(start, min(start + 64, 255))]
+        for t in threads:
+            t.daemon = True
+            t.start()
+        for t in threads:
+            t.join(3)
+        if found:
+            break
+    return found[0] if found else ""
+
+
+def phone_address(dlg, ask=True, port=8080):
+    """The phone's address on the hotspot. Tries the last address that worked,
+    Kodi's gateway, then searches the Xbox's network for the share's port.
+    (Kodi on the Xbox doesn't report the gateway, and Android can change the
+    hotspot address each time it's turned on.) Typed by hand as a last resort."""
     saved = load_cache(data_file("phone.json"))
-    gw = (xbmc.getInfoLabel("Network.GatewayAddress") or "").strip()
-    if re.match(r"^\d+\.\d+\.\d+\.\d+$", gw) and not gw.startswith("0."):
-        return gw
-    if not ask:
-        return saved.get("ip", "")
-    ip = dlg.input("Phone's address (xbox-share shows it, e.g. 192.168.43.1)", saved.get("ip", ""))
-    if ip:
-        saved["ip"] = ip.strip()
+    tried = []
+    for ip in (saved.get("ip", ""), (xbmc.getInfoLabel("Network.GatewayAddress") or "").strip()):
+        if IP_RE.match(ip) and not ip.startswith("0.") and ip not in tried:
+            tried.append(ip)
+            if _is_share(ip, port):
+                return _remember_ip(saved, ip)
+    me = _my_ip()
+    if me:
+        ip = _scan_subnet(port, me)
+        log("searched %s.x for the phone's share on port %d: %s" % (me.rsplit(".", 1)[0], port, ip or "not found"))
+        if ip:
+            return _remember_ip(saved, ip)
+    if not ask or dlg is None:
+        return ""
+    ip = dlg.input("Phone's address (xbox-share shows it as Address)", saved.get("ip", ""))
+    return _remember_ip(saved, ip.strip()) if ip and ip.strip() else ""
+
+
+def _remember_ip(saved, ip):
+    if saved.get("ip") != ip:
+        saved["ip"] = ip
         save_cache(data_file("phone.json"), saved)
-    return ip.strip()
+    return ip
 
 
 def resolve_src(src, dlg):
     """Swap PHONE for the phone's current address."""
     if "@%s:" % PHONE not in src:
         return src
-    ip = phone_address(dlg)
+    m = re.search(r"@%s:(\d+)" % PHONE, src)
+    ip = phone_address(dlg, port=int(m.group(1)) if m else 8080)
     return src.replace("@%s:" % PHONE, "@%s:" % ip) if ip else src
 
 
@@ -797,6 +888,7 @@ def phone_source(dlg, kind):
                " and make sure the Xbox is on the phone's hotspot.")
         if dlg.yesno(ADDON, msg + "\nWrong password? Forget it and ask again next time.",
                      nolabel="OK", yeslabel="Forget password"):
+            saved = load_cache(data_file("phone.json"))
             saved.pop(kind, None)
             save_cache(data_file("phone.json"), saved)
         return None
@@ -857,13 +949,11 @@ def send_logs(why, dlg=None):
     import socket
     saved = load_cache(data_file("phone.json"))
     creds = saved.get("dav") or {}
-    ip = phone_address(None, ask=False)
-    if not ip:
-        return "phone address unknown"
     port = int(creds.get("port", 8080))
-    try:
-        socket.create_connection((ip, port), 2).close()
-    except Exception:
+    ip = phone_address(dlg if why == "manual" else None, ask=(why == "manual"), port=port)
+    if not ip:
+        return "phone not found - is xbox-share running and the Xbox on the phone's hotspot?"
+    if not _port_open(ip, port, 2):
         return "phone not sharing"
     if not creds.get("pass"):
         if dlg is None:
@@ -877,6 +967,7 @@ def send_logs(why, dlg=None):
             if not dlg.yesno(ADDON, "That password didn't work. Try again?", nolabel="Skip", yeslabel="Try again"):
                 return "wrong password"
         creds = {"user": "kodi", "pass": pw.strip(), "port": str(port)}
+        saved = load_cache(data_file("phone.json"))  # re-read: the address was just saved
         saved["dav"] = creds
         save_cache(data_file("phone.json"), saved)
         toast("Password saved - logs now go to your phone automatically")

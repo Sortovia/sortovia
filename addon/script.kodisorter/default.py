@@ -67,7 +67,25 @@ def split_name(filename):
     return filename, ""
 
 
+def in_archive(path):
+    return path.split("://", 1)[0].lower() in ("archive", "rar", "zip") if "://" in path else False
+
+
 def size_of(path):
+    """File size in bytes, or -1 if unknown. Kodi's Stat() reports 0 (or the
+    packed size) for files inside archives, so those are opened and asked."""
+    if in_archive(path):
+        try:
+            f = xbmcvfs.File(path)
+            try:
+                n = f.size()
+            finally:
+                f.close()
+            if n > 0:
+                return n
+        except Exception as e:
+            log("size of %s: %s" % (path, e))
+        return -1
     try:
         return xbmcvfs.Stat(path).st_size()
     except Exception:
@@ -442,6 +460,13 @@ def move_file(src, dst):
     if not xbmcvfs.copy(src, dst):
         return False, "copy failed - original kept"
     dst_size = size_of(dst)
+    if in_archive(src):
+        # The archive itself is kept (parked in _Unpacked), so nothing is lost
+        # if this check is weaker than for normal files.
+        if dst_size <= 0 or (src_size > 0 and src_size != dst_size):
+            xbmcvfs.delete(dst)
+            return False, "unpack failed (%s vs %s bytes) - archive kept" % (src_size, dst_size)
+        return True, "unpacked" if src_size > 0 else "unpacked (size could not be checked)"
     if src_size < 0 or src_size != dst_size:
         xbmcvfs.delete(dst)
         return False, "size mismatch (%s vs %s) - copy removed, original kept" % (src_size, dst_size)
@@ -897,7 +922,6 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         if it["arc"]:
             arc_ok[it["arc"]] = arc_ok.get(it["arc"], True) and ok
             arc_count[it["arc"]] = arc_count.get(it["arc"], 0) + 1
-            how = ("unpacked" if ok else how)
         report.append("%s  %s -> %s  (%s)" % ("OK " if ok else "ERR", it["label"], short, how))
         log(report[-1])
     for it in no_eng:

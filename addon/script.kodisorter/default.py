@@ -1261,6 +1261,7 @@ def main():
     dlg = xbmcgui.Dialog()
     status = home().getProperty(PROP_RUN)
     if status:
+        send_logs("during-run")  # so Claude can see a run that's still going
         flag = home().getProperty(PROP_STOP)
         if flag == STOP_NOW:
             dlg.ok(ADDON, "Already stopping (%s) - give it a few seconds." % status)

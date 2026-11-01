@@ -832,7 +832,12 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
             files.append((url, iname, path))
     cpath = cache_file()
     cache = load_cache(cpath) if check_lang else {}
-    seen, fresh, reused = set(), 0, 0
+    seen, fresh, reused, by_name, other = set(), 0, 0, 0, 0
+
+    def tally():
+        # e.g. "39 already checked, 6 new, 29 skipped by name, 2 other"
+        t = "%d already checked, %d new, %d skipped by name" % (reused, fresh, by_name)
+        return t + (", %d other" % other if other else "")
     spec_path = data_file("specials.json")
     specials = {"by_name": load_cache(spec_path), "used": {}, "titles": {}}
     for i, (path, name, arc) in enumerate(files):
@@ -844,7 +849,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
                                 "again and choose Resume to carry on." % (i, len(files)))
             return
         busy.update(int(i * 100 / max(len(files), 1)),
-                    "Scanning %d of %d (%d remembered from last time)\n%s" % (i + 1, len(files), reused, name))
+                    "Scanning %d of %d\n%s\n%s" % (i + 1, len(files), tally(), name))
         target, kind, note = plan_for(path, name, dest)
         if target is None and arc and "rename by hand" in kind:
             # Inner file named "movie.mkv" etc: try the archive's own name.
@@ -852,12 +857,16 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else path.replace(src, "")
         if target is None:
             skipped.append("SKIP  %s  (%s)" % (label if arc else name, kind))
+            by_name += 1
             continue
         if note == SPECIAL_GUESS_NOTE:
             target = renumber_special(target, name, specials)
         item = {"src": path, "name": name, "target": target, "kind": kind, "note": note, "arc": arc,
                 "label": label, "res": resolution(name), "size": size_of(path), "eng": None, "langs": []}
-        if check_lang and not arc and kind in ("TV", "MOVIE") and split_name(name)[1] in VIDEO:
+        needs_audio = check_lang and not arc and kind in ("TV", "MOVIE") and split_name(name)[1] in VIDEO
+        if not needs_audio:
+            other += 1  # subtitles, comics, files inside archives, or audio check turned off
+        if needs_audio:
             key = cache_key(path, item["size"])
             seen.add(key)
             if key in cache:
@@ -953,7 +962,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         lines.append("\n--- Skipped (left where they are) ---")
         lines.extend(sorted(skipped))
     preview = "\n".join(lines)
-    title = "%s - scan finished (%d files checked)" % (ADDON, len(files))
+    title = "%s - scan finished: %d files (%s)" % (ADDON, len(files), tally())
     if not plan and not no_eng:
         clear_session(spath)
         while dlg.select(title + " - nothing to move",

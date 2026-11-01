@@ -701,10 +701,20 @@ def remove_partial_copy(prev):
         if xbmcvfs.exists(tmp):
             xbmcvfs.delete(tmp)
             log("removed half-copied %s" % tmp)
-    src_size = size_of(src) if src else -1
-    if src_size >= 0 and xbmcvfs.exists(dst) and size_of(dst) != src_size:
+    # Only a copy SMALLER than a still-present original is half-copied. If the
+    # original is gone, the move finished (originals are deleted only after
+    # the size check) and the copy is the only one left: never touch it.
+    # (Kodi on the Xbox reports size 0, not an error, for a missing file -
+    # 1.12.2 and older deleted a finished copy because of that.)
+    if not src or not xbmcvfs.exists(dst):
+        return
+    if not in_archive(src) and not xbmcvfs.exists(src):
+        log("last file was finished (original gone) - keeping %s" % dst)
+        return
+    src_size, dst_size = size_of(src), size_of(dst)
+    if src_size > 0 and 0 <= dst_size < src_size:
         xbmcvfs.delete(dst)
-        log("removed half-copied %s" % dst)
+        log("removed half-copied %s (%d of %d bytes)" % (dst, dst_size, src_size))
 
 
 def load_cache(path):
@@ -1659,7 +1669,9 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         prog.update(int(i * 100 / len(plan)), "%d of %d\n%s" % (i + 1, len(plan), short))
         COPY_HOOK[0] = file_progress(prog, i, len(plan), short)
         STEP_HOOK[0] = step_progress(prog, i, len(plan), short)
-        session["in_progress"] = {"src": it["src"], "dst": it["target"]}
+        # Remembered so Resume can remove a half copy. Not for replaces: the
+        # target name may still hold the old copy, which must never be removed.
+        session["in_progress"] = None if it.get("old") else {"src": it["src"], "dst": it["target"]}
         save_cache(spath, session)
         if it.get("old"):
             if it.get("keep_old") or (mode == ASK and not background and not ask_replace(it)):
@@ -1673,6 +1685,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
             arc_ok[it["arc"]] = arc_ok.get(it["arc"], True) and ok
             arc_count[it["arc"]] = arc_count.get(it["arc"], 0) + 1
         COPY_HOOK[0] = STEP_HOOK[0] = None
+        session["in_progress"] = None  # finished (or failed safely): nothing half-done to clean up
+        save_cache(spath, session)
         stopped = how.startswith("stopped part way")
         report.append("%s  %s -> %s  (%s)" % ("OK " if ok else ("STOP" if stopped else "ERR"),
                                               it["label"], short, how))

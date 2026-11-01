@@ -834,25 +834,57 @@ def _read_tail(path, limit):
         return b""
 
 
-def send_logs(why):
-    """PUT kodi.log (and kodi.old.log on start-up) to the phone. Returns a short status."""
-    creds = load_cache(data_file("phone.json")).get("dav") or {}
-    if not creds.get("pass"):
-        return "phone share not set up"
-    ip = phone_address(None, ask=False)
-    if not ip:
-        return "phone address unknown"
+def _dav_ok(ip, port, user, pw):
+    """True if the phone's share accepts this password."""
     import base64
-    import socket
     try:
         from urllib.request import Request, urlopen
     except ImportError:
         from urllib2 import Request, urlopen
+    auth = base64.b64encode(("%s:%s" % (user, pw)).encode()).decode()
+    req = Request("http://%s:%d/" % (ip, port), headers={"Authorization": "Basic " + auth, "Depth": "0"})
+    req.get_method = lambda: "PROPFIND"
+    try:
+        urlopen(req, timeout=10).close()
+        return True
+    except Exception as e:
+        return getattr(e, "code", None) in (207, 405)
+
+
+def send_logs(why, dlg=None):
+    """PUT kodi.log (and kodi.old.log on start-up) to the phone. Returns a short status.
+    With dlg: if the phone is sharing but no password is saved yet, ask for it."""
+    import socket
+    saved = load_cache(data_file("phone.json"))
+    creds = saved.get("dav") or {}
+    ip = phone_address(None, ask=False)
+    if not ip:
+        return "phone address unknown"
     port = int(creds.get("port", 8080))
     try:
         socket.create_connection((ip, port), 2).close()
     except Exception:
         return "phone not sharing"
+    if not creds.get("pass"):
+        if dlg is None:
+            return "phone share not set up"
+        while True:
+            pw = dlg.input("xbox-share is running on your phone - type the Password it shows (once)")
+            if not pw:
+                return "no password typed"
+            if _dav_ok(ip, port, "kodi", pw.strip()):
+                break
+            if not dlg.yesno(ADDON, "That password didn't work. Try again?", nolabel="Skip", yeslabel="Try again"):
+                return "wrong password"
+        creds = {"user": "kodi", "pass": pw.strip(), "port": str(port)}
+        saved["dav"] = creds
+        save_cache(data_file("phone.json"), saved)
+        toast("Password saved - logs now go to your phone automatically")
+    import base64
+    try:
+        from urllib.request import Request, urlopen
+    except ImportError:
+        from urllib2 import Request, urlopen
     auth = base64.b64encode(("%s:%s" % (creds["user"], creds["pass"])).encode()).decode()
     base = "http://%s:%d/%s/" % (ip, port, LOG_DIR)
 
@@ -1117,7 +1149,7 @@ def main():
             home().setProperty(PROP_STOP, STOP_NOW)
             toast("Stopping now. Open Kodi Sorter later and choose Resume.")
         return
-    send_logs("start")
+    send_logs("start", dlg)
     if check_for_update(dlg):
         return
 
@@ -1149,14 +1181,7 @@ def main():
             check_for_update(dlg, manual=True)
             return
         if pick == 4:
-            saved = load_cache(data_file("phone.json"))
-            if not (saved.get("dav") or {}).get("pass"):
-                pw = dlg.input("Password shown by xbox-share on the phone")
-                if not pw:
-                    return
-                saved["dav"] = {"user": "kodi", "pass": pw, "port": "8080"}
-                save_cache(data_file("phone.json"), saved)
-            dlg.ok(ADDON, "Log: %s." % send_logs("manual"))
+            dlg.ok(ADDON, "Log: %s." % send_logs("manual", dlg))
             return
         if pick == 3:
             text = read_text(data_file("last_report.txt"))

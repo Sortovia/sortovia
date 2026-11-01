@@ -576,16 +576,19 @@ def load_cache(path):
 
 
 def save_cache(path, cache):
+    """Write JSON; returns True if it could be read back."""
     if not path:
-        return
+        return False
     try:
         f = xbmcvfs.File(path, "w")
         try:
             f.write(json.dumps(cache))
         finally:
             f.close()
+        return load_cache(path) == json.loads(json.dumps(cache))
     except Exception as e:
-        log("could not save cache: %s" % e)
+        log("could not save %s: %s" % (path, e))
+        return False
 
 
 def cache_key(path, size):
@@ -712,6 +715,18 @@ def main():
             return
         clear_session(spath)
 
+    # Last finished run's folders and choices: offer to reuse them.
+    last = load_cache(data_file("last_settings.json"))
+    if last.get("src") and last.get("dest"):
+        pick = dlg.select("Kodi Sorter - same as last time?",
+                          ["Same as last time: %s  ->  %s" % (last["src"], last["dest"]),
+                           "Choose folders and choices again"])
+        if pick < 0:
+            return
+        if pick == 0:
+            run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"])
+            return
+
     src = dlg.browse(0, "Kodi Sorter: pick SOURCE folder (downloads)", "files")
     if not src:
         return
@@ -746,7 +761,10 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     session = {"src": src, "dest": dest, "mode": mode, "delete_old": delete_old,
                "lang_mode": lang_mode, "stage": "scanning",
                "started": time.strftime("%Y-%m-%d %H:%M")}
-    save_cache(spath, session)
+    if not save_cache(spath, session):
+        toast("Couldn't save progress - Resume won't be offered if this run is interrupted", 6000)
+    save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
+                                                     ("src", "dest", "mode", "delete_old", "lang_mode")))
 
     busy = xbmcgui.DialogProgress()
     busy.create(ADDON, "Listing files...")
@@ -911,9 +929,11 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         if choice == 1:
             dlg.textviewer("%s - preview (nothing moved yet)" % ADDON, preview)
             continue
-        if choice != 0:
+        if choice == 2:
             clear_session(spath)  # you chose not to move anything: nothing to resume
             return
+        if choice != 0:
+            return  # Back button: keep the run so it can be resumed
         break
     session["stage"] = "moving"
     save_cache(spath, session)

@@ -507,6 +507,18 @@ class CopyStopped(Exception):
     pass
 
 
+# Set by the move loop: shows the step after copying (closing, renaming,
+# checking, deleting) on screen. Every step is also logged with its time, so
+# if one hangs, Kodi's log shows which.
+STEP_HOOK = [None]
+
+
+def step(name, text):
+    log("  step: %s - %s" % (text, name))
+    if STEP_HOOK[0]:
+        STEP_HOOK[0](text)
+
+
 def copy_with_progress(src, dst, total):
     """Copy in chunks so progress can be shown and a copy can be stopped part
     way. Writes to dst + PART and renames it when complete, so a half-copied
@@ -519,8 +531,10 @@ def copy_with_progress(src, dst, total):
     fout = xbmcvfs.File(part, "w")
     done, ok = 0, False
     try:
-        while True:
-            data = fin.readBytes(COPY_CHUNK)
+        # Stop at the known size instead of reading until the end: on the Xbox
+        # the final empty read past the end may never return.
+        while total <= 0 or done < total:
+            data = fin.readBytes(COPY_CHUNK if total <= 0 else min(COPY_CHUNK, total - done))
             if not data:
                 break
             if not fout.write(data):
@@ -532,10 +546,14 @@ def copy_with_progress(src, dst, total):
             raise IOError("read %d of %d bytes" % (done, total))
         ok = True
     finally:
+        name = base_of(dst)
+        step(name, "copied - closing source file")
         fin.close()
+        step(name, "closing new file (saving it to the drive)")
         fout.close()
         if not ok:
             xbmcvfs.delete(part)
+    step(name, "renaming the finished copy")
     if not xbmcvfs.rename(part, dst):
         xbmcvfs.delete(part)
         raise IOError("could not rename the finished copy")
@@ -558,6 +576,7 @@ def move_file(src, dst):
         log("chunked copy of %s failed (%s), trying Kodi's copy" % (base_of(dst), e))
         if xbmcvfs.exists(dst) or not xbmcvfs.copy(src, dst):
             return False, "copy failed (%s) - original kept" % e
+    step(base_of(dst), "checking the size of the copy")
     dst_size = size_of(dst)
     if in_archive(src):
         # The archive itself is kept (parked in _Unpacked), so nothing is lost
@@ -569,7 +588,10 @@ def move_file(src, dst):
     if src_size < 0 or src_size != dst_size:
         xbmcvfs.delete(dst)
         return False, "size mismatch (%s vs %s) - copy removed, original kept" % (src_size, dst_size)
-    xbmcvfs.delete(src)
+    step(base_of(dst), "deleting the original")
+    if not xbmcvfs.delete(src):
+        return True, "copied + size verified, but the original could not be deleted"
+    step(base_of(dst), "done")
     return True, "copied + size verified"
 
 
@@ -1134,6 +1156,14 @@ def file_progress(prog, i, count, short):
     return hook
 
 
+def step_progress(prog, i, count, short):
+    def show(text):
+        prog.update(int((i + 1) * 100 / count) - 1 if count else 0,
+                    "%d of %d - %s (%s)\n%s" % (i + 1, count, text, time.strftime("%H:%M:%S"), short))
+        home().setProperty(PROP_RUN, "%d of %d, %s" % (i + 1, count, text))
+    return show
+
+
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s" % (
         masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode]))
@@ -1145,7 +1175,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         dlg.ok(ADDON, "Something went wrong - nothing more was moved.\n"
                "Details are in Kodi's log: use the Kodi Logfile Uploader add-on.")
     finally:
-        COPY_HOOK[0] = None
+        COPY_HOOK[0] = STEP_HOOK[0] = None
         home().clearProperty(PROP_RUN)
         home().clearProperty(PROP_STOP)
     log("RUN END")
@@ -1383,6 +1413,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         home().setProperty(PROP_RUN, "%d of %d" % (i + 1, len(plan)))
         prog.update(int(i * 100 / len(plan)), "%d of %d\n%s" % (i + 1, len(plan), short))
         COPY_HOOK[0] = file_progress(prog, i, len(plan), short)
+        STEP_HOOK[0] = step_progress(prog, i, len(plan), short)
         session["in_progress"] = {"src": it["src"], "dst": it["target"]}
         save_cache(spath, session)
         if it.get("old"):
@@ -1396,7 +1427,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         if it["arc"]:
             arc_ok[it["arc"]] = arc_ok.get(it["arc"], True) and ok
             arc_count[it["arc"]] = arc_count.get(it["arc"], 0) + 1
-        COPY_HOOK[0] = None
+        COPY_HOOK[0] = STEP_HOOK[0] = None
         stopped = how.startswith("stopped part way")
         report.append("%s  %s -> %s  (%s)" % ("OK " if ok else ("STOP" if stopped else "ERR"),
                                               it["label"], short, how))

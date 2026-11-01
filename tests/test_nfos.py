@@ -27,5 +27,23 @@ class ReleaseNfos(unittest.TestCase):
         self.assertFalse(nfos.same_show("North Quay", "Family Guy"))
 
 
+class AudioFromNfo(unittest.TestCase):
+    def test_audio_lines(self):
+        self.assertEqual(nfos.audio_languages("AUDIO......: English DD5.1\nVIDEO: x265"), ["en"])
+        self.assertEqual(nfos.audio_languages("Audio 1: Japanese AAC\nAudio 2: English AAC"), ["en", "ja"])
+        self.assertEqual(nfos.audio_languages("Language: Spanish (Latino)"), ["es"])
+
+    def test_subtitle_lines_ignored(self):
+        text = "Audio: Japanese FLAC\nSubtitles: English, Spanish"
+        self.assertEqual(nfos.audio_languages(text), ["ja"])
+
+    def test_value_on_next_line(self):
+        self.assertEqual(nfos.audio_languages("[ Audio ]\nEnglish 5.1 AC3"), ["en"])
+
+    def test_nothing_useful(self):
+        self.assertEqual(nfos.audio_languages("Dual Audio\nGreetings to all the crew"), [])
+        self.assertEqual(nfos.audio_languages("Video: 1080p, it is great"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1651,6 +1651,38 @@ def view_text_file(dlg):
         start = parent_of(path)
 
 
+def nfo_audio_hint(path, arc, src, index, texts):
+    """(eng, langs, nfo name) from the nearest release NFO, or None.
+    Looks inside the same archive, then the video's folder, then folders above
+    it - but never the source folder itself (NFOs there could be about anything)."""
+    import nfos
+    cands = list(index.get(("arc", arc), [])) if arc else []
+    root = _norm(src)
+    d = _norm(parent_of(arc or path))
+    while not cands and d.startswith(root + "/"):
+        cands = list(index.get(d, []))
+        d = d.rsplit("/", 1)[0]
+    found, used = set(), None
+    for p in cands:
+        if p not in texts:
+            try:
+                f = xbmcvfs.File(p)
+                try:
+                    texts[p] = decode_text(bytes(f.readBytes(256 * 1024)))
+                finally:
+                    f.close()
+            except Exception:
+                texts[p] = ""
+        langs = nfos.audio_languages(texts[p])
+        if langs:
+            found.update(langs)
+            used = used or base_of(p)
+    if not found:
+        return None
+    langs = sorted(found)
+    return ("en" in found), langs, used
+
+
 # ---------- after a sort: release NFOs and empty folders ----------
 def _under(path, folder):
     return _norm(path).startswith(_norm(folder) + "/")
@@ -1845,10 +1877,12 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     if _norm(dest).startswith(_norm(src)):
         log("destination is inside the source: skipping its TV/Movies/Comics folders")
     release_nfos = []
+    nfo_index = {}  # folder (or ("arc", archive)) -> .nfo paths, for the audio fallback
     for path, name in walk(src, skip):
         ext = split_name(name)[1]
         if ext == ".nfo":
             release_nfos.append(path)
+            nfo_index.setdefault(_norm(parent_of(path)), []).append(path)
         if ext not in ARCHIVES:
             files.append((path, name, None))
             continue
@@ -1863,16 +1897,21 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
         archive_of[path] = name
         for url, iname in inner:
             files.append((url, iname, path))
+            if split_name(iname)[1] == ".nfo":
+                nfo_index.setdefault(("arc", path), []).append(url)
     cpath = cache_file()
     cache = load_cache(cpath) if check_lang else {}
     seen, fresh, reused, by_name, other = set(), 0, 0, 0, 0
     in_place = [0]
+    from_nfo = [0]
+    nfo_texts = {}
 
     def tally():
         # e.g. "39 already checked, 6 new, 29 skipped by name, 2 other"
         t = "%d already checked, %d new, %d skipped by name" % (reused, fresh, by_name)
         t += (", %d other" % other if other else "")
-        return t + (", %d already sorted" % in_place[0] if in_place[0] else "")
+        t += ", %d already sorted" % in_place[0] if in_place[0] else ""
+        return t + (", %d audio from .nfo" % from_nfo[0] if from_nfo[0] else "")
     spec_path = data_file("specials.json")
     specials = {"by_name": load_cache(spec_path), "used": {}, "titles": {}}
     for i, (path, name, arc) in enumerate(files):
@@ -1916,12 +1955,22 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
                 fresh += 1
                 if fresh % CACHE_SAVE_EVERY == 0:
                     save_cache(cpath, cache)
-            if item["eng"] is False:
-                if lang_mode == 0:
-                    skipped.append("NO ENGLISH  %s  (%s)" % (name, lang_note(False, item["langs"])))
+        if check_lang and kind in ("TV", "MOVIE") and split_name(name)[1] in VIDEO and item["eng"] is None:
+            # The file couldn't tell (inside an archive, or untagged tracks): ask a release NFO.
+            hint = nfo_audio_hint(path, arc, src, nfo_index, nfo_texts)
+            if hint:
+                eng, langs, nfo_name = hint
+                if eng is False and lang_mode == 2:
+                    log("%s: %s says no English audio - not deleting on an NFO's word" % (name, nfo_name))
                 else:
-                    no_eng.append(item)
-                continue
+                    item["eng"], item["langs"] = eng, langs + ["from %s" % nfo_name]
+                    from_nfo[0] += 1
+        if check_lang and item["eng"] is False:
+            if lang_mode == 0:
+                skipped.append("NO ENGLISH  %s  (%s)" % (label if arc else name, lang_note(False, item["langs"])))
+            else:
+                no_eng.append(item)
+            continue
         groups.setdefault(dup_key(target), []).append(item)
 
     save_cache(spec_path, specials["by_name"])

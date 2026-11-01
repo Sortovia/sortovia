@@ -145,7 +145,7 @@ def walk(folder):
     for f in files:
         yield folder + f, f
     for d in dirs:
-        if d.lower() in ("_replaced", "_no english", "_unpacked"):
+        if d.lower() in ("_replaced", "_no english", "_unpacked", LOG_DIR.lower()):
             continue
         for item in walk(folder + d):
             yield item
@@ -802,6 +802,76 @@ def phone_source(dlg, kind):
     return base
 
 
+# ---------- send logs to the phone ----------
+# When xbox-share runs on the phone, Kodi's logs are copied to
+# Download/KodiSorterLogs on the phone over the hotspot (no mobile data), so
+# Claude can read them there. Quiet and quick: skipped if the phone isn't sharing.
+LOG_DIR = "KodiSorterLogs"
+LOG_MAX = 3 * 1024 * 1024  # last 3 MB of each log is plenty
+
+
+def _read_tail(path, limit):
+    try:
+        f = xbmcvfs.File(path)
+        try:
+            size = f.size()
+            if size > limit:
+                f.seek(size - limit, 0)
+            return bytes(f.readBytes())
+        finally:
+            f.close()
+    except Exception as e:
+        log("can't read %s: %s" % (path, e))
+        return b""
+
+
+def send_logs(why):
+    """PUT kodi.log (and kodi.old.log on start-up) to the phone. Returns a short status."""
+    creds = load_cache(data_file("phone.json")).get("dav") or {}
+    if not creds.get("pass"):
+        return "phone share not set up"
+    ip = phone_address(None, ask=False)
+    if not ip:
+        return "phone address unknown"
+    import base64
+    import socket
+    try:
+        from urllib.request import Request, urlopen
+    except ImportError:
+        from urllib2 import Request, urlopen
+    port = int(creds.get("port", 8080))
+    try:
+        socket.create_connection((ip, port), 2).close()
+    except Exception:
+        return "phone not sharing"
+    auth = base64.b64encode(("%s:%s" % (creds["user"], creds["pass"])).encode()).decode()
+    base = "http://%s:%d/%s/" % (ip, port, LOG_DIR)
+
+    def call(method, url, data=None):
+        req = Request(url, data=data, headers={"Authorization": "Basic " + auth})
+        req.get_method = lambda: method
+        try:
+            urlopen(req, timeout=20).close()
+            return True
+        except Exception as e:
+            code = getattr(e, "code", None)
+            return code == 405 and method == "MKCOL"  # 405 = folder already there
+
+    call("MKCOL", base)
+    logdir = "special://logpath/"
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    names = [("kodi.log", "kodi-%s-%s.log" % (stamp, why))]
+    if why == "start":
+        names.append(("kodi.old.log", "kodi-%s-previous-session.log" % stamp))
+    sent = 0
+    for src, dst in names:
+        data = _read_tail(logdir + src, LOG_MAX)
+        if data and call("PUT", base + dst, data):
+            sent += 1
+    log("logs sent to phone: %d file(s) (%s)" % (sent, why))
+    return "sent %d log(s) to the phone" % sent
+
+
 def phone_reachable(url):
     try:
         dirs, files = xbmcvfs.listdir(url)
@@ -1026,6 +1096,7 @@ def main():
             home().setProperty(PROP_STOP, "1")
             toast("Stopping...")
         return
+    send_logs("start")
     if check_for_update(dlg):
         return
 
@@ -1049,11 +1120,22 @@ def main():
                           ["Same as last time: %s  ->  %s" % (masked(last["src"]), last["dest"]),
                            "Choose folders and choices again",
                            "Check for updates now",
-                           "View the report from the last move"])
+                           "View the report from the last move",
+                           "Send Kodi's log to my phone now (xbox-share must be running)"])
         if pick < 0:
             return
         if pick == 2:
             check_for_update(dlg, manual=True)
+            return
+        if pick == 4:
+            saved = load_cache(data_file("phone.json"))
+            if not (saved.get("dav") or {}).get("pass"):
+                pw = dlg.input("Password shown by xbox-share on the phone")
+                if not pw:
+                    return
+                saved["dav"] = {"user": "kodi", "pass": pw, "port": "8080"}
+                save_cache(data_file("phone.json"), saved)
+            dlg.ok(ADDON, "Log: %s." % send_logs("manual"))
             return
         if pick == 3:
             text = read_text(data_file("last_report.txt"))
@@ -1180,6 +1262,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         home().clearProperty(PROP_RUN)
         home().clearProperty(PROP_STOP)
     log("RUN END")
+    send_logs("end")
 
 
 def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):

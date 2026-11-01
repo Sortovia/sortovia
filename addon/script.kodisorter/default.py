@@ -6,6 +6,7 @@
 # Can check audio tracks and keep only files with English audio.
 # Nothing is overwritten without your OK; replaced copies go to <dest>/_Replaced
 # unless you choose to delete them.
+import json
 import re
 import time
 import xbmc
@@ -376,6 +377,54 @@ def replace_file(src, dst, old, dest, delete_old):
     return False, "new copy failed (%s) - old copy restored" % how
 
 
+# ---------- scan cache ----------
+# Reading audio tracks is the slow part of a scan (it opens every video).
+# Results are saved as the scan goes, so a scan that was stopped or crashed
+# picks up where it left off, and files already checked are not re-read.
+CACHE_SAVE_EVERY = 20
+
+
+def cache_file():
+    try:
+        folder = xbmcvfs.translatePath("special://profile/addon_data/script.kodisorter/")
+        xbmcvfs.mkdirs(folder)
+        return folder + "scan_cache.json"
+    except Exception as e:
+        log("no cache folder: %s" % e)
+        return None
+
+
+def load_cache(path):
+    if not path or not xbmcvfs.exists(path):
+        return {}
+    try:
+        f = xbmcvfs.File(path)
+        try:
+            return json.loads(f.read() or "{}")
+        finally:
+            f.close()
+    except Exception as e:
+        log("cache unreadable, starting fresh: %s" % e)
+        return {}
+
+
+def save_cache(path, cache):
+    if not path:
+        return
+    try:
+        f = xbmcvfs.File(path, "w")
+        try:
+            f.write(json.dumps(cache))
+        finally:
+            f.close()
+    except Exception as e:
+        log("could not save cache: %s" % e)
+
+
+def cache_key(path, size):
+    return "%s|%d" % (path, size)
+
+
 # ---------- main ----------
 def main():
     dlg = xbmcgui.Dialog()
@@ -408,18 +457,40 @@ def main():
     check_lang = lang_mode != 3
 
     busy = xbmcgui.DialogProgress()
-    busy.create(ADDON, "Scanning files and checking audio tracks...")
+    busy.create(ADDON, "Listing files...")
+    files = list(walk(src))
+    cpath = cache_file()
+    cache = load_cache(cpath) if check_lang else {}
+    seen, fresh, reused = set(), 0, 0
     groups, skipped, no_eng = {}, [], []
-    for path, name in walk(src):
+    for i, (path, name) in enumerate(files):
+        if busy.iscanceled():
+            save_cache(cpath, cache)
+            busy.close()
+            xbmcgui.Dialog().ok(ADDON, "Scan stopped after %d of %d files.\nNothing was moved. "
+                                "Files already checked are remembered, so the next scan "
+                                "goes straight past them." % (i, len(files)))
+            return
+        busy.update(int(i * 100 / max(len(files), 1)),
+                    "Scanning %d of %d (%d remembered from last time)\n%s" % (i + 1, len(files), reused, name))
         target, kind, note = plan_for(path, name, dest)
         if target is None:
             skipped.append("SKIP  %s  (%s)" % (name, kind))
             continue
-        busy.update(0, "Checking %s" % name)
         item = {"src": path, "name": name, "target": target, "kind": kind, "note": note,
                 "res": resolution(name), "size": size_of(path), "eng": None, "langs": []}
         if check_lang and kind in ("TV", "MOVIE") and split_name(name)[1] in VIDEO:
-            item["eng"], item["langs"] = english_status(path, name)
+            key = cache_key(path, item["size"])
+            seen.add(key)
+            if key in cache:
+                item["eng"], item["langs"] = cache[key]
+                reused += 1
+            else:
+                item["eng"], item["langs"] = english_status(path, name)
+                cache[key] = [item["eng"], item["langs"]]
+                fresh += 1
+                if fresh % CACHE_SAVE_EVERY == 0:
+                    save_cache(cpath, cache)
             if item["eng"] is False:
                 if lang_mode == 0:
                     skipped.append("NO ENGLISH  %s  (%s)" % (name, lang_note(False, item["langs"])))
@@ -427,6 +498,11 @@ def main():
                     no_eng.append(item)
                 continue
         groups.setdefault(dup_key(target), []).append(item)
+
+    if check_lang:
+        # Scan finished: forget files that are gone from this source folder.
+        cache = dict((k, v) for k, v in cache.items() if k in seen or not k.startswith(src))
+        save_cache(cpath, cache)
 
     plan, replaces = [], 0
     for key, items in groups.items():
@@ -479,16 +555,27 @@ def main():
     if skipped:
         lines.append("\n--- Skipped (left where they are) ---")
         lines.extend(sorted(skipped))
-    dlg.textviewer("%s - preview (nothing moved yet)" % ADDON, "\n".join(lines))
-
+    preview = "\n".join(lines)
+    title = "%s - scan finished (%d files checked)" % (ADDON, len(files))
     if not plan and not no_eng:
+        while dlg.select(title + " - nothing to move",
+                         ["View the full list", "Done"]) == 0:
+            dlg.textviewer("%s - preview (nothing moved)" % ADDON, preview)
         return
-    question = "Move %d file(s) now?" % len(plan)
+    action = "Move %d file(s) now" % len(plan)
     if no_eng:
-        question += "\n%s %d file(s) with no English audio." % (
-            "Move" if lang_mode == 1 else "DELETE", len(no_eng))
-    if not dlg.yesno(ADDON, question):
-        return
+        action += " + %s %d with no English audio" % (
+            "move" if lang_mode == 1 else "DELETE", len(no_eng))
+    while True:
+        choice = dlg.select(title, [action,
+                                    "View the full list first (%d to move, %d skipped)" % (len(plan), len(skipped)),
+                                    "Cancel - move nothing"])
+        if choice == 1:
+            dlg.textviewer("%s - preview (nothing moved yet)" % ADDON, preview)
+            continue
+        if choice != 0:
+            return
+        break
 
     prog = xbmcgui.DialogProgress()
     prog.create(ADDON, "Moving files...")
@@ -536,7 +623,10 @@ def main():
         f.close()
     except Exception as e:
         log("could not write log: %s" % e)
-    dlg.textviewer("%s - done" % ADDON, text)
+    if dlg.yesno(ADDON, "Finished: %d of %d done OK.\nA log was saved as kodi_sorter_log.txt "
+                 "on the destination drive." % (ok_count, len(plan) + len(no_eng)),
+                 nolabel="Close", yeslabel="View report"):
+        dlg.textviewer("%s - done" % ADDON, text)
     if ok_count:
         xbmc.executebuiltin("UpdateLibrary(video)")
 

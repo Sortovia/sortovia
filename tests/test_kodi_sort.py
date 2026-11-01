@@ -66,6 +66,11 @@ class Anime(unittest.TestCase):
             rel("[FanGroup] Paragon -the motto- 05 [1080p] [x265] [qc].mkv")[0],
             "TV/Paragon the Motto/Season 01/Paragon the Motto S01E05.mkv")
 
+    def test_tag_glued_to_name(self):
+        self.assertEqual(
+            rel("[SubCrew]Tinman_Meadow_-_01_(Dual Audio_10bit_BD1080p_x265).mkv")[0],
+            "TV/Tinman Meadow/Season 01/Tinman Meadow S01E01.mkv")
+
     def test_credits_with_underscores(self):
         self.assertIsNone(rel("(Group_One)_Tinman_Meadow_-_NCED_(BD_1080p).mkv")[0])
 

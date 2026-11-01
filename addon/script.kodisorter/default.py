@@ -152,6 +152,16 @@ def size_of(path):
 KODI_FOLDERS = ("TV", "Movies", "Comics")
 
 
+def friendly(path):
+    """How a path reads to a person: win-lib://removable/E:\\Movies/ -> E:\\Movies"""
+    p = re.sub(r"^win-lib://[^/]*/", "", path or "")
+    p = p.replace("/", "\\")
+    p = re.sub(r"\\{2,}", r"\\", p).rstrip("\\")
+    if re.match(r"^[A-Za-z]:$", p):
+        p += "\\"
+    return masked(p) if "://" in path and not path.startswith("win-lib://") else p
+
+
 def _norm(path):
     return re.sub(r"[\\/]+", "/", path).rstrip("/").lower()
 
@@ -1849,10 +1859,13 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     if base_of(dest).lower() in [f.lower() for f in KODI_FOLDERS]:
         # Picked the TV (or Movies/Comics) folder itself: files would go to TV/TV/...
         fixed = parent_of(dest)
-        if not yesno_default_yes(dlg, "The destination is the %s folder itself (%s).\nKodi Sorter makes "
-                                 "TV, Movies and Comics folders inside the destination, so this would "
-                                 "create %s\\TV\\...\nUse %s instead?" % (base_of(dest), dest, base_of(dest), fixed),
-                                 nolabel="Cancel", yeslabel="Use %s" % fixed):
+        name = base_of(dest)
+        if not yesno_default_yes(dlg, "You picked %s as the destination.\nKodi Sorter puts files into "
+                                 "TV, Movies and Comics folders INSIDE the destination, so this would "
+                                 "make %s\\%s\\...\nUse %s as the destination instead? (Files already "
+                                 "in the right place are left alone.)" % (
+                                     friendly(dest), friendly(dest), name, friendly(fixed)),
+                                 nolabel="Cancel", yeslabel="Use %s" % friendly(fixed)):
             clear_session(spath)
             return
         picked, dest = dest, fixed

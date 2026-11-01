@@ -13,13 +13,17 @@ import os
 import re
 import time
 import zipfile
+try:
+    from urllib.parse import quote
+except ImportError:  # very old Kodi
+    from urllib import quote
 import xbmc
 import xbmcaddon
 import xbmcgui
 import xbmcvfs
 
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
-from sortlib import VIDEO, MIN_VIDEO_BYTES, plan_name
+from sortlib import VIDEO, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, plan_name
 
 try:
     ADDON = "Kodi Sorter " + xbmcaddon.Addon().getAddonInfo("version")
@@ -76,10 +80,105 @@ def walk(folder):
     for f in files:
         yield folder + f, f
     for d in dirs:
-        if d.lower() in ("_replaced", "_no english"):
+        if d.lower() in ("_replaced", "_no english", "_unpacked"):
             continue
         for item in walk(folder + d):
             yield item
+
+
+# ---------- archives (.rar / .zip / .7z) ----------
+# Kodi opens archives through its own file system: zip:// is built in, rar and
+# 7z need the "Archive support" add-on (vfs.libarchive). Videos inside are
+# copied out; the archive is then parked in an _Unpacked folder next to it.
+ARCHIVES = (".rar", ".zip", ".7z")
+LATER_VOLUME_RE = re.compile(r"\.part0*(?:[2-9]|\d{2,})\.rar$", re.I)
+ARCHIVE_HELP = ("Some archives could not be opened. In Kodi go to Add-ons > Install from "
+                "repository > Kodi Add-on repository > VFS add-ons > Archive support, "
+                "install it, then run Kodi Sorter again.")
+
+
+def _walk_archive(base):
+    dirs, files = xbmcvfs.listdir(base)
+    for f in files:
+        yield base + f, f
+    for d in dirs:
+        for item in _walk_archive(base + d + "/"):
+            yield item
+
+
+def open_archive(path):
+    """List of (url, name) for files inside the archive, or None if Kodi can't open it."""
+    enc = quote(path, safe="")
+    bases = ["archive://%s/" % enc]
+    low = path.lower()
+    if low.endswith(".rar"):
+        bases.append("rar://%s/" % enc)
+    if low.endswith(".zip"):
+        bases.append("zip://%s/" % enc)
+    for base in bases:
+        try:
+            items = list(_walk_archive(base))
+        except Exception as e:
+            log("can't open %s as %s: %s" % (path, base.split(":")[0], e))
+            continue
+        if items:
+            return items
+    return None
+
+
+def archive_volumes(path):
+    """The archive plus its other volumes (name.part2.rar, name.r00 ...)."""
+    folder, name = parent_of(path), base_of(path)
+    if not name.lower().endswith(".rar"):
+        return [path]
+    stem = re.sub(r"(?:\.part\d+)?\.rar$", "", name, flags=re.I)
+    vol = re.compile(re.escape(stem) + r"(?:\.part\d+\.rar|\.rar|\.r\d{2})$", re.I)
+    _, files = xbmcvfs.listdir(folder)
+    return [folder + f for f in files if vol.match(f)] or [path]
+
+
+def park_archive(path):
+    """Move a fully unpacked archive (all volumes) into _Unpacked beside it."""
+    results = []
+    for vol in archive_volumes(path):
+        ok, how = move_file(vol, join(parent_of(vol), "_Unpacked", base_of(vol)))
+        results.append(ok)
+    return all(results)
+
+
+# ---------- specials with no number ----------
+def renumber_special(target, name, state):
+    """Give an unnumbered OVA the next free S00Exx in its show's Season 00.
+    The same OVA always gets the same number, so a second copy is treated as a
+    duplicate instead of being added again: matched by its file name (numbers
+    given out are remembered in specials.json) or by its title, e.g. an
+    existing "Show S00E02 - The Long Road Home.mkv"."""
+    folder = parent_of(target)
+    key = folder.lower() + "|" + name.lower()
+    base = base_of(target)
+    title = re.search(r"S00E\d+( - .+)\.[^.]+$", base, re.I)
+    if folder not in state["used"]:
+        used, titles = set(), {}
+        if xbmcvfs.exists(folder):
+            for f in xbmcvfs.listdir(folder)[1]:
+                m = re.search(r"S00E(\d+)( - .+)?\.[^.]+$", f, re.I)
+                if m:
+                    used.add(int(m.group(1)))
+                    if m.group(2):
+                        titles[m.group(2).lower()] = int(m.group(1))
+        state["used"][folder], state["titles"][folder] = used, titles
+    if key not in state["by_name"]:
+        n = state["titles"][folder].get(title.group(1).lower()) if title else None
+        if n is None:
+            n = 1
+            while n in state["used"][folder]:
+                n += 1
+        state["used"][folder].add(n)
+        if title:
+            state["titles"][folder][title.group(1).lower()] = n
+        state["by_name"][key] = n
+    n = state["by_name"][key]
+    return folder + re.sub(r"S00E\d+", "S00E%02d" % n, base, count=1, flags=re.I)
 
 
 # ---------- audio language detection (reads file headers, no playback) ----------
@@ -394,14 +493,47 @@ def replace_file(src, dst, old, dest, delete_old):
 CACHE_SAVE_EVERY = 20
 
 
-def cache_file():
+def data_file(name):
     try:
         folder = xbmcvfs.translatePath("special://profile/addon_data/script.kodisorter/")
         xbmcvfs.mkdirs(folder)
-        return folder + "scan_cache.json"
+        return folder + name
     except Exception as e:
-        log("no cache folder: %s" % e)
+        log("no addon_data folder: %s" % e)
         return None
+
+
+def cache_file():
+    return data_file("scan_cache.json")
+
+
+# ---------- resume an unfinished run ----------
+# session.json exists only while a run is in progress. If Kodi is closed or
+# crashes (or the run is stopped), it is still there next time and the add-on
+# offers to resume with the same folders and choices.
+def session_file():
+    return data_file("session.json")
+
+
+def clear_session(path):
+    if path and xbmcvfs.exists(path):
+        xbmcvfs.delete(path)
+
+
+def remove_partial_copy(prev):
+    """A file that was mid-copy when the run died is incomplete: delete it."""
+    cur = prev.get("in_progress") or {}
+    src, dst = cur.get("src"), cur.get("dst")
+    if not dst:
+        return
+    tmp = dst + ".kodisorter.tmp"
+    if xbmcvfs.exists(tmp):
+        xbmcvfs.delete(tmp)
+        log("removed half-copied %s" % tmp)
+    src_size = size_of(src) if src else -1
+    if src_size >= 0 and xbmcvfs.exists(dst) and size_of(dst) != src_size:
+        xbmcvfs.delete(dst)
+        log("removed half-copied %s" % dst)
 
 
 def load_cache(path):
@@ -517,6 +649,20 @@ def main():
     dlg = xbmcgui.Dialog()
     if check_for_update(dlg):
         return
+
+    spath = session_file()
+    prev = load_cache(spath)
+    if prev.get("src") and prev.get("dest"):
+        where = "while moving files" if prev.get("stage") == "moving" else "while scanning"
+        if dlg.yesno(ADDON, "The last run (%s) didn't finish - it stopped %s.\nFrom: %s\nTo: %s\n"
+                     "Resume with the same folders and choices?" % (
+                         prev.get("started", "?"), where, prev["src"], prev["dest"]),
+                     nolabel="Start over", yeslabel="Resume"):
+            remove_partial_copy(prev)
+            run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"])
+            return
+        clear_session(spath)
+
     src = dlg.browse(0, "Kodi Sorter: pick SOURCE folder (downloads)", "files")
     if not src:
         return
@@ -543,32 +689,66 @@ def main():
                             "Don't check audio languages"])
     if lang_mode < 0:
         return
+    run(dlg, spath, src, dest, mode, delete_old, lang_mode)
+
+
+def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     check_lang = lang_mode != 3
+    session = {"src": src, "dest": dest, "mode": mode, "delete_old": delete_old,
+               "lang_mode": lang_mode, "stage": "scanning",
+               "started": time.strftime("%Y-%m-%d %H:%M")}
+    save_cache(spath, session)
 
     busy = xbmcgui.DialogProgress()
     busy.create(ADDON, "Listing files...")
-    files = list(walk(src))
+    groups, skipped, no_eng = {}, [], []
+    files = []
+    archive_fail = []
+    archive_of = {}
+    for path, name in walk(src):
+        ext = split_name(name)[1]
+        if ext not in ARCHIVES:
+            files.append((path, name, None))
+            continue
+        if LATER_VOLUME_RE.search(name):
+            continue  # opened through the first volume
+        busy.update(0, "Opening archive\n%s" % name)
+        inner = open_archive(path)
+        if inner is None:
+            archive_fail.append(name)
+            skipped.append("ARCHIVE  %s  (can't open - see note at the top)" % name)
+            continue
+        archive_of[path] = name
+        for url, iname in inner:
+            files.append((url, iname, path))
     cpath = cache_file()
     cache = load_cache(cpath) if check_lang else {}
     seen, fresh, reused = set(), 0, 0
-    groups, skipped, no_eng = {}, [], []
-    for i, (path, name) in enumerate(files):
+    spec_path = data_file("specials.json")
+    specials = {"by_name": load_cache(spec_path), "used": {}, "titles": {}}
+    for i, (path, name, arc) in enumerate(files):
         if busy.iscanceled():
             save_cache(cpath, cache)
             busy.close()
             xbmcgui.Dialog().ok(ADDON, "Scan stopped after %d of %d files.\nNothing was moved. "
-                                "Files already checked are remembered, so the next scan "
-                                "goes straight past them." % (i, len(files)))
+                                "Files already checked are remembered. Open Kodi Sorter "
+                                "again and choose Resume to carry on." % (i, len(files)))
             return
         busy.update(int(i * 100 / max(len(files), 1)),
                     "Scanning %d of %d (%d remembered from last time)\n%s" % (i + 1, len(files), reused, name))
         target, kind, note = plan_for(path, name, dest)
+        if target is None and arc and "rename by hand" in kind:
+            # Inner file named "movie.mkv" etc: try the archive's own name.
+            target, kind, note = plan_for(path, split_name(archive_of[arc])[0] + split_name(name)[1], dest)
+        label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else path.replace(src, "")
         if target is None:
-            skipped.append("SKIP  %s  (%s)" % (name, kind))
+            skipped.append("SKIP  %s  (%s)" % (label if arc else name, kind))
             continue
-        item = {"src": path, "name": name, "target": target, "kind": kind, "note": note,
-                "res": resolution(name), "size": size_of(path), "eng": None, "langs": []}
-        if check_lang and kind in ("TV", "MOVIE") and split_name(name)[1] in VIDEO:
+        if note == SPECIAL_GUESS_NOTE:
+            target = renumber_special(target, name, specials)
+        item = {"src": path, "name": name, "target": target, "kind": kind, "note": note, "arc": arc,
+                "label": label, "res": resolution(name), "size": size_of(path), "eng": None, "langs": []}
+        if check_lang and not arc and kind in ("TV", "MOVIE") and split_name(name)[1] in VIDEO:
             key = cache_key(path, item["size"])
             seen.add(key)
             if key in cache:
@@ -588,6 +768,7 @@ def main():
                 continue
         groups.setdefault(dup_key(target), []).append(item)
 
+    save_cache(spec_path, specials["by_name"])
     if check_lang:
         # Scan finished: forget files that are gone from this source folder.
         cache = dict((k, v) for k, v in cache.items() if k in seen or not k.startswith(src))
@@ -634,8 +815,14 @@ def main():
             notes.setdefault(it["note"], set()).add(show)
         if check_lang and it["kind"] in ("TV", "MOVIE") and it["eng"] is not True:
             unknown_audio[show] = unknown_audio.get(show, 0) + 1
-    if notes or unknown_audio:
+    unpacking = sorted(set(archive_of[it["arc"]] for it in plan if it["arc"]))
+    if notes or unknown_audio or archive_fail or unpacking:
         lines.append("Notes:")
+        if unpacking:
+            lines.append("  will unpack videos from %d archive(s), then move each archive to an "
+                         "_Unpacked folder beside it: %s" % (len(unpacking), ", ".join(unpacking)))
+        if archive_fail:
+            lines.append("  " + ARCHIVE_HELP)
         for note, shows in sorted(notes.items()):
             lines.append("  %s: %s" % (note, ", ".join(sorted(shows))))
         if unknown_audio:
@@ -644,7 +831,7 @@ def main():
         lines.append("")
     for it in plan:
         tag = "REPLACE" if it.get("old") else it["kind"]
-        lines.append("[%s] %s\n    -> %s" % (tag, it["src"].replace(src, ""), it["target"].replace(dest, "")))
+        lines.append("[%s] %s\n    -> %s" % (tag, it["label"], it["target"].replace(dest, "")))
         if it.get("old"):
             lines.append("    new: %s   vs   existing: %s" % (
                 describe(it["res"], it["size"]), describe(it["old_res"], it["old_size"])))
@@ -659,6 +846,7 @@ def main():
     preview = "\n".join(lines)
     title = "%s - scan finished (%d files checked)" % (ADDON, len(files))
     if not plan and not no_eng:
+        clear_session(spath)
         while dlg.select(title + " - nothing to move",
                          ["View the full list", "Done"]) == 0:
             dlg.textviewer("%s - preview (nothing moved)" % ADDON, preview)
@@ -675,18 +863,26 @@ def main():
             dlg.textviewer("%s - preview (nothing moved yet)" % ADDON, preview)
             continue
         if choice != 0:
+            clear_session(spath)  # you chose not to move anything: nothing to resume
             return
         break
+    session["stage"] = "moving"
+    save_cache(spath, session)
 
     prog = xbmcgui.DialogProgress()
     prog.create(ADDON, "Moving files...")
     report, ok_count = [], 0
+    arc_ok, arc_count = {}, {}
+    cancelled = False
     for i, it in enumerate(plan):
         if prog.iscanceled():
-            report.append("CANCELLED - remaining files untouched. Run again to continue.")
+            cancelled = True
+            report.append("CANCELLED - remaining files untouched. Open Kodi Sorter again and choose Resume.")
             break
         short = it["target"].replace(dest, "")
         prog.update(int(i * 100 / len(plan)), "%d of %d\n%s" % (i + 1, len(plan), short))
+        session["in_progress"] = {"src": it["src"], "dst": it["target"]}
+        save_cache(spath, session)
         if it.get("old"):
             if mode == ASK and not dlg.yesno(
                     ADDON, "Replace existing copy?\n%s\nNew: %s\nExisting: %s" % (
@@ -698,7 +894,11 @@ def main():
         else:
             ok, how = move_file(it["src"], it["target"])
         ok_count += ok
-        report.append("%s  %s -> %s  (%s)" % ("OK " if ok else "ERR", it["src"].replace(src, ""), short, how))
+        if it["arc"]:
+            arc_ok[it["arc"]] = arc_ok.get(it["arc"], True) and ok
+            arc_count[it["arc"]] = arc_count.get(it["arc"], 0) + 1
+            how = ("unpacked" if ok else how)
+        report.append("%s  %s -> %s  (%s)" % ("OK " if ok else "ERR", it["label"], short, how))
         log(report[-1])
     for it in no_eng:
         if prog.iscanceled():
@@ -714,6 +914,19 @@ def main():
         ok_count += bool(ok)
         report.append("%s  %s  (%s; %s)" % ("OK " if ok else "ERR", it["name"], lang_note(False, it["langs"]), how))
         log(report[-1])
+    # Park archives only when every video planned from them was copied out OK.
+    planned = {}
+    for it in plan:
+        if it["arc"]:
+            planned[it["arc"]] = planned.get(it["arc"], 0) + 1
+    for arc, n in planned.items():
+        name = archive_of[arc]
+        if arc_ok.get(arc) and arc_count.get(arc, 0) == n:
+            parked = park_archive(arc)
+            report.append("%s  %s  (%s)" % ("OK " if parked else "ERR", name,
+                          "archive moved to _Unpacked" if parked else "unpacked, but archive could not be moved - delete it by hand"))
+        elif arc in arc_ok:
+            report.append("NOTE  %s  (not every video came out OK - archive left where it is)" % name)
     prog.close()
 
     stamp = time.strftime("%Y-%m-%d %H:%M")
@@ -728,6 +941,8 @@ def main():
                  "on the destination drive." % (ok_count, len(plan) + len(no_eng)),
                  nolabel="Close", yeslabel="View report"):
         dlg.textviewer("%s - done" % ADDON, text)
+    if not cancelled:
+        clear_session(spath)  # finished: nothing to resume next time
     if ok_count:
         xbmc.executebuiltin("UpdateLibrary(video)")
 

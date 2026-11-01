@@ -80,7 +80,31 @@ class Anime(unittest.TestCase):
                          "Movies/Spider-Man (2002)/Spider-Man (2002).mkv")
 
 
+class Specials(unittest.TestCase):
+    def test_ova_with_title_goes_to_season_00(self):
+        self.assertEqual(
+            rel("Tinman Meadow OVA - The Long Road Home  [OtherSubs].mkv")[0],
+            "TV/Tinman Meadow/Season 00/Tinman Meadow S00E01 - The Long Road Home.mkv")
+
+    def test_ova_with_number(self):
+        self.assertEqual(rel("[SubTeam] Show - OVA2 (1080p).mkv")[0],
+                         "TV/Show/Season 00/Show S00E02.mkv")
+
+    def test_ova_group_tags_not_in_title(self):
+        self.assertEqual(rel("(Group_One)_Tinman_Meadow_-_OVA_(BD_1080p).mkv")[0],
+                         "TV/Tinman Meadow/Season 00/Tinman Meadow S00E01.mkv")
+
+    def test_special_word_in_movie_title(self):
+        self.assertEqual(rel("Special.Forces.2011.1080p.mkv")[0],
+                         "Movies/Special Forces (2011)/Special Forces (2011).mkv")
+
+
 class Movies(unittest.TestCase):
+    def test_site_prefix_removed(self):
+        self.assertEqual(
+            rel("www.ExampleSite.org    -    The Nightwarden 2022 1080p REPACK BluRay DDP 5 1 10bit H265-ALPHA.mkv")[0],
+            "Movies/The Nightwarden (2022)/The Nightwarden (2022).mkv")
+
     def test_release_junk(self):
         self.assertEqual(rel("Movie.Name.2019.1080p.BluRay.x264-GRP.mkv")[0],
                          "Movies/Movie Name (2019)/Movie Name (2019).mkv")

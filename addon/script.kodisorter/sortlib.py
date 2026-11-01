@@ -27,6 +27,16 @@ TV_X_RE = re.compile(r"^(?P<show>.*?)[ ._\-]+(?P<s>\d{1,2})x(?P<e>\d{2,3})(?!\d)
 # or "Apollo-13" never count as an episode number.
 ANIME_RE = re.compile(
     r"^(?P<show>.+?)(?:\s+-\s*|\s*-\s+)(?P<e>\d{1,3})(?:v\d)?(?=\s|$|[\[\(])")
+# OVA / OAD / ONA, or "Special" followed by a number -> Season 00 (Kodi's Specials).
+# A number right after the word is used; otherwise the number is a guess.
+SPECIAL_RE = re.compile(
+    r"^(?P<show>.+?)[ ._\-]+(?:(?:ova|oad|ona)(?:[ ._\-]*(?P<n>\d{1,2}))?|specials?[ ._\-]*(?P<n2>\d{1,2}))(?![a-z0-9])",
+    re.I)
+SPECIAL_GUESS_NOTE = "special with no number - put in Season 00 as the next free episode, check it matches TMDb"
+SPECIAL_NOTE = "special - Season 00"
+# Download-site prefixes: "www.ExampleSite.org  -  ", "[TGx]", "www.DownloadSite.com - "
+SITE_PREFIX_RE = re.compile(
+    r"^\s*(?:www\.)?[a-z0-9\-]+\.(?:org|com|net|to|io|cc|me|tv|xyz|info|ws|se|ag|is|lol)\s*-+\s*", re.I)
 # Release-group tags at the start: "[SubTeam] ", "(Group_One)_"
 LEADING_TAGS_RE = re.compile(r"^(?:\s*(?:\[[^\]]*\]|\([^)]*\)))+\s*")
 YEAR_RE = re.compile(r"[ ._\-\(\[]((?:19|20)\d{2})(?=[ ._\-\)\]]|$)")
@@ -118,14 +128,35 @@ def sub_lang(stem):
     return stem, ""
 
 
+def parse_special(stem):
+    """'Show OVA - Title' -> (show_raw, number or None, title). None if not a special."""
+    spaced = LEADING_TAGS_RE.sub("", re.sub(r"_+", " ", stem))
+    m = SPECIAL_RE.match(spaced)
+    if not m or not m.group("show").strip(" ._-"):
+        return None
+    n = m.group("n") or m.group("n2")
+    show = re.sub(r"[ ._\-]+\d{1,3}$", "", m.group("show"))  # "Show - 13 OVA" -> "Show"
+    rest = re.sub(r"[\[\(\{][^\]\)\}]*[\]\)\}]", " ", spaced[m.end():])  # drop (BD 1080p), [Group]
+    title = clean(re.sub(r"[\[\]\(\)\{\}]", " ", cut_release(rest)))
+    return show, (int(n) if n else None), title
+
+
 def parse_episode(stem):
-    """Return (show_raw, season, episode_tag, absolute) or None."""
+    """Return (show_raw, season, episode_tag, absolute) or None.
+    absolute is True for fansub numbering, "special" / "special?" for OVAs."""
     m = TV_RE.match(stem) or TV_X_RE.match(stem)
     if m and m.group("show").strip(" ._-"):
         ep = "S%02dE%02d" % (int(m.group("s")), int(m.group("e")))
         if m.groupdict().get("e2"):
             ep += "E%02d" % int(m.group("e2"))
         return m.group("show"), int(m.group("s")), ep, False
+    sp = parse_special(stem)
+    if sp:
+        show, n, title = sp
+        tag = "S00E%02d" % (n or 1)
+        if title:
+            tag += " - " + title  # "S00E01 - The Long Road Home": easy to check against TMDb
+        return show, 0, tag, ("special" if n else "special?")
     spaced = re.sub(r"_+", " ", stem)
     m = ANIME_RE.match(LEADING_TAGS_RE.sub("", spaced))
     if m and m.group("show").strip(" ._-"):
@@ -152,6 +183,7 @@ def plan_name(name):
     if ext in VIDEO and CREDITS_RE.search(stem):
         return None, "opening/ending credits clip", ""
 
+    stem = SITE_PREFIX_RE.sub("", stem)
     lang = ""
     if ext in SUBS:
         stem, lang = sub_lang(stem)
@@ -161,8 +193,9 @@ def plan_name(name):
         show_raw, season, tag, absolute = ep
         show, year = split_year(show_raw)
         show_dir = safe("%s (%s)" % (show, year) if year else show)
-        new = "%s %s%s%s" % (show_dir, tag, lang, ext)
-        note = "absolute episode number - check the season" if absolute else ""
+        new = safe("%s %s%s" % (show_dir, tag, lang)) + ext
+        note = {True: "absolute episode number - check the season",
+                "special": SPECIAL_NOTE, "special?": SPECIAL_GUESS_NOTE}.get(absolute, "")
         return ("TV", show_dir, "Season %02d" % season, new), "tv", note
 
     title, year = split_year(stem)

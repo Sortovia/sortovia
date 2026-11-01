@@ -53,6 +53,28 @@ class TV(unittest.TestCase):
         self.assertEqual(rel("Show.S01E02.mkv")[2], "")
 
 
+class Anime(unittest.TestCase):
+    """Real names that the Xbox add-on v1.2.1 skipped as 'can't tell TV vs movie'."""
+
+    def test_underscores_and_paren_group(self):
+        self.assertEqual(
+            rel("(Group_One)_Tinman_Meadow_-_07_(BD_1080p).mkv")[0],
+            "TV/Tinman Meadow/Season 01/Tinman Meadow S01E07.mkv")
+
+    def test_dash_stuck_to_word(self):
+        self.assertEqual(
+            rel("[FanGroup] Paragon -the motto- 05 [1080p] [x265] [qc].mkv")[0],
+            "TV/Paragon the Motto/Season 01/Paragon the Motto S01E05.mkv")
+
+    def test_credits_with_underscores(self):
+        self.assertIsNone(rel("(Group_One)_Tinman_Meadow_-_NCED_(BD_1080p).mkv")[0])
+
+    def test_hyphenated_titles_not_episodes(self):
+        self.assertIsNone(rel("Apollo-13.mkv")[0])
+        self.assertEqual(rel("Spider-Man.2002.1080p.mkv")[0],
+                         "Movies/Spider-Man (2002)/Spider-Man (2002).mkv")
+
+
 class Movies(unittest.TestCase):
     def test_release_junk(self):
         self.assertEqual(rel("Movie.Name.2019.1080p.BluRay.x264-GRP.mkv")[0],

@@ -12,18 +12,11 @@ import xbmc
 import xbmcgui
 import xbmcvfs
 
-ADDON = "Kodi Sorter"
-VIDEO = {".mkv", ".mp4", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".webm"}
-SUBS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
-COMICS = {".cbz", ".cbr", ".cb7", ".cbt", ".pdf", ".epub"}
-MIN_VIDEO_BYTES = 50 * 1024 * 1024
+# File naming rules (shared with the command-line kodi_sort.py and its tests)
+from sortlib import VIDEO, MIN_VIDEO_BYTES, plan_name
 
-TV_RE = re.compile(r"^(?P<show>.*?)[ ._\-\[\(]*[Ss](?P<s>\d{1,2})[ ._\-]?[Ee](?P<e>\d{1,3})(?:[ ._\-]?[Ee](?P<e2>\d{1,3}))?", re.I)
-TV_X_RE = re.compile(r"^(?P<show>.*?)[ ._\-]+(?P<s>\d{1,2})x(?P<e>\d{2,3})", re.I)
-YEAR_RE = re.compile(r"[ ._\-\(\[]((?:19|20)\d{2})(?:[ ._\-\)\]]|$)")
+ADDON = "Kodi Sorter"
 RES_RE = re.compile(r"(?<![0-9])(2160|1440|1080|720|576|480|360)[pi](?![a-z0-9])", re.I)
-BAD_CHARS = re.compile(r'[<>:"/\\|?*]')
-SMALL = {"a", "an", "the", "and", "of", "in", "on", "to", "for", "at", "by", "or"}
 
 ASK, ALWAYS, NEVER = 0, 1, 2
 
@@ -289,61 +282,14 @@ def is_better(new_res, new_size, old_res, old_size, new_eng=None, old_eng=None):
 
 
 # ---------- naming ----------
-def clean(name):
-    name = re.sub(r"[._]+", " ", name)
-    name = re.sub(r"[\[\(\{].*?[\]\)\}]", " ", name)
-    name = BAD_CHARS.sub(" ", name)
-    name = re.sub(r"\s+", " ", name).strip(" -")
-    out = []
-    for i, w in enumerate(name.split(" ")):
-        if w.isupper() and len(w) > 1:
-            out.append(w)
-        elif i > 0 and w.lower() in SMALL:
-            out.append(w.lower())
-        else:
-            out.append(w[:1].upper() + w[1:].lower())
-    return " ".join(out)
-
-
-def split_year(raw):
-    m = YEAR_RE.search(" " + raw + " ")
-    if m:
-        return clean((" " + raw)[: m.start()]), m.group(1)
-    return clean(raw), None
-
-
 def plan_for(path, filename, dest):
-    stem, ext = split_name(filename)
-    if ext in COMICS:
-        return join(dest, "Comics", filename), "COMIC"
-    if ext not in VIDEO and ext not in SUBS:
-        return None, "not video/sub/comic"
-    if ext in VIDEO and ("sample" in stem.lower() or 0 <= size_of(path) < MIN_VIDEO_BYTES):
-        return None, "sample/too small"
-
-    lang = ""
-    if ext in SUBS:
-        m = re.search(r"\.([a-z]{2,3})$", stem, re.I)
-        if m:
-            lang = "." + m.group(1).lower()
-            stem = stem[: m.start()]
-
-    m = TV_RE.match(stem) or TV_X_RE.match(stem)
-    if m and m.group("show").strip(" ._-"):
-        show, year = split_year(m.group("show"))
-        show_dir = "%s (%s)" % (show, year) if year else show
-        s = int(m.group("s"))
-        ep = "S%02dE%02d" % (s, int(m.group("e")))
-        if m.groupdict().get("e2"):
-            ep += "E%02d" % int(m.group("e2"))
-        return join(dest, "TV", show_dir, "Season %02d" % s, "%s %s%s%s" % (show_dir, ep, lang, ext)), "TV"
-
-    title, year = split_year(stem)
-    if year:
-        name = "%s (%s)" % (title, year)
-        return join(dest, "Movies", name, name + lang + ext), "MOVIE"
-
-    return None, "can't tell TV vs movie - rename by hand"
+    """Returns (target or None, kind or skip reason, note)."""
+    if split_name(filename)[1] in VIDEO and 0 <= size_of(path) < MIN_VIDEO_BYTES:
+        return None, "sample/too small", ""
+    parts, kind, note = plan_name(filename)
+    if parts is None:
+        return None, kind, ""
+    return join(dest, *parts), kind.upper(), note
 
 
 def dup_key(target):
@@ -461,12 +407,12 @@ def main():
     busy.create(ADDON, "Scanning files and checking audio tracks...")
     groups, skipped, no_eng = {}, [], []
     for path, name in walk(src):
-        target, kind = plan_for(path, name, dest)
+        target, kind, note = plan_for(path, name, dest)
         if target is None:
             skipped.append("SKIP  %s  (%s)" % (name, kind))
             continue
         busy.update(0, "Checking %s" % name)
-        item = {"src": path, "name": name, "target": target, "kind": kind,
+        item = {"src": path, "name": name, "target": target, "kind": kind, "note": note,
                 "res": resolution(name), "size": size_of(path), "eng": None, "langs": []}
         if check_lang and kind in ("TV", "MOVIE") and split_name(name)[1] in VIDEO:
             item["eng"], item["langs"] = english_status(path, name)
@@ -517,6 +463,8 @@ def main():
         if it.get("old"):
             lines.append("    new: %s   vs   existing: %s" % (
                 describe(it["res"], it["size"]), describe(it["old_res"], it["old_size"])))
+        if it["note"]:
+            lines.append("    (%s)" % it["note"])
         if check_lang and it["kind"] in ("TV", "MOVIE") and it["eng"] is not True:
             lines.append("    (%s - kept to be safe)" % lang_note(it["eng"], it["langs"]))
     if no_eng:

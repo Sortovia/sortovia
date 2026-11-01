@@ -984,9 +984,10 @@ def _dav_ok(ip, port, user, pw):
         return getattr(e, "code", None) in (207, 405)
 
 
-def send_logs(why, dlg=None):
+def send_logs(why, dlg=None, files=None):
     """PUT kodi.log (and kodi.old.log on start-up) to the phone. Returns a short status.
-    With dlg: if the phone is sharing but no password is saved yet, ask for it."""
+    With dlg: if the phone is sharing but no password is saved yet, ask for it.
+    files: [(name, bytes)] to send instead of the logs (e.g. a report)."""
     import socket
     saved = load_cache(data_file("phone.json"))
     creds = saved.get("dav") or {}
@@ -1036,6 +1037,10 @@ def send_logs(why, dlg=None):
     names = [("kodi.log", "kodi-%s-%s.log" % (stamp, why))]
     if why == "start":
         names.append(("kodi.old.log", "kodi-%s-previous-session.log" % stamp))
+    if files:
+        sent = sum(1 for name, data in files if call("PUT", base + name, data))
+        log("sent to phone: %s" % ", ".join(n for n, _ in files))
+        return "sent %d file(s) to the phone" % sent
     sent = 0
     for src, dst in names:
         data = _read_tail(logdir + src, LOG_MAX)
@@ -1325,7 +1330,8 @@ def main():
                            "Choose folders and choices again",
                            "Check for updates now",
                            "View the report from the last move",
-                           "Send Kodi's log to my phone now (xbox-share must be running)"])
+                           "Send Kodi's log to my phone now (xbox-share must be running)",
+                           "Find missing episodes in my TV library"])
         if pick < 0:
             return
         if pick == 2:
@@ -1333,6 +1339,9 @@ def main():
             return
         if pick == 4:
             dlg.ok(ADDON, "Log: %s." % send_logs("manual", dlg))
+            return
+        if pick == 5:
+            find_missing_episodes(dlg)
             return
         if pick == 3:
             text = read_text(data_file("last_report.txt"))
@@ -1447,6 +1456,32 @@ def step_progress(prog, i, count, short):
                     "%d of %d - %s (%s)\n%s" % (i + 1, count, text, time.strftime("%H:%M:%S"), short))
         home().setProperty(PROP_RUN, "%d of %d, %s" % (i + 1, count, text))
     return show
+
+
+def find_missing_episodes(dlg):
+    """Compare the Kodi TV library with TVmaze; show, save and send the list."""
+    import missing
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, "Reading your TV library...")
+
+    def progress(i, n, title):
+        prog.update(int(i * 100 / max(n, 1)), "Checking show %d of %d\n%s" % (i + 1, n, title))
+    try:
+        text, data = missing.find_missing(progress, prog.iscanceled)
+    except Exception as e:
+        prog.close()
+        log("missing episodes failed: %s" % e)
+        dlg.ok(ADDON, "Couldn't check for missing episodes:\n%s\n(This needs internet for TVmaze.)" % e)
+        return
+    prog.close()
+    write_text(data_file("missing_episodes.txt"), text)
+    save_cache(data_file("missing_episodes.json"), data)
+    log("missing episodes: %s" % text.splitlines()[1] if len(text.splitlines()) > 1 else "")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    sent = send_logs("missing", dlg, files=[
+        ("missing-episodes-%s.txt" % stamp, text.encode("utf-8")),
+        ("missing-episodes-%s.json" % stamp, json.dumps(data, indent=1).encode("utf-8"))])
+    dlg.textviewer("%s - missing episodes (phone: %s)" % (ADDON, sent), text)
 
 
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode):

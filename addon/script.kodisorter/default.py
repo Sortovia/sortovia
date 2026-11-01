@@ -301,6 +301,12 @@ def plan_for(path, filename, dest):
     return join(dest, *parts), kind.upper(), note
 
 
+def show_of(target, dest):
+    """'<dest>/TV/Show Name/Season 01/x.mkv' -> 'Show Name'."""
+    parts = re.split(r"[\\/]", target[len(ensure_slash(dest)):])
+    return parts[1] if len(parts) > 2 else parts[-1]
+
+
 def dup_key(target):
     """Same episode/movie regardless of .mkv/.mp4; subs and comics keep their extension."""
     stem, ext = split_name(target)
@@ -620,16 +626,28 @@ def main():
 
     lines = ["%d file(s) to move (%d would replace a lower-quality copy), %d with no English audio, %d skipped.\n"
              % (len(plan), replaces, len(no_eng), len(skipped))]
+    # Notes are grouped by show and listed once at the top, not under every episode.
+    notes, unknown_audio = {}, {}
+    for it in plan:
+        show = show_of(it["target"], dest)
+        if it["note"]:
+            notes.setdefault(it["note"], set()).add(show)
+        if check_lang and it["kind"] in ("TV", "MOVIE") and it["eng"] is not True:
+            unknown_audio[show] = unknown_audio.get(show, 0) + 1
+    if notes or unknown_audio:
+        lines.append("Notes:")
+        for note, shows in sorted(notes.items()):
+            lines.append("  %s: %s" % (note, ", ".join(sorted(shows))))
+        if unknown_audio:
+            lines.append("  audio language unknown, moved anyway to be safe: %s" % ", ".join(
+                "%s (%d)" % (k, v) for k, v in sorted(unknown_audio.items())))
+        lines.append("")
     for it in plan:
         tag = "REPLACE" if it.get("old") else it["kind"]
         lines.append("[%s] %s\n    -> %s" % (tag, it["src"].replace(src, ""), it["target"].replace(dest, "")))
         if it.get("old"):
             lines.append("    new: %s   vs   existing: %s" % (
                 describe(it["res"], it["size"]), describe(it["old_res"], it["old_size"])))
-        if it["note"]:
-            lines.append("    (%s)" % it["note"])
-        if check_lang and it["kind"] in ("TV", "MOVIE") and it["eng"] is not True:
-            lines.append("    (%s - kept to be safe)" % lang_note(it["eng"], it["langs"]))
     if no_eng:
         verb = "MOVE to _No English" if lang_mode == 1 else "DELETE"
         lines.append("\n--- No English audio: will %s ---" % verb)

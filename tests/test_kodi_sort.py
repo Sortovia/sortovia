@@ -113,6 +113,9 @@ class Skips(unittest.TestCase):
     def test_credits_clip(self):
         self.assertIsNone(rel("NCOP One Reason (Censored) [7A42D245].mkv")[0])
 
+    def test_textless_opening(self):
+        self.assertIsNone(rel("Tinman Meadow (Uncensored Textless Opening)  [OtherSubs].mkv")[0])
+
     def test_sample(self):
         self.assertIsNone(rel("Movie.2019.sample.mkv")[0])
 

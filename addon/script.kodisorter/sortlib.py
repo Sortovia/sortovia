@@ -30,7 +30,8 @@ ANIME_RE = re.compile(
 # Release-group tags at the start: "[SubTeam] ", "(Group_One)_"
 LEADING_TAGS_RE = re.compile(r"^(?:\s*(?:\[[^\]]*\]|\([^)]*\)))+\s*")
 YEAR_RE = re.compile(r"[ ._\-\(\[]((?:19|20)\d{2})(?=[ ._\-\)\]]|$)")
-CREDITS_RE = re.compile(r"(?<![a-z])nc(?:op|ed)\d*(?![a-z])", re.I)
+# Opening/ending credits videos: "NCOP", "NCED2", "Textless Opening", "Creditless ED"
+CREDITS_RE = re.compile(r"(?<![a-z])(?:nc(?:op|ed)\d*|textless|creditless)(?![a-z])", re.I)
 
 RELEASE_TOKENS = {
     "480p", "576p", "720p", "1080p", "1080i", "2160p", "4k", "uhd",

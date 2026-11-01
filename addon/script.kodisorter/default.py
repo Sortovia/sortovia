@@ -639,7 +639,100 @@ def save_cache(path, cache):
 
 
 def cache_key(path, size):
-    return "%s|%d" % (path, size)
+    return "%s|%d" % (stable_path(path), size)
+
+
+# ---------- phone over Wi-Fi ----------
+# The phone runs a file server (xbox-share = WebDAV for phone storage, or the
+# primitive ftpd app = FTP for a USB drive on the phone). The Xbox is on the
+# phone's hotspot, so the phone is the Xbox's gateway. Android can change the
+# hotspot address each time it's switched on, so saved paths hold the word
+# PHONE and it's swapped for the current address when a run starts.
+PHONE = "PHONE"
+PHONE_KINDS = {
+    "dav": {"label": "phone storage (xbox-share on the phone)", "port": "8080", "user": "kodi"},
+    "ftp": {"label": "USB drive on the phone (primitive ftpd app)", "port": "12345", "user": "user"},
+}
+
+
+def stable_path(path):
+    """Path with the phone's address and password taken out (for cache keys)."""
+    return re.sub(r"^(dav|davs|ftp)://[^/]*", r"\1://phone", path or "")
+
+
+def masked(path):
+    """Path safe to show or log: password hidden."""
+    return re.sub(r"^([a-z]+://[^:/@]+):[^@/]*@", r"\1:***@", path or "")
+
+
+def phone_address(dlg, ask=True):
+    """The phone's address on the hotspot: Kodi's gateway, else the last one typed."""
+    saved = load_cache(data_file("phone.json"))
+    gw = (xbmc.getInfoLabel("Network.GatewayAddress") or "").strip()
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", gw) and not gw.startswith("0."):
+        return gw
+    if not ask:
+        return saved.get("ip", "")
+    ip = dlg.input("Phone's address (xbox-share shows it, e.g. 192.168.43.1)", saved.get("ip", ""))
+    if ip:
+        saved["ip"] = ip.strip()
+        save_cache(data_file("phone.json"), saved)
+    return ip.strip()
+
+
+def resolve_src(src, dlg):
+    """Swap PHONE for the phone's current address."""
+    if "@%s:" % PHONE not in src:
+        return src
+    ip = phone_address(dlg)
+    return src.replace("@%s:" % PHONE, "@%s:" % ip) if ip else src
+
+
+def phone_source(dlg, kind):
+    """Build (and test) the saved-path form of a phone share, or None."""
+    info = PHONE_KINDS[kind]
+    saved = load_cache(data_file("phone.json"))
+    creds = saved.get(kind, {})
+    if not creds.get("pass"):
+        pw = dlg.input("Password for %s (shown on the phone)" % info["label"])
+        if not pw:
+            return None
+        user = info["user"]
+        if kind == "ftp":
+            user = dlg.input("User name set in primitive ftpd", info["user"]) or info["user"]
+        creds = {"user": user, "pass": pw, "port": creds.get("port", info["port"])}
+        saved[kind] = creds
+        save_cache(data_file("phone.json"), saved)
+    base = "%s://%s:%s@%s:%s/" % (kind, quote(creds["user"], ""), quote(creds["pass"], ""),
+                                  PHONE, creds["port"])
+    real = resolve_src(base, dlg)
+    if PHONE in real.split("@", 1)[-1].split("/")[0] or not phone_reachable(real):
+        msg = ("Can't reach the phone (%s).\n" % masked(real) +
+               ("Start xbox-share in Termux on the phone" if kind == "dav" else
+                "Start primitive ftpd on the phone") +
+               " and make sure the Xbox is on the phone's hotspot.")
+        if dlg.yesno(ADDON, msg + "\nWrong password? Forget it and ask again next time.",
+                     nolabel="OK", yeslabel="Forget password"):
+            saved.pop(kind, None)
+            save_cache(data_file("phone.json"), saved)
+        return None
+    # Optional: pick a folder inside the share (Back = the whole share).
+    try:
+        sub = dlg.browse(0, "Pick the downloads folder on the phone (Back = whole share)",
+                         "files", "", False, False, real)
+    except Exception:
+        sub = ""
+    if sub and sub.startswith(real) and sub != real:
+        return base + sub[len(real):]
+    return base
+
+
+def phone_reachable(url):
+    try:
+        dirs, files = xbmcvfs.listdir(url)
+        return bool(dirs or files) or xbmcvfs.exists(url)
+    except Exception:
+        return False
 
 
 # ---------- self-update ----------
@@ -742,6 +835,28 @@ def latest_version():
     return m.group(1)
 
 
+UPDATE_WAIT = 12  # seconds; with mobile data off the check would otherwise hang
+
+
+def latest_version_within(seconds):
+    """latest_version() with a time limit (no internet can mean long timeouts)."""
+    import threading
+    box = {}
+
+    def work():
+        try:
+            box["v"] = latest_version()
+        except Exception as e:
+            box["e"] = e
+    t = threading.Thread(target=work)
+    t.daemon = True
+    t.start()
+    t.join(seconds)
+    if "v" in box:
+        return box["v"]
+    raise box.get("e") or IOError("no reply within %d seconds - no internet?" % seconds)
+
+
 def toast(msg, ms=4000):
     try:
         xbmcgui.Dialog().notification("Kodi Sorter", msg, xbmcgui.NOTIFICATION_INFO, ms)
@@ -784,11 +899,15 @@ def check_for_update(dlg, manual=False):
         me = xbmcaddon.Addon()
         current = me.getAddonInfo("version")
         folder = xbmcvfs.translatePath(me.getAddonInfo("path"))
-        newest = latest_version()
+        newest = latest_version_within(UPDATE_WAIT if not manual else 60)
     except Exception as e:
         log("update check failed: %s | %s" % (e, " | ".join(FETCH_LOG)))
-        dlg.ok(ADDON, "Couldn't check for updates (you have %s).\n%s\n%s\n"
-               "Carrying on without updating." % (current, e, "\n".join(FETCH_LOG[-2:])))
+        if manual:
+            dlg.ok(ADDON, "Couldn't check for updates (you have %s).\n%s\n%s\n"
+                   "Carrying on without updating." % (current, e, "\n".join(FETCH_LOG[-2:])))
+        else:
+            # Normal when the phone's mobile data is off: just say so in the corner.
+            toast("No internet - skipped the update check (%s)" % current, 3000)
         return False
     log("update check: have %s, newest %s | %s" % (current, newest, " | ".join(FETCH_LOG)))
     if _vtuple(newest) <= _vtuple(current):
@@ -841,7 +960,7 @@ def main():
         where = "while moving files" if prev.get("stage") == "moving" else "while scanning"
         if yesno_default_yes(dlg, "The last run (%s) didn't finish - it stopped %s.\nFrom: %s\nTo: %s\n"
                              "Resume with the same folders and choices?" % (
-                                 prev.get("started", "?"), where, prev["src"], prev["dest"]),
+                                 prev.get("started", "?"), where, masked(prev["src"]), prev["dest"]),
                              nolabel="Start over", yeslabel="Resume"):
             remove_partial_copy(prev)
             run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"])
@@ -852,7 +971,7 @@ def main():
     last = load_cache(data_file("last_settings.json"))
     if last.get("src") and last.get("dest"):
         pick = dlg.select("Kodi Sorter - same as last time?",
-                          ["Same as last time: %s  ->  %s" % (last["src"], last["dest"]),
+                          ["Same as last time: %s  ->  %s" % (masked(last["src"]), last["dest"]),
                            "Choose folders and choices again",
                            "Check for updates now",
                            "View the report from the last move"])
@@ -869,7 +988,16 @@ def main():
             run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"])
             return
 
-    src = dlg.browse(0, "Kodi Sorter: pick SOURCE folder (downloads)", "files")
+    where = dlg.select("Where are the downloads?",
+                       ["A folder or drive on the Xbox",
+                        "My phone over Wi-Fi - %s" % PHONE_KINDS["dav"]["label"],
+                        "My phone over Wi-Fi - %s" % PHONE_KINDS["ftp"]["label"]])
+    if where < 0:
+        return
+    if where == 0:
+        src = dlg.browse(0, "Kodi Sorter: pick SOURCE folder (downloads)", "files")
+    else:
+        src = phone_source(dlg, "dav" if where == 1 else "ftp")
     if not src:
         return
     dest = dlg.browse(0, "Pick DESTINATION drive/folder (holds TV, Movies, Comics)", "files")
@@ -927,7 +1055,7 @@ def write_text(path, text):
 
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s" % (
-        src, dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode]))
+        masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode]))
     try:
         _run(dlg, spath, src, dest, mode, delete_old, lang_mode)
     except Exception:
@@ -950,6 +1078,12 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         toast("Couldn't save progress - Resume won't be offered if this run is interrupted", 6000)
     save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
                                                      ("src", "dest", "mode", "delete_old", "lang_mode")))
+    src = resolve_src(src, dlg)
+    if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
+        dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start xbox-share (Termux) or primitive ftpd, "
+               "and keep the Xbox on the phone's hotspot. Then open Kodi Sorter and choose Resume."
+               % masked(src))
+        return
 
     busy = xbmcgui.DialogProgress()
     busy.create(ADDON, "Listing files...")
@@ -997,7 +1131,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         if target is None and arc and "rename by hand" in kind:
             # Inner file named "movie.mkv" etc: try the archive's own name.
             target, kind, note = plan_for(path, split_name(archive_of[arc])[0] + split_name(name)[1], dest)
-        label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else path.replace(src, "")
+        label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else masked(path.replace(src, ""))
         if target is None:
             skipped.append("SKIP  %s  (%s)" % (label if arc else name, kind))
             by_name += 1
@@ -1032,7 +1166,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     save_cache(spec_path, specials["by_name"])
     if check_lang:
         # Scan finished: forget files that are gone from this source folder.
-        cache = dict((k, v) for k, v in cache.items() if k in seen or not k.startswith(src))
+        cache = dict((k, v) for k, v in cache.items() if k in seen or not k.startswith(stable_path(src)))
         save_cache(cpath, cache)
 
     plan, replaces = [], 0

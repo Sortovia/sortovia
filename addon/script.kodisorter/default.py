@@ -606,11 +606,7 @@ def _vtuple(v):
     return tuple(int(x) for x in re.findall(r"\d+", v)[:3])
 
 
-def _fetch(url):
-    """Download a URL through Kodi. Read in chunks: GitHub sends pages
-    compressed with no length, and a single readBytes() can then return
-    nothing. The ?t= part stops any cache from handing back an old copy."""
-    url += ("&" if "?" in url else "?") + "t=%d" % int(time.time())
+def _fetch_kodi(url):
     f = xbmcvfs.File(url)
     try:
         chunks = []
@@ -622,6 +618,41 @@ def _fetch(url):
         return b"".join(chunks)
     finally:
         f.close()
+
+
+def _fetch_python(url):
+    try:
+        from urllib.request import urlopen, Request
+    except ImportError:
+        from urllib2 import urlopen, Request
+    req = Request(url, headers={"User-Agent": "KodiSorter", "Cache-Control": "no-cache"})
+    resp = urlopen(req, timeout=20)
+    try:
+        return resp.read()
+    finally:
+        resp.close()
+
+
+FETCH_LOG = []
+
+
+def _fetch(url):
+    """Download a URL: Kodi's own downloader first (read in chunks - GitHub
+    sends compressed replies with no length), then Python's as a fallback.
+    The ?t= part stops any cache from handing back an old copy. What each
+    method did is kept in FETCH_LOG so a failure can be shown on screen."""
+    url += ("&" if "?" in url else "?") + "t=%d" % int(time.time())
+    for name, method in (("Kodi", _fetch_kodi), ("Python", _fetch_python)):
+        try:
+            data = method(url)
+        except Exception as e:
+            FETCH_LOG.append("%s downloader: %s" % (name, e))
+            continue
+        if data:
+            FETCH_LOG.append("%s downloader: OK, %d bytes" % (name, len(data)))
+            return data
+        FETCH_LOG.append("%s downloader: got nothing back" % name)
+    raise IOError("could not download %s" % url.split("?")[0].rsplit("/", 1)[-1])
 
 
 def latest_version():
@@ -668,20 +699,27 @@ def install_update(version, folder):
     xbmc.executebuiltin("UpdateLocalAddons")
 
 
-def check_for_update(dlg):
-    """Returns True if an update was installed (caller should stop)."""
+def check_for_update(dlg, manual=False):
+    """Returns True if an update was installed (caller should stop).
+    Runs on every launch; manual=True is the "Check for updates now" item."""
+    del FETCH_LOG[:]
+    current = "?"
     try:
         me = xbmcaddon.Addon()
         current = me.getAddonInfo("version")
         folder = xbmcvfs.translatePath(me.getAddonInfo("path"))
         newest = latest_version()
     except Exception as e:
-        log("update check failed: %s" % e)
-        toast("Couldn't check for updates: %s" % e, 6000)
+        log("update check failed: %s | %s" % (e, " | ".join(FETCH_LOG)))
+        dlg.ok(ADDON, "Couldn't check for updates (you have %s).\n%s\n%s\n"
+               "Carrying on without updating." % (current, e, "\n".join(FETCH_LOG[-2:])))
         return False
-    log("update check: have %s, newest %s" % (current, newest))
+    log("update check: have %s, newest %s | %s" % (current, newest, " | ".join(FETCH_LOG)))
     if _vtuple(newest) <= _vtuple(current):
-        toast("Up to date (%s)" % current, 2500)
+        if manual:
+            dlg.ok(ADDON, "You have the newest version (%s)." % current)
+        else:
+            toast("Up to date (%s)" % current, 3000)
         return False
     if not dlg.yesno(ADDON, "Kodi Sorter %s is available (you have %s).\nUpdate now?" % (newest, current),
                      nolabel="Not now", yeslabel="Update"):
@@ -720,8 +758,12 @@ def main():
     if last.get("src") and last.get("dest"):
         pick = dlg.select("Kodi Sorter - same as last time?",
                           ["Same as last time: %s  ->  %s" % (last["src"], last["dest"]),
-                           "Choose folders and choices again"])
+                           "Choose folders and choices again",
+                           "Check for updates now"])
         if pick < 0:
+            return
+        if pick == 2:
+            check_for_update(dlg, manual=True)
             return
         if pick == 0:
             run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"])

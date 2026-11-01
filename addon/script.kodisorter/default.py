@@ -103,12 +103,18 @@ def join(base, *parts):
     return ensure_slash(base) + sep_of(base).join(parts)
 
 
+def _last_sep(path):
+    # Xbox paths mix both: win-lib://removable/E:\\TV/Show/x.mkv
+    p = path.rstrip("/\\")
+    return max(p.rfind("/"), p.rfind("\\"))
+
+
 def parent_of(path):
-    return path[: path.rstrip("/\\").rfind(sep_of(path)) + 1]
+    return path[: _last_sep(path) + 1]
 
 
 def base_of(path):
-    return path.rstrip("/\\")[path.rstrip("/\\").rfind(sep_of(path)) + 1:]
+    return path.rstrip("/\\")[_last_sep(path) + 1:]
 
 
 def split_name(filename):
@@ -154,6 +160,15 @@ def sorted_folders(dest):
     """The destination's TV/Movies/Comics folders: skipped when the source is
     the same drive/folder (or contains it), so sorted files aren't re-sorted."""
     return set(_norm(join(dest, f)) for f in KODI_FOLDERS)
+
+
+def already_sorted(path, target):
+    """The file is already in its Kodi folder under its Kodi name (a title
+    after the episode number is allowed: "Show S00E01 - Title.mkv")."""
+    if _norm(parent_of(path)) != _norm(parent_of(target)):
+        return False
+    stem = split_name(base_of(target))[0].lower()
+    return base_of(path).lower().startswith(stem)
 
 
 def walk(folder, skip=()):
@@ -1443,6 +1458,21 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
                                                      ("src", "dest", "mode", "delete_old", "lang_mode")))
     src = resolve_src(src, dlg)
+    if base_of(dest).lower() in [f.lower() for f in KODI_FOLDERS]:
+        # Picked the TV (or Movies/Comics) folder itself: files would go to TV/TV/...
+        fixed = parent_of(dest)
+        if not yesno_default_yes(dlg, "The destination is the %s folder itself (%s).\nKodi Sorter makes "
+                                 "TV, Movies and Comics folders inside the destination, so this would "
+                                 "create %s\\TV\\...\nUse %s instead?" % (base_of(dest), dest, base_of(dest), fixed),
+                                 nolabel="Cancel", yeslabel="Use %s" % fixed):
+            clear_session(spath)
+            return
+        picked, dest = dest, fixed
+        session["dest"] = dest
+        save_cache(spath, session)
+        save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
+                                                         ("src", "dest", "mode", "delete_old", "lang_mode")))
+        log("destination changed to %s (%s was the %s folder itself)" % (dest, picked, base_of(picked)))
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
         dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start xbox-share (Termux) or primitive ftpd, "
                "and keep the Xbox on the phone's hotspot. Then open Kodi Sorter and choose Resume."
@@ -1477,11 +1507,13 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     cpath = cache_file()
     cache = load_cache(cpath) if check_lang else {}
     seen, fresh, reused, by_name, other = set(), 0, 0, 0, 0
+    in_place = [0]
 
     def tally():
         # e.g. "39 already checked, 6 new, 29 skipped by name, 2 other"
         t = "%d already checked, %d new, %d skipped by name" % (reused, fresh, by_name)
-        return t + (", %d other" % other if other else "")
+        t += (", %d other" % other if other else "")
+        return t + (", %d already sorted" % in_place[0] if in_place[0] else "")
     spec_path = data_file("specials.json")
     specials = {"by_name": load_cache(spec_path), "used": {}, "titles": {}}
     for i, (path, name, arc) in enumerate(files):
@@ -1502,6 +1534,9 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         if target is None:
             skipped.append("SKIP  %s  (%s)" % (label if arc else name, kind))
             by_name += 1
+            continue
+        if not arc and already_sorted(path, target):
+            in_place[0] += 1  # sorting a library folder: this one is where it belongs
             continue
         if note == SPECIAL_GUESS_NOTE:
             target = renumber_special(target, name, specials)

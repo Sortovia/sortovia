@@ -33,6 +33,43 @@ RES_RE = re.compile(r"(?<![0-9])(2160|1440|1080|720|576|480|360)[pi](?![a-z0-9])
 
 ASK, ALWAYS, NEVER = 0, 1, 2
 
+# Background moves: Kodi's home window holds two flags so that opening Kodi Sorter
+# again while a move is running offers to stop it instead of starting a second run.
+PROP_RUN = "kodisorter.running"   # status text, e.g. "12 of 41" - empty when idle
+PROP_STOP = "kodisorter.stop"     # "1" = stop after the current file
+
+
+def home():
+    return xbmcgui.Window(10000)
+
+
+class Progress(object):
+    """Full-screen progress with a Cancel button, or a small bar in the corner
+    (background) that leaves Kodi free to use. Background runs are stopped by
+    opening Kodi Sorter again. Both stop if Kodi is closing."""
+
+    def __init__(self, background, heading, text):
+        self.background = background
+        self.monitor = xbmc.Monitor()
+        self.dlg = xbmcgui.DialogProgressBG() if background else xbmcgui.DialogProgress()
+        self.dlg.create(heading, text)
+
+    def update(self, pct, text):
+        if self.background:
+            self.dlg.update(pct, message=text.replace("\n", " - "))
+        else:
+            self.dlg.update(pct, text)
+
+    def canceled(self):
+        if self.monitor.abortRequested():
+            return True
+        if self.background:
+            return home().getProperty(PROP_STOP) == "1"
+        return self.dlg.iscanceled()
+
+    def close(self):
+        self.dlg.close()
+
 
 # ---------- path helpers ----------
 def log(msg):
@@ -785,6 +822,16 @@ def yesno_default_yes(dlg, msg, nolabel, yeslabel):
 # ---------- main ----------
 def main():
     dlg = xbmcgui.Dialog()
+    status = home().getProperty(PROP_RUN)
+    if status:
+        if home().getProperty(PROP_STOP) == "1":
+            dlg.ok(ADDON, "Already stopping - it will stop after the file it is moving now (%s)." % status)
+        elif dlg.yesno(ADDON, "Kodi Sorter is moving files in the background (%s).\n"
+                       "Stop after the current file? Open Kodi Sorter later and choose Resume "
+                       "to finish the rest." % status, nolabel="Keep going", yeslabel="Stop"):
+            home().setProperty(PROP_STOP, "1")
+            toast("Stopping after the current file...")
+        return
     if check_for_update(dlg):
         return
 
@@ -807,11 +854,16 @@ def main():
         pick = dlg.select("Kodi Sorter - same as last time?",
                           ["Same as last time: %s  ->  %s" % (last["src"], last["dest"]),
                            "Choose folders and choices again",
-                           "Check for updates now"])
+                           "Check for updates now",
+                           "View the report from the last move"])
         if pick < 0:
             return
         if pick == 2:
             check_for_update(dlg, manual=True)
+            return
+        if pick == 3:
+            text = read_text(data_file("last_report.txt"))
+            dlg.textviewer("%s - last report" % ADDON, text or "No report saved yet.")
             return
         if pick == 0:
             run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"])
@@ -851,6 +903,28 @@ LANG_NAMES = ["skip no-English files", "move no-English to _No English",
               "delete no-English files", "don't check audio"]
 
 
+def read_text(path):
+    try:
+        f = xbmcvfs.File(path)
+        try:
+            return f.read()
+        finally:
+            f.close()
+    except Exception:
+        return ""
+
+
+def write_text(path, text):
+    try:
+        f = xbmcvfs.File(path, "w")
+        f.write(text)
+        f.close()
+        return True
+    except Exception as e:
+        log("could not write %s: %s" % (path, e))
+        return False
+
+
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s" % (
         src, dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode]))
@@ -861,6 +935,9 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         log_block("ERROR", traceback.format_exc())
         dlg.ok(ADDON, "Something went wrong - nothing more was moved.\n"
                "Details are in Kodi's log: use the Kodi Logfile Uploader add-on.")
+    finally:
+        home().clearProperty(PROP_RUN)
+        home().clearProperty(PROP_STOP)
     log("RUN END")
 
 
@@ -1036,46 +1113,63 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
                          ["View the full list", "Done"]) == 0:
             dlg.textviewer("%s - preview (nothing moved)" % ADDON, preview)
         return
-    action = "Move %d file(s) now" % len(plan)
+    what = "%d file(s)" % len(plan)
     if no_eng:
-        action += " + %s %d with no English audio" % (
+        what += " + %s %d with no English audio" % (
             "move" if lang_mode == 1 else "DELETE", len(no_eng))
     while True:
-        choice = dlg.select(title, [action,
+        choice = dlg.select(title, ["Move %s in the BACKGROUND - keep using Kodi" % what,
+                                    "Move %s now, full screen" % what,
                                     "View the full list first (%d to move, %d skipped)" % (len(plan), len(skipped)),
                                     "Cancel - move nothing"])
-        if choice == 1:
+        if choice == 2:
             dlg.textviewer("%s - preview (nothing moved yet)" % ADDON, preview)
             continue
-        log("menu choice: %s" % {0: "move now", 1: "view list", 2: "cancel"}.get(choice, "back"))
-        if choice == 2:
+        log("menu choice: %s" % {0: "move in background", 1: "move full screen", 2: "view list",
+                                 3: "cancel"}.get(choice, "back"))
+        if choice == 3:
             clear_session(spath)  # you chose not to move anything: nothing to resume
             return
-        if choice != 0:
+        if choice not in (0, 1):
             return  # Back button: keep the run so it can be resumed
         break
+    background = choice == 0
+
+    def ask_replace(it):
+        short = it["target"].replace(dest, "")
+        return dlg.yesno(ADDON, "Replace existing copy?\n%s\nNew: %s\nExisting: %s" % (
+            short, describe(it["res"], it["size"]), describe(it["old_res"], it["old_size"])),
+            nolabel="Keep existing", yeslabel="Replace")
+
+    if background and mode == ASK:
+        # Ask every "replace?" question now, so nothing pops up while you watch.
+        for it in plan:
+            if it.get("old"):
+                it["keep_old"] = not ask_replace(it)
+
     session["stage"] = "moving"
     save_cache(spath, session)
 
-    prog = xbmcgui.DialogProgress()
-    prog.create(ADDON, "Moving files...")
+    home().clearProperty(PROP_STOP)
+    home().setProperty(PROP_RUN, "starting")
+    prog = Progress(background, ADDON, "Moving files...")
+    if background:
+        toast("Moving %d file(s) in the background. Open Kodi Sorter again to stop." % len(plan), 6000)
     report, ok_count = [], 0
     arc_ok, arc_count = {}, {}
     cancelled = False
     for i, it in enumerate(plan):
-        if prog.iscanceled():
+        if prog.canceled():
             cancelled = True
-            report.append("CANCELLED - remaining files untouched. Open Kodi Sorter again and choose Resume.")
+            report.append("STOPPED - remaining files untouched. Open Kodi Sorter again and choose Resume.")
             break
         short = it["target"].replace(dest, "")
+        home().setProperty(PROP_RUN, "%d of %d" % (i + 1, len(plan)))
         prog.update(int(i * 100 / len(plan)), "%d of %d\n%s" % (i + 1, len(plan), short))
         session["in_progress"] = {"src": it["src"], "dst": it["target"]}
         save_cache(spath, session)
         if it.get("old"):
-            if mode == ASK and not dlg.yesno(
-                    ADDON, "Replace existing copy?\n%s\nNew: %s\nExisting: %s" % (
-                        short, describe(it["res"], it["size"]), describe(it["old_res"], it["old_size"])),
-                    nolabel="Keep existing", yeslabel="Replace"):
+            if it.get("keep_old") or (mode == ASK and not background and not ask_replace(it)):
                 report.append("KEPT  %s  (you chose to keep the existing copy)" % short)
                 continue
             ok, how = replace_file(it["src"], it["target"], it["old"], dest, delete_old)
@@ -1088,7 +1182,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         report.append("%s  %s -> %s  (%s)" % ("OK " if ok else "ERR", it["label"], short, how))
         log(report[-1])
     for it in no_eng:
-        if prog.iscanceled():
+        if cancelled or prog.canceled():
+            cancelled = True
             break
         if lang_mode == 1:
             rel = it["target"][len(ensure_slash(dest)):]
@@ -1119,15 +1214,14 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     stamp = time.strftime("%Y-%m-%d %H:%M")
     text = "Kodi Sorter run %s\n%d of %d actions done OK\n\n%s\n" % (stamp, ok_count, len(plan) + len(no_eng), "\n".join(report))
     log_block("MOVE RESULT", text)
-    try:
-        f = xbmcvfs.File(join(dest, "kodi_sorter_log.txt"), "w")
-        f.write(text)
-        f.close()
-    except Exception as e:
-        log("could not write log: %s" % e)
-    if dlg.yesno(ADDON, "Finished: %d of %d done OK.\nA log was saved as kodi_sorter_log.txt "
-                 "on the destination drive." % (ok_count, len(plan) + len(no_eng)),
-                 nolabel="Close", yeslabel="View report"):
+    write_text(join(dest, "kodi_sorter_log.txt"), text)
+    write_text(data_file("last_report.txt"), text)
+    done = "%s: %d of %d done OK." % ("Stopped" if cancelled else "Finished", ok_count, len(plan) + len(no_eng))
+    if background and xbmc.Player().isPlayingVideo():
+        # Don't cover what you're watching: a note in the corner instead.
+        toast(done + " Report: open Kodi Sorter > View the report from the last move.", 10000)
+    elif dlg.yesno(ADDON, done + "\nA log was saved as kodi_sorter_log.txt on the destination drive.",
+                   nolabel="Close", yeslabel="View report"):
         dlg.textviewer("%s - done" % ADDON, text)
     if not cancelled:
         clear_session(spath)  # finished: nothing to resume next time

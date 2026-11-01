@@ -39,6 +39,16 @@ def log(msg):
     xbmc.log("[%s] %s" % (ADDON, msg), xbmc.LOGINFO)
 
 
+def log_block(title, text):
+    """Write a whole report into kodi.log between clear markers, so it can be
+    shared with Kodi Logfile Uploader instead of photographing the screen."""
+    log("===== %s - START =====" % title)
+    for line in text.splitlines():
+        if line.strip():
+            log("  " + line)
+    log("===== %s - END =====" % title)
+
+
 def sep_of(path):
     # Xbox/Windows local paths use "\", Kodi URLs (smb://, special://) use "/"
     return "\\" if ("\\" in path and "://" not in path) else "/"
@@ -836,7 +846,25 @@ def main():
     run(dlg, spath, src, dest, mode, delete_old, lang_mode)
 
 
+MODE_NAMES = ["ask each time", "always keep the better copy", "never replace"]
+LANG_NAMES = ["skip no-English files", "move no-English to _No English",
+              "delete no-English files", "don't check audio"]
+
+
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
+    log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s" % (
+        src, dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode]))
+    try:
+        _run(dlg, spath, src, dest, mode, delete_old, lang_mode)
+    except Exception:
+        import traceback
+        log_block("ERROR", traceback.format_exc())
+        dlg.ok(ADDON, "Something went wrong - nothing more was moved.\n"
+               "Details are in Kodi's log: use the Kodi Logfile Uploader add-on.")
+    log("RUN END")
+
+
+def _run(dlg, spath, src, dest, mode, delete_old, lang_mode):
     check_lang = lang_mode != 3
     session = {"src": src, "dest": dest, "mode": mode, "delete_old": delete_old,
                "lang_mode": lang_mode, "stage": "scanning",
@@ -1000,6 +1028,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         lines.append("\n--- Skipped (left where they are) ---")
         lines.extend(sorted(skipped))
     preview = "\n".join(lines)
+    log_block("SCAN RESULT (%d files: %s)" % (len(files), tally()), preview)
     title = "%s - scan finished: %d files (%s)" % (ADDON, len(files), tally())
     if not plan and not no_eng:
         clear_session(spath)
@@ -1018,6 +1047,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
         if choice == 1:
             dlg.textviewer("%s - preview (nothing moved yet)" % ADDON, preview)
             continue
+        log("menu choice: %s" % {0: "move now", 1: "view list", 2: "cancel"}.get(choice, "back"))
         if choice == 2:
             clear_session(spath)  # you chose not to move anything: nothing to resume
             return
@@ -1088,6 +1118,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode):
 
     stamp = time.strftime("%Y-%m-%d %H:%M")
     text = "Kodi Sorter run %s\n%d of %d actions done OK\n\n%s\n" % (stamp, ok_count, len(plan) + len(no_eng), "\n".join(report))
+    log_block("MOVE RESULT", text)
     try:
         f = xbmcvfs.File(join(dest, "kodi_sorter_log.txt"), "w")
         f.write(text)

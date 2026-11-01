@@ -604,18 +604,39 @@ def _vtuple(v):
 
 
 def _fetch(url):
+    """Download a URL through Kodi. Read in chunks: GitHub sends pages
+    compressed with no length, and a single readBytes() can then return
+    nothing. The ?t= part stops any cache from handing back an old copy."""
+    url += ("&" if "?" in url else "?") + "t=%d" % int(time.time())
     f = xbmcvfs.File(url)
     try:
-        return bytes(f.readBytes())
+        chunks = []
+        while True:
+            b = f.readBytes(65536)
+            if not b:
+                break
+            chunks.append(bytes(b))
+        return b"".join(chunks)
     finally:
         f.close()
 
 
 def latest_version():
-    """Newest version on the web page, or None if it can't be checked."""
+    """Newest version on the web page. Raises if it can't be read."""
     xml = _fetch(UPDATE_BASE + "addons.xml").decode("utf-8", "ignore")
+    if not xml.strip():
+        raise IOError("empty reply from GitHub")
     m = re.search(r'<addon[^>]*id="%s"[^>]*version="([^"]+)"' % re.escape(ADDON_ID), xml)
-    return m.group(1) if m else None
+    if not m:
+        raise IOError("Kodi Sorter not listed on the update page")
+    return m.group(1)
+
+
+def toast(msg, ms=4000):
+    try:
+        xbmcgui.Dialog().notification("Kodi Sorter", msg, xbmcgui.NOTIFICATION_INFO, ms)
+    except Exception:
+        log(msg)
 
 
 def install_update(version, folder):
@@ -652,9 +673,12 @@ def check_for_update(dlg):
         folder = xbmcvfs.translatePath(me.getAddonInfo("path"))
         newest = latest_version()
     except Exception as e:
-        log("update check skipped: %s" % e)
+        log("update check failed: %s" % e)
+        toast("Couldn't check for updates: %s" % e, 6000)
         return False
-    if not newest or _vtuple(newest) <= _vtuple(current):
+    log("update check: have %s, newest %s" % (current, newest))
+    if _vtuple(newest) <= _vtuple(current):
+        toast("Up to date (%s)" % current, 2500)
         return False
     if not dlg.yesno(ADDON, "Kodi Sorter %s is available (you have %s).\nUpdate now?" % (newest, current),
                      nolabel="Not now", yeslabel="Update"):

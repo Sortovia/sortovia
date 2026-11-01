@@ -6,7 +6,8 @@
 Writes into the target folder (a clone of github.com/akaguyver/kodi-repo):
   addons.xml, addons.xml.md5      - what Kodi reads to find updates
   <id>/<id>-<version>.zip         - one zip per add-on version
-  repository.akaguyver-<ver>.zip  - top-level copy for first-time install
+  <id>-<version>.zip              - top-level copy of each newest zip, so
+                                    Install from zip file can use the web source
   index.html                      - link list so Kodi's file browser sees the zip
 
 After building: commit and push the target repo. Kodi picks up new versions
@@ -39,12 +40,15 @@ def build(out: Path):
                 if f.is_file() and "__pycache__" not in f.parts:
                     z.write(f, f"{addon.name}/{f.relative_to(addon).as_posix()}")
         entries.append(re.sub(r"^<\?xml[^>]*\?>\s*", "", xml).strip())
-        if addon.name == REPO_ID:
-            top = out / zpath.name
-            for old in out.glob(f"{REPO_ID}-*.zip"):
-                old.unlink()
-            top.write_bytes(zpath.read_bytes())
-            links.append(top.name)
+        (zpath.parent / (zpath.name + ".md5")).write_text(
+            hashlib.md5(zpath.read_bytes()).hexdigest())
+        # Top-level copy of the newest zip of every add-on, so Kodi's
+        # "Install from zip file" can pick it straight from the web source.
+        for old in out.glob(f"{addon.name}-*.zip"):
+            old.unlink()
+        top = out / zpath.name
+        top.write_bytes(zpath.read_bytes())
+        links.append(top.name)
         print(f"built {zpath.relative_to(out)}")
 
     addons_xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<addons>\n'

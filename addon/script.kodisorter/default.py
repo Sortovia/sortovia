@@ -2001,7 +2001,7 @@ def ask_sub_mode(dlg):
             save_cache(data_file("subs.json"), {"keep": [codes[i] for i in chosen]})
 
 
-def match_orphan_subs(orphans, groups, src, dest):
+def match_orphan_subs(orphans, groups, src, dest, progress=None):
     """Subtitles named only by language ('Subs/Show.S01E01.../11_English.srt'):
     find their video from the folder names - a video moved in this run, or one
     already in the library - and file them as <video folder>/Subs/<video>.en.srt.
@@ -2039,6 +2039,8 @@ def match_orphan_subs(orphans, groups, src, dest):
         return None
 
     for path, name, label in orphans:
+        if progress:
+            progress(path)
         vt = video_for(path)
         if not vt:
             yield None, "SKIP  %s  (subtitle - couldn't tell which video it belongs to)" % label, path
@@ -2217,7 +2219,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                                 "again and choose Resume to carry on." % (i, len(files)))
             return
         busy.update(int(i * 100 / max(len(files), 1)),
-                    "Scanning %d of %d\n%s\n%s" % (i + 1, len(files), tally(), name))
+                    "Step 1 of 3 - scanning %d of %d\n%s\n%s" % (i + 1, len(files), tally(), name))
         target, kind, note = plan_for(path, name, dest)
         if target is None and arc and "rename by hand" in kind:
             # Inner file named "movie.mkv" etc: try the archive's own name.
@@ -2301,7 +2303,17 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         groups.setdefault(dup_key(t), []).append(
             {"src": path, "name": base_of(path), "target": t, "kind": "EXTRA", "note": "", "arc": None,
              "label": masked(path.replace(src, "")), "res": None, "size": size_of(path), "eng": None, "langs": []})
-    for it, why, path in match_orphan_subs(orphan_subs, groups, src, dest):
+    def stage(title, i, n, detail=""):
+        """Progress for the work after the file-by-file scan (was a frozen '1433 of 1433')."""
+        if i % 10 == 0 or i == n - 1:
+            busy.update(int(i * 100 / max(n, 1)), "%s: %d of %d\n%s\n%s" % (title, i + 1, n, tally(), detail))
+
+    sub_n = [0]
+
+    def sub_progress(path):
+        stage("Step 2 of 3 - matching subtitles to their videos", sub_n[0], len(orphan_subs), base_of(path))
+        sub_n[0] += 1
+    for it, why, path in match_orphan_subs(orphan_subs, groups, src, dest, sub_progress):
         if sub_mode and (unwanted_sub(it["target"], keep_langs) if it else unwanted_sub(path, keep_langs, False)):
             unwanted_subs.append(path)  # other language: deleted / parked, matched or not
         elif it:
@@ -2318,7 +2330,13 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         save_cache(cpath, cache)
 
     plan, replaces = [], 0
-    for key, items in groups.items():
+    for g, (key, items) in enumerate(list(groups.items())):
+        if busy.iscanceled():
+            busy.close()
+            xbmcgui.Dialog().ok(ADDON, "Stopped before anything was moved. Files already checked are "
+                                "remembered - open Kodi Sorter again and choose Resume to carry on.")
+            return
+        stage("Step 3 of 3 - checking what's already in your library", g, len(groups), base_of(items[0]["target"]))
         # Within this run: keep the best copy, skip the rest.
         best = items[0]
         for it in items[1:]:

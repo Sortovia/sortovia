@@ -598,8 +598,8 @@ STEP_HOOK = [None]
 
 
 def step(name, text):
-    log("  step: %s - %s" % (text, name))
-    if STEP_HOOK[0]:
+    if STEP_HOOK[0]:  # big files only: 1000 subtitles would flood the log
+        log("  step: %s - %s" % (text, name))
         STEP_HOOK[0](text)
 
 
@@ -639,19 +639,48 @@ def copy_with_progress(src, dst, total):
         fout.close()
         if not ok:
             xbmcvfs.delete(dst)
-    return True
+    return done
 
 
-def move_file(src, dst):
-    """Rename if possible (same drive, instant); else copy, check size, delete."""
+RENAME_FAILS = set()  # (source drive, destination drive) pairs where rename failed
+MADE_DIRS = set()
+
+
+def _drive(path):
+    m = re.match(r"^(win-lib://[^/]*/[A-Za-z]:|[a-z]+://[^/]*|[A-Za-z]:|/)", path or "")
+    return (m.group(1) if m else path[:8]).lower()
+
+
+def move_file(src, dst, known_size=None):
+    """Rename if possible (same drive, instant); else copy, check size, delete.
+    On the Xbox a rename never works: after the first failure for a pair of
+    drives it isn't tried again (each failed attempt cost time per file)."""
+    src_size = None
     if xbmcvfs.exists(dst):
-        return False, "destination already exists - nothing overwritten"
-    xbmcvfs.mkdirs(parent_of(dst))
-    if xbmcvfs.rename(src, dst) and xbmcvfs.exists(dst):
-        return True, "moved"
-    src_size = size_of(src)
+        if split_name(dst)[1] in VIDEO or in_archive(src):
+            return False, "destination already exists - nothing overwritten"
+        src_size, dst_size = size_of(src), size_of(dst)
+        if not (0 <= dst_size < src_size):
+            return False, "destination already exists - nothing overwritten"
+        xbmcvfs.delete(dst)  # a small file cut short by an interrupted run: copy it again
+        log("redoing a half-copied %s (%d of %d bytes)" % (base_of(dst), dst_size, src_size))
+    folder = parent_of(dst)
+    if _norm(folder) not in MADE_DIRS:
+        xbmcvfs.mkdirs(folder)
+        MADE_DIRS.add(_norm(folder))
+    pair = (_drive(src), _drive(dst))
+    if pair not in RENAME_FAILS:
+        if xbmcvfs.rename(src, dst) and xbmcvfs.exists(dst):
+            return True, "moved"
+        RENAME_FAILS.add(pair)
+    if src_size is None:
+        # The scan's size is reused for small files only: a big video may still
+        # have been downloading then, so it's measured again right now.
+        small = known_size is not None and 0 <= known_size < MIN_VIDEO_BYTES
+        src_size = known_size if small else size_of(src)
+    written = None
     try:
-        copy_with_progress(src, dst, src_size)
+        written = copy_with_progress(src, dst, src_size)
     except CopyStopped:
         return False, "stopped part way - half copy removed, original kept"
     except Exception as e:
@@ -662,7 +691,10 @@ def move_file(src, dst):
         if not xbmcvfs.copy(src, dst):
             return False, "copy failed (%s) - original kept" % e
     step(base_of(dst), "checking the size of the copy")
-    dst_size = size_of(dst)
+    if written is not None and 0 < src_size < MIN_VIDEO_BYTES and not in_archive(src):
+        dst_size = written  # small file: every byte was counted as it was written
+    else:
+        dst_size = size_of(dst)
     if in_archive(src):
         # The archive itself is kept (parked in _Unpacked), so nothing is lost
         # if this check is weaker than for normal files.
@@ -793,8 +825,8 @@ def load_cache(path):
         return {}
 
 
-def save_cache(path, cache):
-    """Write JSON; returns True if it could be read back."""
+def save_cache(path, cache, verify=True):
+    """Write JSON; returns True if it could be read back (or just written, if verify=False)."""
     if not path:
         return False
     try:
@@ -803,7 +835,7 @@ def save_cache(path, cache):
             f.write(json.dumps(cache))
         finally:
             f.close()
-        return load_cache(path) == json.loads(json.dumps(cache))
+        return load_cache(path) == json.loads(json.dumps(cache)) if verify else True
     except Exception as e:
         log("could not save %s: %s" % (path, e))
         return False
@@ -2361,19 +2393,24 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
         short = it["target"].replace(dest, "")
         home().setProperty(PROP_RUN, "%d of %d" % (i + 1, len(plan)))
         prog.update(int(i * 100 / len(plan)), "%d of %d\n%s" % (i + 1, len(plan), short))
-        COPY_HOOK[0] = file_progress(prog, i, len(plan), short)
-        STEP_HOOK[0] = step_progress(prog, i, len(plan), short)
+        big = (it.get("size") or 0) >= MIN_VIDEO_BYTES
+        COPY_HOOK[0] = file_progress(prog, i, len(plan), short) if big else None
+        STEP_HOOK[0] = step_progress(prog, i, len(plan), short) if big else None
         # Remembered so Resume can remove a half copy. Not for replaces: the
         # target name may still hold the old copy, which must never be removed.
-        session["in_progress"] = None if it.get("old") else {"src": it["src"], "dst": it["target"]}
-        save_cache(spath, session)
+        # Small files (subtitles, .nfo) skip this: saving it twice per file was
+        # most of their time, and move_file redoes a short leftover copy anyway.
+        tracked = big and not it.get("old")
+        if tracked:
+            session["in_progress"] = {"src": it["src"], "dst": it["target"]}
+            save_cache(spath, session, verify=False)
         if it.get("old"):
             if it.get("keep_old") or (mode == ASK and not background and not ask_replace(it)):
                 report.append("KEPT  %s  (you chose to keep the existing copy)" % short)
                 continue
             ok, how = replace_file(it["src"], it["target"], it["old"], dest, delete_old)
         else:
-            ok, how = move_file(it["src"], it["target"])
+            ok, how = move_file(it["src"], it["target"], it.get("size"))
         ok_count += ok
         if ok:
             moved_ok.append(it)
@@ -2381,8 +2418,9 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
             arc_ok[it["arc"]] = arc_ok.get(it["arc"], True) and ok
             arc_count[it["arc"]] = arc_count.get(it["arc"], 0) + 1
         COPY_HOOK[0] = STEP_HOOK[0] = None
-        session["in_progress"] = None  # finished (or failed safely): nothing half-done to clean up
-        save_cache(spath, session)
+        if tracked:
+            session["in_progress"] = None  # finished (or failed safely): nothing half-done to clean up
+            save_cache(spath, session, verify=False)
         stopped = how.startswith("stopped part way")
         report.append("%s  %s -> %s  (%s)" % ("OK " if ok else ("STOP" if stopped else "ERR"),
                                               it["label"], short, how))

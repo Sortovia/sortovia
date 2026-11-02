@@ -1956,12 +1956,15 @@ class TitleFixer(object):
         folder = rel[1]
         m = re.match(r"^(.*) \((\d{4})\)$", folder)
         title, year = (m.group(1), m.group(2)) if m else (folder, None)
-        key = "%s|%s" % (title.lower(), year or "")
+        key = "v2|%s|%s" % (title.lower(), year or "")
         if key not in self.cache:
             import whereto
             try:
-                self.cache[key] = whereto.english_title(self.tm, title, year) or ""
+                notes = []
+                self.cache[key] = whereto.english_title(self.tm, title, year, notes) or ""
                 self.dirty = True
+                if not self.cache[key] and notes:
+                    log("title check %s: %s" % (folder, " | ".join(notes)[:600]))
             except Exception as e:
                 log("English title lookup failed for %s: %s" % (folder, e))
                 if "refused" in str(e):

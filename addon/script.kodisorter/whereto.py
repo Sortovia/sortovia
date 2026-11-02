@@ -148,6 +148,18 @@ def annotate(data, tm, region, mine, progress=None):
 
 
 # ---------- English movie titles ----------
+_CYR = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z", "и": "i",
+        "й": "j", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
+        "у": "u", "ф": "f", "х": "kh", "ц": "c", "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "",
+        "э": "e", "ю": "yu", "я": "ya", "і": "i", "ї": "i", "є": "e", "ґ": "g"}
+# Latin -> Cyrillic for searching TMDb with a transliterated title (longest first)
+_LAT = [("shch", "щ"), ("sch", "щ"), ("zh", "ж"), ("kh", "х"), ("ts", "ц"), ("ch", "ч"), ("sh", "ш"),
+        ("yu", "ю"), ("ju", "ю"), ("ya", "я"), ("ja", "я"), ("yo", "ё"), ("jo", "ё"), ("a", "а"), ("b", "б"),
+        ("v", "в"), ("w", "в"), ("g", "г"), ("d", "д"), ("e", "е"), ("z", "з"), ("i", "и"), ("j", "й"),
+        ("k", "к"), ("l", "л"), ("m", "м"), ("n", "н"), ("o", "о"), ("p", "п"), ("r", "р"), ("s", "с"),
+        ("t", "т"), ("u", "у"), ("f", "ф"), ("h", "х"), ("c", "ц"), ("y", "ы"), ("x", "кс"), ("q", "к")]
+
+
 def _norm_title(t):
     import unicodedata
     t = unicodedata.normalize("NFKD", t or "")
@@ -155,29 +167,71 @@ def _norm_title(t):
     return re.sub(r"[^a-z0-9]+", "", t)
 
 
-def english_title(tm, title, year):
+def _skeleton(t):
+    """Compare titles across scripts and spelling systems: Cyrillic is written in
+    Latin letters, then letters that schemes spell differently are merged
+    ('Bolshoi Gorod' ~ 'Bolshoy Gorod' ~ 'Большой Город')."""
+    t = "".join(_CYR.get(c, c) for c in (t or "").lower())
+    t = _norm_title(t)
+    for a, b in (("shch", "sc"), ("sch", "sc"), ("tch", "c"), ("ch", "c"), ("ts", "c"), ("tz", "c"),
+                 ("kh", "h"), ("zh", "z"), ("sh", "s"), ("yu", "u"), ("ju", "u"), ("ya", "a"), ("ja", "a"),
+                 ("yo", "o"), ("jo", "o"), ("ye", "e"), ("je", "e"), ("iy", "i"), ("ij", "i"), ("yj", "i"),
+                 ("yi", "i"), ("j", "i"), ("y", "i"), ("w", "v"), ("x", "ks")):
+        t = t.replace(a, b)
+    return t
+
+
+def to_cyrillic(latin):
+    out, s = [], latin.lower()
+    while s:
+        for a, b in _LAT:
+            if s.startswith(a):
+                out.append(b)
+                s = s[len(a):]
+                break
+        else:
+            out.append(s[0])
+            s = s[1:]
+    return "".join(out)
+
+
+def english_title(tm, title, year, notes=None):
     """The English title of a movie whose folder is named e.g. 'Bolshoi Gorod 3 (2026)'.
     Only returned when TMDb confirms the current name is one of THAT movie's
-    alternative/translated titles (same year +-1); None = keep the name."""
-    params = {"query": title, "language": "en-US", "include_adult": "false"}
-    if year:
-        params["year"] = year
-    res = (tm.get("/search/movie", **params) or {}).get("results") or []
-    if not res and year:
-        params.pop("year")
+    alternative/translated titles (same year +-1, any script); None = keep it.
+    notes (list) collects what TMDb returned, for the log."""
+    notes = notes if notes is not None else []
+
+    def search(q):
+        params = {"query": q, "language": "en-US", "include_adult": "false"}
+        if year:
+            params["year"] = year
         res = (tm.get("/search/movie", **params) or {}).get("results") or []
-    me = _norm_title(title)
+        if not res and year:
+            params.pop("year")
+            res = (tm.get("/search/movie", **params) or {}).get("results") or []
+        return res
+    res = search(title)
+    if not res and re.search(r"[a-z]", title, re.I) and not re.search(r"[^\x00-\x7f]", title):
+        cyr = to_cyrillic(title)  # maybe a Russian title written in Latin letters
+        res = search(cyr)
+        notes.append("searched '%s' then '%s'" % (title, cyr))
+    me = _skeleton(title)
     for r in res[:5]:
         ry = (r.get("release_date") or "")[:4]
+        notes.append("%s (%s) id %s" % (r.get("title"), ry or "?", r.get("id")))
         if year and ry.isdigit() and abs(int(ry) - int(year)) > 1:
             continue
-        if me in (_norm_title(r.get("title")), _norm_title(r.get("original_title"))):
-            return None  # already its English (or original) title
+        if me == _skeleton(r.get("title")):
+            return None  # already its English title
         d = tm.get("/movie/%d" % r["id"], append_to_response="alternative_titles,translations",
                    language="en-US") or {}
-        names = set(_norm_title(a.get("title")) for a in (d.get("alternative_titles") or {}).get("titles", []))
-        names |= set(_norm_title((t.get("data") or {}).get("title"))
-                     for t in (d.get("translations") or {}).get("translations", []))
-        if me in names and d.get("title"):
+        names = [r.get("original_title")]
+        names += [a.get("title") for a in (d.get("alternative_titles") or {}).get("titles", [])]
+        names += [(t.get("data") or {}).get("title") for t in (d.get("translations") or {}).get("translations", [])]
+        if me in set(_skeleton(n) for n in names if n) and d.get("title"):
             return d["title"]
+        notes.append("  no alternative title matches '%s'" % title)
+    if not res:
+        notes.append("TMDb found nothing for '%s'" % title)
     return None

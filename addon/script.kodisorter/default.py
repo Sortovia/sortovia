@@ -1398,7 +1398,7 @@ def main():
                              nolabel="Start over", yeslabel="Resume"):
             remove_partial_copy(prev)
             run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"],
-                prev.get("nfo_mode", 0))
+                prev.get("nfo_mode", 0), prev.get("sub_mode", 0))
             return
         clear_session(spath)
 
@@ -1437,7 +1437,7 @@ def main():
             return
         if pick == 0:
             run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"],
-                last.get("nfo_mode", 0))
+                last.get("nfo_mode", 0), last.get("sub_mode", 0))
             return
 
     where = dlg.select("Where are the downloads?",
@@ -1479,7 +1479,10 @@ def main():
     nfo_mode = dlg.select("Release .nfo files (the text notes that come with downloads):", nfos.NFO_CHOICES)
     if nfo_mode < 0:
         return
-    run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode)
+    sub_mode = ask_sub_mode(dlg)
+    if sub_mode < 0:
+        return
+    run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode, sub_mode)
 
 
 MODE_NAMES = ["ask each time", "always keep the better copy", "never replace"]
@@ -1829,7 +1832,7 @@ def _guess_items(release, dest):
     return []
 
 
-def tidy_after_sort(src, dest, moved, leftovers, video_paths, nfo_mode, report):
+def tidy_after_sort(src, dest, moved, leftovers, video_paths, nfo_mode, report, extra_dirs=()):
     """Finished release folders (no real videos left in them): turn release NFOs
     into Kodi .nfo files (IMDb link) if asked, move the leftovers (.nfo, .sfv,
     .txt, screenshots, samples) to <src>/_Unpacked - or delete the NFOs, or leave
@@ -1837,6 +1840,7 @@ def tidy_after_sort(src, dest, moved, leftovers, video_paths, nfo_mode, report):
     import nfos
     plan = tidy_plan(src, leftovers, video_paths, [it["src"] for it in moved])
     folders = dict((_norm(parent_of(it["src"])), parent_of(it["src"])) for it in moved if not it["arc"])
+    folders.update((_norm(d), d) for d in extra_dirs)
     made = parked = deleted = 0
     for release, files in sorted(plan.items()):
         if _videos_left(release):
@@ -1942,6 +1946,61 @@ class TitleFixer(object):
             save_cache(data_file("titles.json"), self.cache)
 
 
+# ---------- subtitle languages to keep ----------
+SUB_KEEP_ALL, SUB_DELETE, SUB_PARK = 0, 1, 2
+
+
+def sub_keep_langs():
+    return load_cache(data_file("subs.json")).get("keep") or ["en"]
+
+
+def lang_name(code):
+    import nfos
+    words = nfos.LANG_WORDS.get(code)
+    return words[0].capitalize() if words else code
+
+
+def sub_lang_code(name, strict=True):
+    """Language of a subtitle, or None. strict: only a Kodi-style code after a
+    dot ('Show S01E01.en.forced.srt' -> 'en'), so a title like 'Fin (2021).srt'
+    is never read as Finnish. Not strict (release names like '11_English.srt'):
+    language words in the file name count too."""
+    import nfos
+    stem = split_name(base_of(name))[0]
+    for part in stem.split(".")[1:]:
+        if part.lower() in nfos.LANG_WORDS:
+            return part.lower()
+    if strict:
+        return None
+    suffix = nfos.sub_suffix(base_of(name))
+    return suffix.split(".")[1] if suffix else None
+
+
+def unwanted_sub(name, keep, strict=True):
+    code = sub_lang_code(name, strict)
+    return code is not None and code not in keep  # unknown language: kept
+
+
+def ask_sub_mode(dlg):
+    """The subtitle question in 'choose again'; -1 = cancelled."""
+    import nfos
+    while True:
+        keep = sub_keep_langs()
+        names = "/".join(lang_name(c) for c in keep)
+        pick = dlg.select("Subtitles in other languages (keeping: %s):" % names,
+                          ["Keep all subtitle languages",
+                           "Keep only %s - DELETE the others (fastest)" % names,
+                           "Keep only %s - move the others to _Unpacked" % names,
+                           "Change which languages to keep..."])
+        if pick != 3:
+            return pick
+        codes = list(nfos.LANG_WORDS)  # most common first (English, Japanese, Spanish, French ...)
+        chosen = dlg.multiselect("Subtitle languages to keep", [lang_name(c) for c in codes],
+                                 preselect=[codes.index(c) for c in keep if c in codes])
+        if chosen:
+            save_cache(data_file("subs.json"), {"keep": [codes[i] for i in chosen]})
+
+
 def match_orphan_subs(orphans, groups, src, dest):
     """Subtitles named only by language ('Subs/Show.S01E01.../11_English.srt'):
     find their video from the folder names - a video moved in this run, or one
@@ -1982,7 +2041,7 @@ def match_orphan_subs(orphans, groups, src, dest):
     for path, name, label in orphans:
         vt = video_for(path)
         if not vt:
-            yield None, "SKIP  %s  (subtitle - couldn't tell which video it belongs to)" % label
+            yield None, "SKIP  %s  (subtitle - couldn't tell which video it belongs to)" % label, path
             continue
         stem, ext = split_name(base_of(vt))[0], split_name(name)[1]
         suffix = nfos.sub_suffix(name)
@@ -1992,7 +2051,7 @@ def match_orphan_subs(orphans, groups, src, dest):
             suffix += ".%d" % used[key]
         target = join(parent_of(vt), "Subs", stem + suffix + ext)
         yield {"src": path, "name": name, "target": target, "kind": "SUB", "note": "", "arc": None,
-               "label": label, "res": None, "size": size_of(path), "eng": None, "langs": []}, None
+               "label": label, "res": None, "size": size_of(path), "eng": None, "langs": []}, None, path
 
 
 def make_kodi_nfos(ids, items, dest, nfos):
@@ -2053,12 +2112,12 @@ def remove_empty_folders(src, folders):
     return removed
 
 
-def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
-    log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s  nfo=%d" % (
+def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode=0):
+    log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s  nfo=%d  subs=%d keep %s" % (
         masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode],
-        nfo_mode))
+        nfo_mode, sub_mode, ",".join(sub_keep_langs())))
     try:
-        _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode)
+        _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode, sub_mode)
     except Exception:
         import traceback
         log_block("ERROR", traceback.format_exc())
@@ -2072,15 +2131,15 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     send_logs("end")
 
 
-def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
+def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode=0):
     check_lang = lang_mode != 3
     session = {"src": src, "dest": dest, "mode": mode, "delete_old": delete_old,
-               "lang_mode": lang_mode, "nfo_mode": nfo_mode, "stage": "scanning",
+               "lang_mode": lang_mode, "nfo_mode": nfo_mode, "sub_mode": sub_mode, "stage": "scanning",
                "started": time.strftime("%Y-%m-%d %H:%M")}
     if not save_cache(spath, session):
         toast("Couldn't save progress - Resume won't be offered if this run is interrupted", 6000)
     save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
-                                                     ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode")))
+                                                     ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode", "sub_mode")))
     src = resolve_src(src, dlg)
     root, names = resolve_dest(dest)
     FOLDER_NAMES.update(names)
@@ -2137,6 +2196,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     import nfos
     orphan_subs, leftovers, video_paths = [], [], []
     titles = TitleFixer()
+    keep_langs = sub_keep_langs()
+    unwanted_subs = []
     renamed = {}  # old movie folder -> (old target, new target)
 
     def tally():
@@ -2182,6 +2243,10 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
                 renamed[_norm(parent_of(path))] = (target, new_target)
                 note = "English title from TMDb (was %s)" % re.split(r"[\\/]", target[len(ensure_slash(dest)):])[1]
                 target = new_target
+        if sub_mode and not arc and split_name(name)[1] in SUBS and \
+                (unwanted_sub(target, keep_langs) or unwanted_sub(name, keep_langs)):
+            unwanted_subs.append(path)
+            continue
         if not arc and already_sorted(path, target):
             in_place[0] += 1  # sorting a library folder: this one is where it belongs
             continue
@@ -2236,8 +2301,10 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
         groups.setdefault(dup_key(t), []).append(
             {"src": path, "name": base_of(path), "target": t, "kind": "EXTRA", "note": "", "arc": None,
              "label": masked(path.replace(src, "")), "res": None, "size": size_of(path), "eng": None, "langs": []})
-    for it, why in match_orphan_subs(orphan_subs, groups, src, dest):
-        if it:
+    for it, why, path in match_orphan_subs(orphan_subs, groups, src, dest):
+        if sub_mode and (unwanted_sub(it["target"], keep_langs) if it else unwanted_sub(path, keep_langs, False)):
+            unwanted_subs.append(path)  # other language: deleted / parked, matched or not
+        elif it:
             groups.setdefault(dup_key(it["target"]), []).append(it)
             other += 1
         else:
@@ -2295,8 +2362,12 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     will_move = [it["src"] for it in plan] + ([it["src"] for it in no_eng] if lang_mode in (1, 2) else [])
     tidy_preview = tidy_plan(src, leftovers, video_paths, will_move) if nfo_mode != 3 else {}
     tidy_n = sum(len(v) for v in tidy_preview.values())
-    if notes or unknown_audio or archive_fail or unpacking or tidy_n:
+    if notes or unknown_audio or archive_fail or unpacking or tidy_n or unwanted_subs:
         lines.append("Notes:")
+        if unwanted_subs:
+            lines.append("  %d subtitle file(s) not in %s will be %s" % (
+                len(unwanted_subs), "/".join(lang_name(c) for c in keep_langs),
+                "DELETED" if sub_mode == SUB_DELETE else "moved to _Unpacked"))
         if tidy_n:
             lines.append("  tidy-up: %d leftover file(s) (.nfo, .sfv, .txt, screenshots, samples) in %d finished "
                          "release folder(s) go to _Unpacked%s, then empty folders are removed: %s" % (
@@ -2331,7 +2402,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     preview = "\n".join(lines)
     log_block("SCAN RESULT (%d files: %s)" % (len(files), tally()), preview)
     title = "%s - scan finished: %d files (%s)" % (ADDON, len(files), tally())
-    if not plan and not no_eng and not tidy_n:
+    if not plan and not no_eng and not tidy_n and not unwanted_subs:
         clear_session(spath)
         while dlg.select(title + " - nothing to move",
                          ["View the full list", "Done"]) == 0:
@@ -2340,6 +2411,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     what = "%d file(s)" % len(plan)
     if tidy_n:
         what += " + tidy %d leftover(s)" % tidy_n
+    if unwanted_subs:
+        what += " + %s %d foreign subtitle(s)" % ("delete" if sub_mode == SUB_DELETE else "park", len(unwanted_subs))
     if no_eng:
         what += " + %s %d with no English audio" % (
             "move" if lang_mode == 1 else "DELETE", len(no_eng))
@@ -2444,6 +2517,30 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
         ok_count += bool(ok)
         report.append("%s  %s  (%s; %s)" % ("OK " if ok else "ERR", it["name"], lang_note(False, it["langs"]), how))
         log(report[-1])
+    sub_dirs = []
+    if unwanted_subs and not cancelled:
+        gone = failed = 0
+        for n, path in enumerate(unwanted_subs):
+            if n % 25 == 0:
+                if prog.canceled():
+                    cancelled = True
+                    report.append("STOPPED while removing foreign subtitles - open Kodi Sorter again to finish.")
+                    break
+                prog.update(int(n * 100 / len(unwanted_subs)), "Foreign subtitles: %d of %d" % (n + 1, len(unwanted_subs)))
+            if sub_mode == SUB_DELETE:
+                ok = xbmcvfs.delete(path)
+            else:
+                rel = path[len(ensure_slash(src)):] if path.startswith(ensure_slash(src)) else base_of(path)
+                ok = move_file(path, join(src, "_Unpacked", *re.split(r"[\\/]", rel)), 0)[0]
+            if ok:
+                gone += 1
+                sub_dirs.append(parent_of(path))
+            else:
+                failed += 1
+        report.append("OK   %d subtitle file(s) in other languages %s%s" % (
+            gone, "deleted" if sub_mode == SUB_DELETE else "moved to _Unpacked",
+            ", %d failed" % failed if failed else ""))
+        log(report[-1])
     # Park archives only when every video planned from them was copied out OK.
     planned = {}
     for it in plan:
@@ -2460,7 +2557,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     if not cancelled:
         prog.update(100, "Tidying up: release .nfo files and empty folders")
         try:
-            tidy_after_sort(src, dest, moved_ok, leftovers, video_paths, nfo_mode, report)
+            tidy_after_sort(src, dest, moved_ok, leftovers, video_paths, nfo_mode, report, sub_dirs)
         except Exception as e:  # tidying must never spoil a finished sort
             log("tidy-up failed: %s" % e)
             report.append("NOTE  tidy-up of .nfo files / empty folders failed: %s" % e)

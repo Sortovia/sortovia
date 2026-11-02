@@ -70,6 +70,22 @@ LANGS = {
     "ar": "ar", "ara": "ar", "arabic": "ar",
     "pl": "pl", "pol": "pl", "polish": "pl",
     "sv": "sv", "swe": "sv", "swedish": "sv",
+    "fi": "fi", "fin": "fi", "finnish": "fi", "da": "da", "dan": "da", "danish": "da",
+    "no": "no", "nob": "no", "nor": "no", "norwegian": "no", "el": "el", "ell": "el", "gre": "el", "greek": "el",
+    "he": "he", "heb": "he", "hebrew": "he", "hu": "hu", "hun": "hu", "hungarian": "hu",
+    "cs": "cs", "cze": "cs", "ces": "cs", "czech": "cs", "ro": "ro", "rum": "ro", "ron": "ro", "romanian": "ro",
+    "vi": "vi", "vie": "vi", "vietnamese": "vi", "id": "id", "ind": "id", "indonesian": "id",
+    "uk": "uk", "ukr": "uk", "ukrainian": "uk", "bg": "bg", "bul": "bg", "bulgarian": "bg",
+    "hr": "hr", "hrv": "hr", "croatian": "hr", "sr": "sr", "srp": "sr", "serbian": "sr",
+    "sl": "sl", "slv": "sl", "slovenian": "sl", "sk": "sk", "slo": "sk", "slk": "sk", "slovak": "sk",
+    "tr": "tr", "tur": "tr", "turkish": "tr", "th": "th", "tha": "th", "thai": "th",
+    "hi": "hi", "hin": "hi", "hindi": "hi", "ms": "ms", "may": "ms", "msa": "ms", "malay": "ms",
+    "fa": "fa", "per": "fa", "fas": "fa", "persian": "fa", "et": "et", "est": "et", "estonian": "et",
+    "lv": "lv", "lav": "lv", "latvian": "lv", "lt": "lt", "lit": "lt", "lithuanian": "lt",
+    "is": "is", "ice": "is", "isl": "is", "icelandic": "is", "ca": "ca", "cat": "ca", "catalan": "ca",
+    "tl": "tl", "fil": "tl", "filipino": "tl", "ta": "ta", "tam": "ta", "tamil": "ta",
+    "te": "te", "tel": "te", "telugu": "te", "bn": "bn", "ben": "bn", "bengali": "bn",
+    "gl": "gl", "glg": "gl", "galician": "gl", "eu": "eu", "baq": "eu", "eus": "eu", "basque": "eu",
 }
 
 SMALL = {"a", "an", "the", "and", "of", "in", "on", "to", "for", "at", "by", "or"}

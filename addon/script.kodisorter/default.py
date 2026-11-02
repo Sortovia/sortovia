@@ -695,10 +695,15 @@ def mark_nomedia(path):
             xbmcvfs.mkdirs(root)
             f = xbmcvfs.File(flag, "w")
             try:
-                f.write("Kodi Sorter: tells Kodi's library scan to skip this folder\n")
+                wrote = f.write("Kodi Sorter: tells Kodi's library scan to skip this folder\n")
             finally:
                 f.close()
-            log("added .nomedia to %s (Kodi won't scan it)" % masked(root))
+            if xbmcvfs.exists(flag):
+                log("added .nomedia to %s (Kodi won't scan it)" % masked(root))
+            else:
+                log("couldn't add .nomedia to %s: write returned %r, file not there afterwards" % (masked(root), wrote))
+        else:
+            log(".nomedia already in %s" % masked(root))
     except Exception as e:
         log("couldn't add .nomedia to %s: %s" % (masked(root), e))
 

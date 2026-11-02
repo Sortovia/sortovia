@@ -2157,6 +2157,91 @@ def match_orphan_subs(orphans, groups, src, dest, progress=None):
                "label": label, "res": None, "size": size_of(path), "eng": None, "langs": []}, None, path
 
 
+def read_text(path, limit=512 * 1024):
+    try:
+        f = xbmcvfs.File(path)
+        try:
+            return decode_text(bytes(f.readBytes(limit)))
+        finally:
+            f.close()
+    except Exception:
+        return ""
+
+
+def make_quality_nfos(moved, src, dest, report):
+    """Movies moved this run get a Kodi 'combination' .nfo: quality tags (codec,
+    10-bit, source, bit rate) plus the IMDb/TMDb link, so Kodi still fetches all
+    the normal info. Never touches an nfo Kodi Sorter didn't write (or that was
+    only a link). Kodi has no tags on TV episodes, so TV is left alone."""
+    import nfos
+    movies = [it for it in moved if it["kind"] == "MOVIE"]
+    if not movies:
+        return
+    key = load_cache(data_file(WATCH_FILE)).get("key")
+    tm = None
+    if key:
+        import whereto
+        tm = whereto.TMDb(key)
+    cache = load_cache(data_file("movie_ids.json"))
+    dirty = made = 0
+    for it in movies:
+        target = it["target"]
+        nfo = split_name(target)[0] + ".nfo"
+        old = read_text(nfo) if xbmcvfs.exists(nfo) else ""
+        if old and not nfos.our_url_nfo(old):
+            continue  # a real Kodi nfo (or someone else's): leave it
+        origin = it["arc"] or it["src"]
+        names = [base_of(it["src"]), base_of(origin)]
+        folder = parent_of(origin)
+        text = ""
+        if _norm(folder) != _norm(src):
+            names.append(base_of(folder))
+            try:
+                files = xbmcvfs.listdir(ensure_slash(folder))[1]
+            except Exception:
+                files = []
+            for f in files:
+                if split_name(f)[1] == ".nfo":
+                    t = read_text(join(folder, f))
+                    if nfos.is_kodi_nfo(t):
+                        text = None  # the release brought Kodi's own nfo: the tidy-up moves that one in
+                        break
+                    text = text or t
+            if text is None:
+                continue
+        rel = re.split(r"[\\/]", target[len(ensure_slash(dest)):])
+        m = re.match(r"^(.*) \((\d{4})\)$", rel[1] if len(rel) > 2 else "")
+        title, year = (m.group(1), m.group(2)) if m else (split_name(rel[-1])[0], None)
+        imdb = (nfos.imdb_ids(text) or nfos.imdb_ids(old) or [None])[0]
+        tmdb = runtime = 0
+        ck = "%s|%s" % (title.lower(), year or "")
+        if tm and ck not in cache:
+            try:
+                import whereto
+                cache[ck] = list(whereto.movie_ids(tm, title, year) or [])
+                dirty = 1
+            except Exception as e:
+                log("TMDb lookup for quality tags failed (%s): %s" % (title, e))
+        if cache.get(ck):
+            tmdb, imdb2, runtime = cache[ck]
+            imdb = imdb or imdb2
+        url = nfos.url_nfo(imdb) if imdb else ("https://www.themoviedb.org/movie/%d\n" % tmdb if tmdb else "")
+        short = nfo.replace(dest, "")
+        if not url:
+            report.append("NOTE  %s  (no quality tags: couldn't identify the movie on IMDb/TMDb%s)" % (
+                short, "" if tm else " - add a TMDb key under Where to watch"))
+            continue
+        tags = nfos.quality_tags(names, text, size_of(target), runtime)
+        if not tags:
+            continue
+        if write_text(nfo, nfos.quality_nfo(tags, url)):
+            made += 1
+            report.append("TAGS  %s: %s" % (short, ", ".join(tags)))
+    if dirty:
+        save_cache(data_file("movie_ids.json"), cache)
+    log("quality tags: %d movie .nfo file(s) written" % made)
+
+
 def make_kodi_nfos(ids, items, dest, nfos):
     """Write URL nfos for the moved items; returns report lines. Never overwrites."""
     out = []
@@ -2732,6 +2817,9 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     if not cancelled:
         prog.update(100, "Tidying up: release .nfo files and empty folders")
         try:
+            if nfo_mode == 4:  # nfos.QUALITY - before the tidy-up parks the release NFOs
+                prog.update(100, "Writing quality tags for movies")
+                make_quality_nfos(moved_ok, src, dest, report)
             tidy_after_sort(src, dest, moved_ok, leftovers, video_paths, nfo_mode, report, sub_dirs)
             if empties:
                 gone = 0

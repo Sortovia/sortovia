@@ -235,3 +235,21 @@ def english_title(tm, title, year, notes=None):
     if not res:
         notes.append("TMDb found nothing for '%s'" % title)
     return None
+
+
+def movie_ids(tm, title, year):
+    """(tmdb id, imdb id, runtime minutes) of a movie, or None."""
+    params = {"query": title, "language": "en-US", "include_adult": "false"}
+    if year:
+        params["year"] = year
+    res = (tm.get("/search/movie", **params) or {}).get("results") or []
+    if not res:
+        return None
+    me = _skeleton(title)
+    best = next((r for r in res[:5] if _skeleton(r.get("title")) == me or _skeleton(r.get("original_title")) == me), None)
+    if best is None:
+        if not year:
+            return None  # a guess without a year could tag the wrong movie
+        best = res[0]
+    d = tm.get("/movie/%d" % best["id"], language="en-US") or {}
+    return best["id"], d.get("imdb_id") or None, d.get("runtime") or 0

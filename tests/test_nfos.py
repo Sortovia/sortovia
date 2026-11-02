@@ -45,5 +45,34 @@ class AudioFromNfo(unittest.TestCase):
         self.assertEqual(nfos.audio_languages("Video: 1080p, it is great"), [])
 
 
+class QualityTags(unittest.TestCase):
+    def test_from_name(self):
+        self.assertEqual(nfos.quality_tags(["The.Nightwarden.2022.1080p.REPACK.BluRay.DDP.5.1.10bit.H265-ALPHA.mkv"]),
+                         ["x265", "10-bit", "BluRay"])
+
+    def test_one_source_only(self):
+        self.assertEqual(nfos.quality_tags(["Movie.2020.BluRay.Remux.mkv"]), ["Remux"])
+
+    def test_bitrate_from_nfo(self):
+        tags = nfos.quality_tags(["Movie.2020.WEB-DL.mkv"], "Format : HEVC\nOverall bit rate : 5 432 kb/s\nBit depth : 10 bits")
+        self.assertEqual(tags, ["x265", "WEB-DL", "10-bit", "5.4 Mbps"])
+
+    def test_bitrate_estimate(self):
+        self.assertEqual(nfos.quality_tags(["Fin (2021).mkv"], "", 6 * 10 ** 9, 100), ["~8.0 Mbps"])
+
+    def test_title_words_not_tags(self):
+        self.assertEqual(nfos.quality_tags(["Multiverse.Avenue.2019.mkv", "Dvdland (2001)"]), [])
+
+    def test_combination_nfo_keeps_link_last(self):
+        text = nfos.quality_nfo(["x265", "A&B"], "https://www.imdb.com/title/tt1877830/\n")
+        self.assertTrue(text.rstrip().endswith("https://www.imdb.com/title/tt1877830/"))
+        self.assertIn("<tag>A&amp;B</tag>", text)
+        self.assertTrue(nfos.is_kodi_nfo(text))
+
+    def test_only_link_nfos_are_upgraded(self):
+        self.assertTrue(nfos.our_url_nfo("https://www.imdb.com/title/tt1/\n"))
+        self.assertFalse(nfos.our_url_nfo("<movie><title>x</title></movie>"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -15,8 +15,11 @@ KODI_ROOTS = ("<movie", "<tvshow", "<episodedetails", "<musicvideo")
 NFO_CHOICES = ["Make Kodi .nfo files from them (IMDb links), then move them to _Unpacked",
                "Make Kodi .nfo files from them, then delete them",
                "Just move them to _Unpacked",
-               "Leave them where they are"]
-MAKE_KODI = (0, 1)
+               "Leave them where they are",
+               "Make Kodi .nfo files WITH QUALITY TAGS for movies (codec, 10-bit, source, bit rate), "
+               "then move them to _Unpacked"]
+MAKE_KODI = (0, 1, 4)
+QUALITY = 4
 MOVE_AWAY, DELETE, LEAVE = 0, 1, 3  # 2 also moves away
 
 
@@ -125,3 +128,85 @@ def sub_suffix(name):
 def looks_like_release(folder_name):
     """'Sams.Sandwiches.S15.1080p.x265-GAMMA' yes; 'complete', 'Movies', 'Other' no."""
     return bool(RELEASE_RE.search(" " + folder_name + " "))
+
+
+# ---------- quality tags for movie .nfo files ----------
+# Things Kodi can't read from the file itself. Resolution, HDR, audio codec and
+# languages are left out: Kodi shows those from the video already.
+_Q_RULES = [
+    ("x265", r"x\.?265|h\.?265|hevc"), ("x264", r"x\.?264|h\.?264|\bavc\b"), ("AV1", r"\bav1\b"),
+    ("XviD", r"xvid"), ("DivX", r"divx"),
+    ("10-bit", r"10[ ._\-]?bits?\b|hi10p?"),
+    ("Remux", r"remux"), ("BluRay", r"blu[ ._\-]?ray|bdrip|brrip|\bbd(?:25|50)?\b|bd\d{3,4}p?"),
+    ("WEB-DL", r"web[ ._\-]?dl"), ("WEBRip", r"web[ ._\-]?rip"), ("HDTV", r"hdtv"),
+    ("DVDRip", r"dvd[ ._\-]?rip"), ("DVD", r"\bdvd(?:5|9|r)?\b"),
+    ("Dual Audio", r"dual[ ._\-]?audio"), ("Multi Audio", r"\bmulti\b"), ("Atmos", r"atmos"),
+]
+_Q_RE = [(tag, re.compile(r"(?<![a-z0-9])(?:%s)" % rx, re.I)) for tag, rx in _Q_RULES]
+_SOURCES = ("Remux", "BluRay", "WEB-DL", "WEBRip", "HDTV", "DVDRip", "DVD")
+_BITRATE_RE = re.compile(r"^\s*overall\s*bit\s*rate\s*[:.]*\s*([\d\s.,]+)\s*([kM])b(?:it)?/?s", re.I | re.M)
+_BITDEPTH_RE = re.compile(r"bit\s*depth\s*[:.]*\s*10\s*bits?", re.I)
+
+
+def nfo_bitrate(text):
+    """Overall bit rate (Mbps) from MediaInfo text in a release NFO, or None."""
+    m = _BITRATE_RE.search(text or "")
+    if not m:
+        return None
+    num = re.sub(r"\s", "", m.group(1)).replace(",", ".")
+    if num.count(".") > 1:
+        num = num.replace(".", "", num.count(".") - 1)
+    try:
+        val = float(num)
+    except ValueError:
+        return None
+    return val / 1000.0 if m.group(2).lower() == "k" else val
+
+
+def mbps(value, estimated=False):
+    return "%s%.1f Mbps" % ("~" if estimated else "", value) if value < 10 else \
+        "%s%d Mbps" % ("~" if estimated else "", round(value))
+
+
+def quality_tags(names, nfo_text="", size=0, runtime_min=0):
+    """Tags for a movie from its file/folder names and release NFO text.
+    Bit rate: the NFO's MediaInfo figure, else file size / running time (~)."""
+    hay = " ".join(n for n in names if n)
+    text = nfo_text or ""
+    tags = []
+    for tag, rx in _Q_RE:
+        if rx.search(hay) and tag not in tags:
+            tags.append(tag)
+    if "10-bit" not in tags and _BITDEPTH_RE.search(text):
+        tags.append("10-bit")
+    if not any(t in tags for t in ("x265", "x264", "AV1")):
+        if re.search(r"format\s*[:.]*\s*hevc", text, re.I):
+            tags.insert(0, "x265")
+        elif re.search(r"format\s*[:.]*\s*avc\b", text, re.I):
+            tags.insert(0, "x264")
+    src = [t for t in tags if t in _SOURCES]
+    for extra in src[1:]:  # one source: the first rule that matched is the most specific
+        tags.remove(extra)
+    rate = nfo_bitrate(text)
+    if rate:
+        tags.append(mbps(rate))
+    elif size and runtime_min:
+        tags.append(mbps(size * 8 / (runtime_min * 60.0) / 1e6, estimated=True))
+    return tags
+
+
+def _xml(s):
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def quality_nfo(tags, url):
+    """A Kodi 'combination' nfo: the scraper still identifies the movie from the
+    URL on the last line and fetches everything; only the tags come from here."""
+    return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<movie>\n%s</movie>\n%s\n'
+            % ("".join("    <tag>%s</tag>\n" % _xml(t) for t in tags), url.strip()))
+
+
+def our_url_nfo(text):
+    """An nfo that is only a link (what Kodi Sorter writes): safe to upgrade."""
+    lines = [l for l in (text or "").strip().splitlines() if l.strip()]
+    return len(lines) == 1 and re.match(r"^https?://\S+$", lines[0].strip()) is not None

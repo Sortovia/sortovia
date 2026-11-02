@@ -150,6 +150,40 @@ def size_of(path):
 
 
 KODI_FOLDERS = ("TV", "Movies", "Comics")
+# The folder each kind goes into, under the library root. Set per run by
+# resolve_dest: picking E:\\Movies (or "Films", "TV Shows" ...) uses that folder,
+# and the other kinds go to their folders next to it.
+FOLDER_NAMES = {"TV": "TV", "Movies": "Movies", "Comics": "Comics"}
+FOLDER_SYNONYMS = {
+    "TV": ("tv", "tv shows", "tvshows", "tv series", "shows", "series", "television"),
+    "Movies": ("movies", "movie", "films", "film"),
+    "Comics": ("comics", "comic", "manga", "graphic novels"),
+}
+
+
+def resolve_dest(dest):
+    """(library root, {kind: folder name}) for the destination the user picked.
+    E:\\Movies -> (E:\\, Movies=Movies, TV=TV or an existing 'TV Shows', ...).
+    E:\\ -> (E:\\, existing folders or the defaults)."""
+    names = {}
+    base = base_of(dest).strip()
+    for kind, words in FOLDER_SYNONYMS.items():
+        if base.lower() in words:
+            names[kind] = base
+            root = parent_of(dest)
+            break
+    else:
+        root = dest
+    try:
+        existing = xbmcvfs.listdir(ensure_slash(root))[0]
+    except Exception:
+        existing = []
+    low = dict((d.lower(), d) for d in existing)
+    for kind, words in FOLDER_SYNONYMS.items():
+        if kind in names:
+            continue
+        names[kind] = low.get(kind.lower()) or next((low[w] for w in words if w in low), kind)
+    return root, names
 
 
 def friendly(path):
@@ -169,7 +203,7 @@ def _norm(path):
 def sorted_folders(dest):
     """The destination's TV/Movies/Comics folders: skipped when the source is
     the same drive/folder (or contains it), so sorted files aren't re-sorted."""
-    return set(_norm(join(dest, f)) for f in KODI_FOLDERS)
+    return set(_norm(join(dest, f)) for f in FOLDER_NAMES.values())
 
 
 def already_sorted(path, target):
@@ -509,6 +543,7 @@ def plan_for(path, filename, dest):
     parts, kind, note = plan_name(filename, parent_of(path))
     if parts is None:
         return None, kind, ""
+    parts = (FOLDER_NAMES.get(parts[0], parts[0]),) + tuple(parts[1:])
     if split_name(filename)[1] in SUBS:
         parts = parts[:-1] + ("Subs",) + parts[-1:]  # Kodi looks in "Subs" next to the video
     return join(dest, *parts), kind.upper(), note
@@ -1385,7 +1420,7 @@ def main():
         src = phone_source(dlg, "dav" if where == 1 else "ftp")
     if not src:
         return
-    dest = dlg.browse(0, "Pick DESTINATION drive/folder (holds TV, Movies, Comics)", "files")
+    dest = dlg.browse(0, "Pick DESTINATION: your Movies or TV folder (or the drive that holds them)", "files")
     if not dest:
         return
 
@@ -1756,9 +1791,9 @@ def _guess_items(release, dest):
     if m:
         show, year = split_year(m.group("show"))
         show_dir = safe("%s (%s)" % (show, year) if year else show)
-        if xbmcvfs.exists(ensure_slash(join(dest, "TV", show_dir))):
+        if xbmcvfs.exists(ensure_slash(join(dest, FOLDER_NAMES["TV"], show_dir))):
             return [{"kind": "TV", "arc": None, "src": "",
-                     "target": join(dest, "TV", show_dir, "Season %02d" % int(m.group("s")), "x.mkv")}]
+                     "target": join(dest, FOLDER_NAMES["TV"], show_dir, "Season %02d" % int(m.group("s")), "x.mkv")}]
     return []
 
 
@@ -1844,7 +1879,7 @@ class TitleFixer(object):
 
     def fix(self, target, dest):
         rel = re.split(r"[\\/]", target[len(ensure_slash(dest)):])
-        if len(rel) < 3 or rel[0] != "Movies":
+        if len(rel) < 3 or rel[0] != FOLDER_NAMES["Movies"]:
             return target
         folder = rel[1]
         m = re.match(r"^(.*) \((\d{4})\)$", folder)
@@ -2015,24 +2050,14 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
                                                      ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode")))
     src = resolve_src(src, dlg)
-    if base_of(dest).lower() in [f.lower() for f in KODI_FOLDERS]:
-        # Picked the TV (or Movies/Comics) folder itself: files would go to TV/TV/...
-        fixed = parent_of(dest)
-        name = base_of(dest)
-        if not yesno_default_yes(dlg, "You picked %s as the destination.\nKodi Sorter puts files into "
-                                 "TV, Movies and Comics folders INSIDE the destination, so this would "
-                                 "make %s\\%s\\...\nUse %s as the destination instead? (Files already "
-                                 "in the right place are left alone.)" % (
-                                     friendly(dest), friendly(dest), name, friendly(fixed)),
-                                 nolabel="Cancel", yeslabel="Use %s" % friendly(fixed)):
-            clear_session(spath)
-            return
-        picked, dest = dest, fixed
-        session["dest"] = dest
-        save_cache(spath, session)
-        save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
-                                                         ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode")))
-        log("destination changed to %s (%s was the %s folder itself)" % (dest, picked, base_of(picked)))
+    root, names = resolve_dest(dest)
+    FOLDER_NAMES.update(names)
+    if _norm(root) != _norm(dest):
+        log("destination %s is the %s folder: library root %s" % (dest, base_of(dest), root))
+    dest = root  # everything below works from the library root
+    where_to = "Destination: movies -> %s, TV -> %s, comics -> %s" % tuple(
+        friendly(join(dest, FOLDER_NAMES[k])) for k in ("Movies", "TV", "Comics"))
+    log(where_to)
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
         dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start xbox-share (Termux) or primitive ftpd, "
                "and keep the Xbox on the phone's hotspot. Then open Kodi Sorter and choose Resume."
@@ -2224,8 +2249,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
         plan.append(best)
     busy.close()
 
-    lines = ["%d file(s) to move (%d would replace a lower-quality copy), %d with no English audio, %d skipped.\n"
-             % (len(plan), replaces, len(no_eng), len(skipped))]
+    lines = ["%d file(s) to move (%d would replace a lower-quality copy), %d with no English audio, %d skipped."
+             % (len(plan), replaces, len(no_eng), len(skipped)), where_to + "\n"]
     # Notes are grouped by show and listed once at the top, not under every episode.
     notes, unknown_audio = {}, {}
     for it in plan:

@@ -23,7 +23,7 @@ import xbmcgui
 import xbmcvfs
 
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
-from sortlib import VIDEO, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, plan_name
+from sortlib import VIDEO, SUBS, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, plan_name, split_year, safe
 
 try:
     ADDON = "Kodi Sorter " + xbmcaddon.Addon().getAddonInfo("version")
@@ -509,6 +509,8 @@ def plan_for(path, filename, dest):
     parts, kind, note = plan_name(filename, parent_of(path))
     if parts is None:
         return None, kind, ""
+    if split_name(filename)[1] in SUBS:
+        parts = parts[:-1] + ("Subs",) + parts[-1:]  # Kodi looks in "Subs" next to the video
     return join(dest, *parts), kind.upper(), note
 
 
@@ -1698,75 +1700,184 @@ def _under(path, folder):
     return _norm(path).startswith(_norm(folder) + "/")
 
 
-def tidy_after_sort(src, dest, moved, release_nfos, nfo_mode, report):
-    """For folders that videos were moved out of: turn release NFOs into Kodi
-    .nfo files (IMDb link) if asked, move them to <src>/_Unpacked (or delete or
-    leave them), then delete folders left empty. The source folder itself is
-    never deleted, and nothing is touched in folders no video came from."""
+def release_folder(path, src):
+    """Nearest folder above path (below the source folder) named like a release
+    ('Show.S01.1080p.x265-GRP', 'Movie.2019.1080p'), or None."""
     import nfos
     root = _norm(src)
-    real_dirs = dict((_norm(parent_of(it["src"])), parent_of(it["src"])) for it in moved if not it["arc"])
-    real_dirs.pop(root, None)
-    done_dirs = set(real_dirs)
-    if not done_dirs:
-        return
+    d = parent_of(path)
+    while _norm(d).startswith(root + "/"):
+        if nfos.looks_like_release(base_of(d)):
+            return d
+        d = parent_of(d)
+    return None
 
-    def related(nfo_path):
-        d = _norm(parent_of(nfo_path))
-        return d != root and any(x == d or x.startswith(d + "/") for x in done_dirs)
 
-    made = 0
-    for path in release_nfos:
-        if not related(path):
+def tidy_plan(src, leftovers, video_paths, will_move):
+    """{release folder: [leftover files]} for release folders whose videos are
+    all gone or about to be moved (so the release is finished)."""
+    out, verdict = {}, {}
+    vids = [(_norm(v), v) for v in video_paths]
+    moving = set(_norm(p) for p in will_move)
+    for path in leftovers:
+        r = release_folder(path, src)
+        if not r:
             continue
-        try:
-            f = xbmcvfs.File(path)
-            try:
-                text = decode_text(bytes(f.readBytes(512 * 1024)))
-            finally:
-                f.close()
-        except Exception:
-            text = ""
-        if nfos.is_kodi_nfo(text):
-            # Kodi's own format belongs with its video: move it alongside,
-            # renamed to match ("Movie.Name.2019.nfo" -> "Movie Name (2019).nfo").
-            stem = split_name(base_of(path))[0].lower()
-            for it in moved:
-                if not it["arc"] and split_name(base_of(it["src"]))[0].lower() == stem and \
-                        _norm(parent_of(it["src"])) == _norm(parent_of(path)):
-                    new = split_name(it["target"])[0] + ".nfo"
-                    if not xbmcvfs.exists(new):
-                        ok, how = move_file(path, new)
-                        report.append("%s  %s -> %s  (Kodi .nfo moved with its video)" % (
-                            "OK " if ok else "ERR", base_of(path), new.replace(dest, "")))
-                    break
-            continue
-        name = base_of(path)
-        if nfo_mode in nfos.MAKE_KODI:
-            items = [it for it in moved if not it["arc"] and
-                     (_norm(parent_of(it["src"])) == _norm(parent_of(path)) or _under(it["src"], parent_of(path)))]
-            for line in make_kodi_nfos(nfos.imdb_ids(text), items, dest, nfos):
-                report.append("NFO  %s -> %s" % (name, line))
-                made += 1
-        if nfo_mode == 3:
-            continue
-        if nfo_mode == 1:
-            ok = xbmcvfs.delete(path)
-            report.append("%s  %s  (release .nfo %s)" % ("OK " if ok else "ERR", name,
-                                                        "deleted" if ok else "could not be deleted"))
-        else:
+        key = _norm(r)
+        if key not in verdict:
+            verdict[key] = all(n in moving for n, _ in vids if n.startswith(key + "/"))
+        if verdict[key]:
+            out.setdefault(r, []).append(path)
+    return out
+
+
+def _videos_left(folder):
+    """Any real video (not a sample) or archive still under folder?"""
+    try:
+        for path, name in walk(folder):
+            ext = split_name(name)[1]
+            if ext in ARCHIVES or (ext in VIDEO and size_of(path) >= MIN_VIDEO_BYTES):
+                return True
+    except Exception:
+        return True
+    return False
+
+
+def _guess_items(release, dest):
+    """What a finished release folder was, from its name, if that's in the library
+    (used to make a Kodi .nfo when no video moved in this run)."""
+    name = base_of(release)
+    parts, kind, _ = plan_name(name + ".mkv")
+    if parts and kind == "movie":
+        t = join(dest, *parts)
+        if find_existing(t):
+            return [{"kind": "MOVIE", "target": t, "arc": None, "src": ""}]
+    m = re.match(r"^(?P<show>.+?)[ ._\-]+s(?P<s>\d{1,2})(?:e\d+)?(?:[ ._\-]|$)", name, re.I)
+    if m:
+        show, year = split_year(m.group("show"))
+        show_dir = safe("%s (%s)" % (show, year) if year else show)
+        if xbmcvfs.exists(ensure_slash(join(dest, "TV", show_dir))):
+            return [{"kind": "TV", "arc": None, "src": "",
+                     "target": join(dest, "TV", show_dir, "Season %02d" % int(m.group("s")), "x.mkv")}]
+    return []
+
+
+def tidy_after_sort(src, dest, moved, leftovers, video_paths, nfo_mode, report):
+    """Finished release folders (no real videos left in them): turn release NFOs
+    into Kodi .nfo files (IMDb link) if asked, move the leftovers (.nfo, .sfv,
+    .txt, screenshots, samples) to <src>/_Unpacked - or delete the NFOs, or leave
+    everything - then delete folders left empty. Never the source folder itself."""
+    import nfos
+    plan = tidy_plan(src, leftovers, video_paths, [it["src"] for it in moved])
+    folders = dict((_norm(parent_of(it["src"])), parent_of(it["src"])) for it in moved if not it["arc"])
+    made = parked = deleted = 0
+    for release, files in sorted(plan.items()):
+        if _videos_left(release):
+            continue  # something is still there (skipped, failed or new): leave this release alone
+        folders[_norm(release)] = release
+        items = [it for it in moved if not it["arc"] and it["kind"] in ("TV", "MOVIE") and _under(it["src"], release)] \
+            or _guess_items(release, dest)
+        for path in files:
+            folders[_norm(parent_of(path))] = parent_of(path)
+            name = base_of(path)
+            if split_name(name)[1] == ".nfo":
+                text = ""
+                try:
+                    f = xbmcvfs.File(path)
+                    try:
+                        text = decode_text(bytes(f.readBytes(512 * 1024)))
+                    finally:
+                        f.close()
+                except Exception:
+                    pass
+                if nfos.is_kodi_nfo(text):
+                    stem = split_name(name)[0].lower()
+                    mine = [it for it in items if it.get("src") and split_name(base_of(it["src"]))[0].lower() == stem]
+                    if mine:
+                        new = split_name(mine[0]["target"])[0] + ".nfo"
+                        if not xbmcvfs.exists(new):
+                            ok, how = move_file(path, new)
+                            report.append("%s  %s -> %s  (Kodi .nfo moved with its video)" % (
+                                "OK " if ok else "ERR", name, new.replace(dest, "")))
+                            continue
+                elif nfo_mode in nfos.MAKE_KODI:
+                    for line in make_kodi_nfos(nfos.imdb_ids(text), items, dest, nfos):
+                        report.append("NFO  %s -> %s" % (name, line))
+                        made += 1
+                if nfo_mode == 1 and not nfos.is_kodi_nfo(text):
+                    if xbmcvfs.delete(path):
+                        deleted += 1
+                    continue
+            if nfo_mode == 3:
+                continue
             rel = path[len(ensure_slash(src)):] if path.startswith(ensure_slash(src)) else name
             ok, how = move_file(path, join(src, "_Unpacked", *re.split(r"[\\/]", rel)))
-            report.append("%s  %s  (release .nfo %s)" % ("OK " if ok else "ERR", name,
-                                                        "moved to _Unpacked" if ok else how))
-    for p in release_nfos:
-        if related(p):
-            real_dirs[_norm(parent_of(p))] = parent_of(p)
-    removed = remove_empty_folders(src, list(real_dirs.values()))
+            if ok:
+                parked += 1
+            else:
+                report.append("ERR  %s  (leftover could not be moved: %s)" % (name, how))
+    if parked or deleted:
+        report.append("OK   release leftovers (.nfo, .sfv, .txt, screenshots, samples): %d moved to _Unpacked%s"
+                      % (parked, ", %d .nfo deleted" % deleted if deleted else ""))
+    removed = remove_empty_folders(src, list(folders.values()))
     if removed:
         report.append("OK   removed %d empty folder(s): %s" % (len(removed), ", ".join(removed[:10]) +
                                                             (" ..." if len(removed) > 10 else "")))
-    log("tidy-up: %d Kodi .nfo made, %d empty folder(s) removed" % (made, len(removed)))
+    log("tidy-up: %d release folder(s), %d Kodi .nfo made, %d leftovers moved, %d deleted, %d empty folder(s) removed"
+        % (len(plan), made, parked, deleted, len(removed)))
+
+
+def match_orphan_subs(orphans, groups, src, dest):
+    """Subtitles named only by language ('Subs/Show.S01E01.../11_English.srt'):
+    find their video from the folder names - a video moved in this run, or one
+    already in the library - and file them as <video folder>/Subs/<video>.en.srt.
+    Yields (item, None) or (None, skip line)."""
+    import nfos
+    root = _norm(src)
+    videos = [it for items in groups.values() for it in items if it["kind"] in ("TV", "MOVIE") and not it["arc"]]
+    by_stem, by_dir = {}, {}
+    for v in videos:
+        by_stem.setdefault(split_name(base_of(v["src"]))[0].lower(), []).append(v)
+        by_dir.setdefault(_norm(parent_of(v["src"])), []).append(v)
+    planned = dict((dup_key(v["target"]), v["target"]) for v in videos)
+    found_cache, used = {}, {}
+
+    def video_for(path):
+        d = parent_of(path)
+        while _norm(d).startswith(root + "/"):
+            nm = base_of(d)
+            if nm.lower() not in nfos.SUBS_FOLDERS:
+                if len(by_stem.get(nm.lower(), [])) == 1:
+                    return by_stem[nm.lower()][0]["target"]
+                parts, kind, _ = plan_name(nm + ".mkv")
+                if parts and kind in ("tv", "movie"):
+                    t = join(dest, *parts)
+                    if dup_key(t) in planned:
+                        return planned[dup_key(t)]
+                    if t not in found_cache:
+                        found_cache[t] = find_existing(t)
+                    return found_cache[t]
+                if len(by_dir.get(_norm(d), [])) == 1:
+                    return by_dir[_norm(d)][0]["target"]
+                if nfos.looks_like_release(nm):
+                    return None  # e.g. a season pack's own Subs folder: can't tell which episode
+            d = parent_of(d)
+        return None
+
+    for path, name, label in orphans:
+        vt = video_for(path)
+        if not vt:
+            yield None, "SKIP  %s  (subtitle - couldn't tell which video it belongs to)" % label
+            continue
+        stem, ext = split_name(base_of(vt))[0], split_name(name)[1]
+        suffix = nfos.sub_suffix(name)
+        key = (vt.lower(), suffix, ext)
+        used[key] = used.get(key, 0) + 1
+        if used[key] > 1:
+            suffix += ".%d" % used[key]
+        target = join(parent_of(vt), "Subs", stem + suffix + ext)
+        yield {"src": path, "name": name, "target": target, "kind": "SUB", "note": "", "arc": None,
+               "label": label, "res": None, "size": size_of(path), "eng": None, "langs": []}, None
 
 
 def make_kodi_nfos(ids, items, dest, nfos):
@@ -1918,6 +2029,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     in_place = [0]
     from_nfo = [0]
     nfo_texts = {}
+    import nfos
+    orphan_subs, leftovers, video_paths = [], [], []
 
     def tally():
         # e.g. "39 already checked, 6 new, 29 skipped by name, 2 other"
@@ -1942,7 +2055,17 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
             # Inner file named "movie.mkv" etc: try the archive's own name.
             target, kind, note = plan_for(path, split_name(archive_of[arc])[0] + split_name(name)[1], dest)
         label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else masked(path.replace(src, ""))
+        if not arc and split_name(name)[1] in VIDEO:
+            if kind.startswith("sample"):
+                leftovers.append(path)  # sample clip: release leftover
+            else:
+                video_paths.append(path)
+        if target is None and not arc and split_name(name)[1] in SUBS:
+            orphan_subs.append((path, name, label))  # "11_English.srt": matched to a video below
+            continue
         if target is None:
+            if not arc and split_name(name)[1] in nfos.LEFTOVER_EXTS:
+                leftovers.append(path)
             skipped.append("SKIP  %s  (%s)" % (label if arc else name, kind))
             by_name += 1
             continue
@@ -1985,6 +2108,14 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
                 no_eng.append(item)
             continue
         groups.setdefault(dup_key(target), []).append(item)
+
+    for it, why in match_orphan_subs(orphan_subs, groups, src, dest):
+        if it:
+            groups.setdefault(dup_key(it["target"]), []).append(it)
+            other += 1
+        else:
+            skipped.append(why)
+            by_name += 1
 
     save_cache(spec_path, specials["by_name"])
     if check_lang:
@@ -2034,8 +2165,17 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
         if check_lang and it["kind"] in ("TV", "MOVIE") and it["eng"] is not True:
             unknown_audio[show] = unknown_audio.get(show, 0) + 1
     unpacking = sorted(set(archive_of[it["arc"]] for it in plan if it["arc"]))
-    if notes or unknown_audio or archive_fail or unpacking:
+    will_move = [it["src"] for it in plan] + ([it["src"] for it in no_eng] if lang_mode in (1, 2) else [])
+    tidy_preview = tidy_plan(src, leftovers, video_paths, will_move) if nfo_mode != 3 else {}
+    tidy_n = sum(len(v) for v in tidy_preview.values())
+    if notes or unknown_audio or archive_fail or unpacking or tidy_n:
         lines.append("Notes:")
+        if tidy_n:
+            lines.append("  tidy-up: %d leftover file(s) (.nfo, .sfv, .txt, screenshots, samples) in %d finished "
+                         "release folder(s) go to _Unpacked%s, then empty folders are removed: %s" % (
+                             tidy_n, len(tidy_preview), " (release .nfo files deleted)" if nfo_mode == 1 else "",
+                             ", ".join(sorted(base_of(r) for r in tidy_preview)[:8]) +
+                             (" ..." if len(tidy_preview) > 8 else "")))
         if unpacking:
             lines.append("  will unpack videos from %d archive(s), each archive is then moved to an "
                          "_Unpacked folder if the drive allows it, else left where it is: %s" % (len(unpacking), ", ".join(unpacking)))
@@ -2064,13 +2204,15 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     preview = "\n".join(lines)
     log_block("SCAN RESULT (%d files: %s)" % (len(files), tally()), preview)
     title = "%s - scan finished: %d files (%s)" % (ADDON, len(files), tally())
-    if not plan and not no_eng:
+    if not plan and not no_eng and not tidy_n:
         clear_session(spath)
         while dlg.select(title + " - nothing to move",
                          ["View the full list", "Done"]) == 0:
             dlg.textviewer("%s - preview (nothing moved)" % ADDON, preview)
         return
     what = "%d file(s)" % len(plan)
+    if tidy_n:
+        what += " + tidy %d leftover(s)" % tidy_n
     if no_eng:
         what += " + %s %d with no English audio" % (
             "move" if lang_mode == 1 else "DELETE", len(no_eng))
@@ -2185,7 +2327,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     if not cancelled:
         prog.update(100, "Tidying up: release .nfo files and empty folders")
         try:
-            tidy_after_sort(src, dest, moved_ok, release_nfos, nfo_mode, report)
+            tidy_after_sort(src, dest, moved_ok, leftovers, video_paths, nfo_mode, report)
         except Exception as e:  # tidying must never spoil a finished sort
             log("tidy-up failed: %s" % e)
             report.append("NOTE  tidy-up of .nfo files / empty folders failed: %s" % e)

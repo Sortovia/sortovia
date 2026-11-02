@@ -64,6 +64,16 @@ LANG_WORDS = {
     "zh": ("chinese", "mandarin", "cantonese", "chi", "zho"), "hi": ("hindi", "hin"),
     "nl": ("dutch", "nld", "dut"), "pl": ("polish", "pol"), "sv": ("swedish", "swe"),
     "ar": ("arabic", "ara"), "tr": ("turkish", "tur"), "th": ("thai", "tha"),
+    # full names, plus 3-letter codes only where they aren't ordinary words
+    "fi": ("finnish", "fin"), "da": ("danish", "dan"), "no": ("norwegian", "norsk", "nob"),
+    "el": ("greek", "ell", "gre"), "he": ("hebrew", "heb"), "hu": ("hungarian", "magyar"),
+    "cs": ("czech", "cze", "ces"), "ro": ("romanian", "rum", "ron"), "vi": ("vietnamese", "vie"),
+    "id": ("indonesian",), "ms": ("malay",), "uk": ("ukrainian", "ukr"), "bg": ("bulgarian", "bul"),
+    "hr": ("croatian", "hrv"), "sr": ("serbian", "srp"), "sl": ("slovenian", "slv"),
+    "et": ("estonian",), "lv": ("latvian", "lav"), "lt": ("lithuanian",), "is": ("icelandic", "isl"),
+    "ca": ("catalan",), "eu": ("basque",), "gl": ("galician", "glg"), "fa": ("persian", "farsi", "fas"),
+    "tl": ("filipino", "tagalog"), "ta": ("tamil", "tam"), "te": ("telugu", "tel"), "bn": ("bengali",),
+    "sk": ("slovak",),
 }
 _WORD_TO_LANG = dict((w, code) for code, words in LANG_WORDS.items() for w in words)
 _LANG_WORD_RE = re.compile(r"(?<![a-z])(%s)(?![a-z])" % "|".join(
@@ -86,3 +96,32 @@ def audio_languages(text):
         for m in _LANG_WORD_RE.finditer(chunk):
             found.add(_WORD_TO_LANG[m.group(1).lower()])
     return sorted(found)
+
+
+# ---------- subtitles named only by language ("11_English.srt") ----------
+LEFTOVER_EXTS = (".nfo", ".sfv", ".txt", ".url", ".jpg", ".jpeg", ".png", ".md5", ".srr", ".htm", ".html")
+SUBS_FOLDERS = ("subs", "sub", "subtitles", "subtitle")
+_FLAG_RE = re.compile(r"(?<![a-z])(forced|sdh|cc|hi)(?![a-z])", re.I)
+RELEASE_RE = re.compile(r"(?i)(?:[ ._\-]s\d{1,2}(?:[ ._\-]|$)|\b(?:480|576|720|1080|2160)[pi]\b|"
+                        r"\[(?:480|576|720|1080|2160)p?\]|x26[45]|hevc|"
+                        r"web[ ._\-]?(?:dl|rip)?\b|bluray|bdrip|dvdrip|hdtv)")
+
+
+def sub_suffix(name):
+    """'11_English.srt' -> '.en', '3_English [Forced].srt' -> '.en.forced',
+    'Spanish (Latin America) SDH.srt' -> '.es.sdh'. '' if no language found."""
+    stem = name.rsplit(".", 1)[0]
+    lang = ""
+    for m in _LANG_WORD_RE.finditer(stem):
+        lang = _WORD_TO_LANG[m.group(1).lower()]
+        break
+    if not lang:
+        m = re.search(r"(?:^|[ ._\-])([a-z]{2})$", stem, re.I)  # "....en"
+        lang = m.group(1).lower() if m and m.group(1).lower() in LANG_WORDS else ""
+    flags = sorted(set(f.lower().replace("cc", "sdh").replace("hi", "sdh") for f in _FLAG_RE.findall(stem)))
+    return ("." + lang if lang else "") + "".join("." + f for f in flags)
+
+
+def looks_like_release(folder_name):
+    """'Sams.Sandwiches.S15.1080p.x265-GAMMA' yes; 'complete', 'Movies', 'Other' no."""
+    return bool(RELEASE_RE.search(" " + folder_name + " "))

@@ -1510,7 +1510,7 @@ def main():
     sub_mode = ask_sub_mode(dlg)
     if sub_mode < 0:
         return
-    empty_mode = dlg.select("Empty folders in the source:",
+    empty_mode = dlg.select("Leftovers in the source (empty folders, exact duplicates of library files):",
                             ["Delete them (recommended)",
                              "Keep them (only remove folders this run empties)"])
     if empty_mode < 0:
@@ -1837,6 +1837,26 @@ def tidy_plan(src, leftovers, video_paths, will_move):
     return out
 
 
+JUNK_EXTS = (".nfo", ".sfv", ".md5", ".srr", ".url", ".txt")
+
+
+def junk_plan(src, leftovers, done):
+    """Release junk outside a finished release folder: files whose OWN name is a
+    release name ('Ironclad_Ultimate_[1080p-AC3].sfv' next to sorted episodes,
+    'Sams.Sandwiches.S15.1080p.x265-GAMMA.nfo' alone in a folder). {folder: [files]}"""
+    import nfos
+    taken = set(_norm(p) for files in done.values() for p in files)
+    out = {}
+    for path in leftovers:
+        name = base_of(path)
+        if _norm(path) in taken or split_name(name)[1] not in JUNK_EXTS:
+            continue
+        if name.lower().startswith("kodi_sorter_log") or not nfos.looks_like_release(split_name(name)[0]):
+            continue
+        out.setdefault(parent_of(path), []).append(path)
+    return out
+
+
 def _videos_left(folder):
     """Any real video (not a sample) or archive still under folder?"""
     try:
@@ -1875,11 +1895,13 @@ def tidy_after_sort(src, dest, moved, leftovers, video_paths, nfo_mode, report, 
     everything - then delete folders left empty. Never the source folder itself."""
     import nfos
     plan = tidy_plan(src, leftovers, video_paths, [it["src"] for it in moved])
+    junk = junk_plan(src, leftovers, plan)
     folders = dict((_norm(parent_of(it["src"])), parent_of(it["src"])) for it in moved if not it["arc"])
     folders.update((_norm(d), d) for d in extra_dirs)
     made = parked = deleted = 0
-    for release, files in sorted(plan.items()):
-        if _videos_left(release):
+    jobs = [(r, f, True) for r, f in sorted(plan.items())] + [(r, f, False) for r, f in sorted(junk.items())]
+    for release, files, check in jobs:
+        if check and _videos_left(release):
             continue  # something is still there (skipped, failed or new): leave this release alone
         folders[_norm(release)] = release
         items = [it for it in moved if not it["arc"] and it["kind"] in ("TV", "MOVIE") and _under(it["src"], release)] \
@@ -1908,7 +1930,8 @@ def tidy_after_sort(src, dest, moved, leftovers, video_paths, nfo_mode, report, 
                                 "OK " if ok else "ERR", name, new.replace(dest, "")))
                             continue
                 elif nfo_mode in nfos.MAKE_KODI:
-                    for line in make_kodi_nfos(nfos.imdb_ids(text), items, dest, nfos):
+                    its = items or ([] if check else _guess_items(split_name(path)[0], dest))
+                    for line in make_kodi_nfos(nfos.imdb_ids(text), its, dest, nfos):
                         report.append("NFO  %s -> %s" % (name, line))
                         made += 1
                 if nfo_mode == 1 and not nfos.is_kodi_nfo(text):
@@ -2373,6 +2396,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         save_cache(cpath, cache)
 
     plan, replaces = [], 0
+    identical = []
     for g, (key, items) in enumerate(list(groups.items())):
         if busy.iscanceled():
             busy.close()
@@ -2401,6 +2425,13 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                 best["res"], best["size"], best["old_res"], best["old_size"],
                 best["eng"], best["old_eng"])
             if not better or mode == NEVER:
+                same = (best["size"] or 0) > 0 and best["size"] == best["old_size"] and \
+                    split_name(best["src"])[1] == split_name(old)[1] and _norm(best["src"]) != _norm(old)
+                if same and empty_mode == 0 and not best["arc"]:
+                    identical.append(best["src"])  # a leftover copy of what's already sorted
+                    skipped.append("IDENTICAL  %s - exact copy of %s already in the library: will be removed" % (
+                        best["label"], base_of(old)))
+                    continue
                 skipped.append("EXISTS  %s  (%s) - keeping existing %s (%s)" % (
                     best["name"], describe(best["res"], best["size"]),
                     base_of(old), describe(best["old_res"], best["old_size"])))
@@ -2422,12 +2453,17 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     unpacking = sorted(set(archive_of[it["arc"]] for it in plan if it["arc"]))
     will_move = [it["src"] for it in plan] + ([it["src"] for it in no_eng] if lang_mode in (1, 2) else [])
     tidy_preview = tidy_plan(src, leftovers, video_paths, will_move) if nfo_mode != 3 else {}
-    tidy_n = sum(len(v) for v in tidy_preview.values())
+    junk_preview = junk_plan(src, leftovers, tidy_preview) if nfo_mode != 3 else {}
+    tidy_n = sum(len(v) for v in tidy_preview.values()) + sum(len(v) for v in junk_preview.values())
     phone = src.split("://")[0] in ("dav", "davs", "ftp")
     empties = empty_folders(src_tree, src, keep_top=phone) if empty_mode == 0 else []
     no_titles = movies_seen[0] and not titles.ready
-    if notes or unknown_audio or archive_fail or unpacking or tidy_n or unwanted_subs or empties or no_titles:
+    if notes or unknown_audio or archive_fail or unpacking or tidy_n or unwanted_subs or empties or no_titles \
+            or identical:
         lines.append("Notes:")
+        if identical:
+            lines.append("  %d exact duplicate(s) of files already in the library will be DELETED (listed "
+                         "below as IDENTICAL)" % len(identical))
         if empties:
             lines.append("  %d empty folder(s) will be removed: %s" % (len(empties), ", ".join(
                 friendly(f[len(ensure_slash(src)):]) for f in empties[:8]) + (" ..." if len(empties) > 8 else "")))
@@ -2441,9 +2477,10 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         if tidy_n:
             lines.append("  tidy-up: %d leftover file(s) (.nfo, .sfv, .txt, screenshots, samples) in %d finished "
                          "release folder(s) go to _Unpacked%s, then empty folders are removed: %s" % (
-                             tidy_n, len(tidy_preview), " (release .nfo files deleted)" if nfo_mode == 1 else "",
-                             ", ".join(sorted(base_of(r) for r in tidy_preview)[:8]) +
-                             (" ..." if len(tidy_preview) > 8 else "")))
+                             tidy_n, len(tidy_preview) + len(junk_preview),
+                             " (release .nfo files deleted)" if nfo_mode == 1 else "",
+                             ", ".join(sorted(base_of(r) for r in list(tidy_preview) + list(junk_preview))[:8]) +
+                             (" ..." if len(tidy_preview) + len(junk_preview) > 8 else "")))
         if unpacking:
             lines.append("  will unpack videos from %d archive(s), each archive is then moved to an "
                          "_Unpacked folder if the drive allows it, else left where it is: %s" % (len(unpacking), ", ".join(unpacking)))
@@ -2473,7 +2510,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     log_block("SCAN RESULT (%d files: %s)" % (len(files), tally()), preview)
     title = "%s - scan finished: %d files (%s)" % (ADDON, len(files), tally())
     tmdb_item = "Set up the TMDb key now to fix movie titles in other languages"
-    if not plan and not no_eng and not tidy_n and not unwanted_subs and not empties:
+    if not plan and not no_eng and not tidy_n and not unwanted_subs and not empties and not identical:
         clear_session(spath)
         while True:
             opts = ["View the full list"] + ([tmdb_item] if no_titles else []) + ["Done"]
@@ -2488,6 +2525,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     what = "%d file(s)" % len(plan)
     if empties:
         what += " + remove %d empty folder(s)" % len(empties)
+    if identical:
+        what += " + delete %d duplicate(s)" % len(identical)
     if tidy_n:
         what += " + tidy %d leftover(s)" % tidy_n
     if unwanted_subs:
@@ -2602,6 +2641,17 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         report.append("%s  %s  (%s; %s)" % ("OK " if ok else "ERR", it["name"], lang_note(False, it["langs"]), how))
         log(report[-1])
     sub_dirs = []
+    if identical and not cancelled:
+        gone = 0
+        for n, path in enumerate(identical):
+            prog.update(int(n * 100 / len(identical)), "Removing exact duplicates: %d of %d" % (n + 1, len(identical)))
+            if xbmcvfs.delete(path):
+                gone += 1
+                sub_dirs.append(parent_of(path))
+        ok_count += gone
+        report.append("OK   %d exact duplicate(s) of library files deleted%s" % (
+            gone, "" if gone == len(identical) else ", %d failed" % (len(identical) - gone)))
+        log(report[-1])
     if unwanted_subs and not cancelled:
         gone = failed = 0
         for n, path in enumerate(unwanted_subs):
@@ -2621,6 +2671,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                 sub_dirs.append(parent_of(path))
             else:
                 failed += 1
+        ok_count += gone
         report.append("OK   %d subtitle file(s) in other languages %s%s" % (
             gone, "deleted" if sub_mode == SUB_DELETE else "moved to _Unpacked",
             ", %d failed" % failed if failed else ""))
@@ -2653,6 +2704,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                         continue
                     if not d and not fl and (xbmcvfs.rmdir(f) or xbmcvfs.rmdir(f.rstrip("/\\"))):
                         gone += 1
+                ok_count += gone
                 report.append("OK   removed %d of %d empty folder(s) found by the scan" % (gone, len(empties)))
                 log(report[-1])
         except Exception as e:  # tidying must never spoil a finished sort
@@ -2661,11 +2713,12 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     prog.close()
 
     stamp = time.strftime("%Y-%m-%d %H:%M")
-    text = "Kodi Sorter run %s\n%d of %d actions done OK\n\n%s\n" % (stamp, ok_count, len(plan) + len(no_eng), "\n".join(report))
+    total = len(plan) + len(no_eng) + len(unwanted_subs) + len(identical) + len(empties)
+    text = "Kodi Sorter run %s\n%d of %d actions done OK\n\n%s\n" % (stamp, ok_count, total, "\n".join(report))
     log_block("MOVE RESULT", text)
     write_text(join(dest, "kodi_sorter_log.txt"), text)
     write_text(data_file("last_report.txt"), text)
-    done = "%s: %d of %d done OK." % ("Stopped" if cancelled else "Finished", ok_count, len(plan) + len(no_eng))
+    done = "%s: %d of %d done OK." % ("Stopped" if cancelled else "Finished", ok_count, total)
     if background and xbmc.Player().isPlayingVideo():
         # Don't cover what you're watching: a note in the corner instead.
         toast(done + " Report: open Kodi Sorter > View the report from the last move.", 10000)

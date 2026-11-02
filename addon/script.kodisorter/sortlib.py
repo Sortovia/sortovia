@@ -213,6 +213,13 @@ def plan_name(name, folder=""):
     `folder` is the folder it's in (only used to decide if a PDF is a comic).
     Returns (parts or None, kind, note). kind is 'tv', 'movie' or 'comic' when
     parts is set, otherwise the reason it was skipped."""
+    if re.search(r"%[0-9a-fA-F]{2}", name):
+        # URL-encoded name from an early version: "%5bsubcrew%5dtinman" -> "[subcrew]tinman"
+        try:
+            from urllib.parse import unquote
+        except ImportError:
+            from urllib import unquote
+        name = unquote(name)
     path = PurePath(name)
     ext = path.suffix.lower()
     stem = path.stem

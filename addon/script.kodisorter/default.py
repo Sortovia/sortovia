@@ -23,7 +23,7 @@ import xbmcgui
 import xbmcvfs
 
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
-from sortlib import VIDEO, SUBS, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, plan_name, split_year, safe
+from sortlib import VIDEO, SUBS, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
 
 try:
     ADDON = "Kodi Sorter " + xbmcaddon.Addon().getAddonInfo("version")
@@ -2448,7 +2448,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         if not arc and already_sorted(path, target):
             in_place[0] += 1  # sorting a library folder: this one is where it belongs
             continue
-        if note == SPECIAL_GUESS_NOTE:
+        if note in (SPECIAL_GUESS_NOTE, CREDITS_NOTE):
             target = renumber_special(target, name, specials)
         item = {"src": path, "name": name, "target": target, "kind": kind, "note": note, "arc": arc,
                 "label": label, "res": resolution(name), "size": size_of(path), "eng": None, "langs": []}

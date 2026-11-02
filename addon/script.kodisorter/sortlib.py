@@ -38,6 +38,7 @@ SPECIAL_RE = re.compile(
     re.I)
 SPECIAL_GUESS_NOTE = "special with no number - put in Season 00 as the next free episode, check it matches TMDb"
 SPECIAL_NOTE = "special - Season 00"
+CREDITS_NOTE = "opening/ending credits clip - put in Season 00 as the next free episode (Kodi lists it only if TMDb has that special)"
 # Download-site prefixes: "www.ExampleSite.org  -  ", "[TGx]", "www.DownloadSite.com - "
 SITE_PREFIX_RE = re.compile(
     r"^\s*(?:www\.)?[a-z0-9\-]+\.(?:org|com|net|to|io|cc|me|tv|xyz|info|ws|se|ag|is|lol)\s*-+\s*", re.I)
@@ -185,6 +186,33 @@ def parse_special(stem):
     return show, (int(n) if n else None), title
 
 
+def parse_credits(stem):
+    """'Show (Uncensored Textless Opening) [Group]' -> ('Show', 'Uncensored Textless Opening');
+    '[Group] Show - NCOP1 (BD)' -> ('Show', 'NCOP1'). None if no show name is in front."""
+    spaced = LEADING_TAGS_RE.sub("", re.sub(r"_+", " ", stem))
+    if " " not in spaced.strip():
+        spaced = spaced.replace(".", " ")
+    m = CREDITS_RE.search(spaced)
+    if not m:
+        return None
+    head = spaced[:m.start()]
+    opened = max(head.rfind("("), head.rfind("["))
+    if opened > head.rfind(")") and opened > head.rfind("]"):
+        close = spaced.find(")" if spaced[opened] == "(" else "]", m.end())
+        title = spaced[opened + 1:close if close > 0 else None]
+        head = head[:opened]
+    else:
+        title = re.sub(r"[\[\(\{][^\]\)\}]*[\]\)\}]", " ", spaced[m.start():])
+        title = cut_release(title)
+    show = re.sub(r"[\[\(].*$", "", head)
+    show = re.sub(r"[ ._\-]+\d{1,3}$", "", show.strip(" ._-")).strip(" ._-")
+    show = re.sub(r"(?i)[ ._\-]+(?:s\d{1,2}|season[ ._\-]*\d{1,2})$", "", show).strip(" ._-")
+    title = clean(re.sub(r"[\[\]\(\)\{\}]", " ", title))
+    if not show or not re.search(r"[a-z]", show, re.I):
+        return None
+    return show, title or m.group(0)
+
+
 def parse_episode(stem):
     """Return (show_raw, season, episode_tag, absolute) or None.
     absolute is True for fansub numbering, "special" / "special?" for OVAs."""
@@ -236,8 +264,19 @@ def plan_name(name, folder=""):
         return None, "not video/sub/comic", ""
     if ext in VIDEO and "sample" in stem.lower():
         return None, "sample", ""
-    if ext in VIDEO and CREDITS_RE.search(stem):
-        return None, "opening/ending credits clip", ""
+    if ext in VIDEO and CREDITS_RE.search(stem) and not re.search(r"(?i)(?<![a-z0-9])s00e\d{2}(?![0-9])", stem):
+        # (an S00Exx name is one already sorted into Specials: treated like any episode below)
+        cr = parse_credits(SITE_PREFIX_RE.sub("", stem))
+        parent = re.split(r"[\\/]", (folder or "").rstrip("/\\"))[-1]
+        if not cr and parent and not re.match(r"(?i)^(?:extras?|bonus|specials?|nc|credits|op|ed|"
+                                              r"openings?|endings?|ncop|nced|creditless|textless)$", parent):
+            cr = parse_credits(SITE_PREFIX_RE.sub("", parent) + " " + stem)
+        if not cr:
+            return None, "opening/ending credits clip (no show name in the file name)", ""
+        show, year = split_year(cr[0])
+        show_dir = safe("%s (%s)" % (show, year) if year else show)
+        new = safe("%s S00E01 - %s" % (show_dir, cr[1])) + ext
+        return ("TV", show_dir, "Season 00", new), "tv", CREDITS_NOTE
 
     stem = SITE_PREFIX_RE.sub("", stem)
     lang = ""

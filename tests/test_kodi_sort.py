@@ -72,7 +72,17 @@ class Anime(unittest.TestCase):
             "TV/Tinman Meadow/Season 01/Tinman Meadow S01E01.mkv")
 
     def test_credits_with_underscores(self):
-        self.assertIsNone(rel("(Group_One)_Tinman_Meadow_-_NCED_(BD_1080p).mkv")[0])
+        self.assertEqual(rel("(Group_One)_Tinman_Meadow_-_NCED_(BD_1080p).mkv")[0],
+                         "TV/Tinman Meadow/Season 00/Tinman Meadow S00E01 - NCED.mkv")
+
+    def test_credits_clip_to_specials(self):
+        self.assertEqual(
+            rel("Tinman%20Meadow%20%28Uncensored%20Textless%20Opening%29%20%20%20%5BOtherSubs%5D.mkv")[0],
+            "TV/Tinman Meadow/Season 00/Tinman Meadow S00E01 - Uncensored Textless Opening.mkv")
+
+    def test_sorted_credits_clip_stays(self):
+        self.assertEqual(rel("Tinman Meadow S00E02 - Uncensored Textless Opening.mkv")[0],
+                         "TV/Tinman Meadow/Season 00/Tinman Meadow S00E02.mkv")
 
     def test_hyphenated_titles_not_episodes(self):
         self.assertIsNone(rel("Apollo-13.mkv")[0])
@@ -138,7 +148,10 @@ class Skips(unittest.TestCase):
         self.assertIsNone(rel("NCOP One Reason (Censored) [7A42D245].mkv")[0])
 
     def test_textless_opening(self):
-        self.assertIsNone(rel("Tinman Meadow (Uncensored Textless Opening)  [OtherSubs].mkv")[0])
+        # with the show's name in front it goes to Specials (Season 00); without one it's skipped
+        self.assertEqual(rel("Tinman Meadow (Uncensored Textless Opening)  [OtherSubs].mkv")[0],
+                         "TV/Tinman Meadow/Season 00/Tinman Meadow S00E01 - Uncensored Textless Opening.mkv")
+        self.assertIsNone(rel("NCED2.mkv")[0])
 
     def test_sample(self):
         self.assertIsNone(rel("Movie.2019.sample.mkv")[0])

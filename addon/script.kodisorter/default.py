@@ -1827,6 +1827,54 @@ def tidy_after_sort(src, dest, moved, leftovers, video_paths, nfo_mode, report):
         % (len(plan), made, parked, deleted, len(removed)))
 
 
+class TitleFixer(object):
+    """Movies named in another language ('Bolshoi Gorod 3 (2026)') get their
+    English title from TMDb - only when TMDb confirms the name is one of that
+    movie's alternative/translated titles. Needs the TMDb key from the
+    where-to-watch setup; answers are cached in titles.json."""
+
+    def __init__(self):
+        self.ready, self.tm, self.cache, self.dirty = False, None, {}, False
+        key = load_cache(data_file(WATCH_FILE)).get("key")
+        if key:
+            import whereto
+            self.tm = whereto.TMDb(key)
+            self.cache = load_cache(data_file("titles.json"))
+            self.ready = True
+
+    def fix(self, target, dest):
+        rel = re.split(r"[\\/]", target[len(ensure_slash(dest)):])
+        if len(rel) < 3 or rel[0] != "Movies":
+            return target
+        folder = rel[1]
+        m = re.match(r"^(.*) \((\d{4})\)$", folder)
+        title, year = (m.group(1), m.group(2)) if m else (folder, None)
+        key = "%s|%s" % (title.lower(), year or "")
+        if key not in self.cache:
+            import whereto
+            try:
+                self.cache[key] = whereto.english_title(self.tm, title, year) or ""
+                self.dirty = True
+            except Exception as e:
+                log("English title lookup failed for %s: %s" % (folder, e))
+                if "refused" in str(e):
+                    self.ready = False  # bad key: stop asking
+                return target
+        eng = self.cache[key]
+        if not eng:
+            return target
+        new_folder = safe("%s (%s)" % (eng, year) if year else eng)
+        parts = [new_folder if i == 1 else p for i, p in enumerate(rel)]
+        if parts[-1].lower().startswith(folder.lower()):
+            parts[-1] = new_folder + parts[-1][len(folder):]
+        log("English title: %s -> %s" % (folder, new_folder))
+        return join(dest, *parts)
+
+    def save(self):
+        if self.dirty:
+            save_cache(data_file("titles.json"), self.cache)
+
+
 def match_orphan_subs(orphans, groups, src, dest):
     """Subtitles named only by language ('Subs/Show.S01E01.../11_English.srt'):
     find their video from the folder names - a video moved in this run, or one
@@ -2031,6 +2079,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
     nfo_texts = {}
     import nfos
     orphan_subs, leftovers, video_paths = [], [], []
+    titles = TitleFixer()
+    renamed = {}  # old movie folder -> (old target, new target)
 
     def tally():
         # e.g. "39 already checked, 6 new, 29 skipped by name, 2 other"
@@ -2069,6 +2119,12 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
             skipped.append("SKIP  %s  (%s)" % (label if arc else name, kind))
             by_name += 1
             continue
+        if kind == "MOVIE" and titles.ready:
+            new_target = titles.fix(target, dest)
+            if new_target != target:
+                renamed[_norm(parent_of(path))] = (target, new_target)
+                note = "English title from TMDb (was %s)" % re.split(r"[\\/]", target[len(ensure_slash(dest)):])[1]
+                target = new_target
         if not arc and already_sorted(path, target):
             in_place[0] += 1  # sorting a library folder: this one is where it belongs
             continue
@@ -2109,6 +2165,20 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0):
             continue
         groups.setdefault(dup_key(target), []).append(item)
 
+    titles.save()
+    for path in list(leftovers):
+        ren = renamed.get(_norm(parent_of(path)))
+        if not ren:
+            continue
+        old_stem, new_stem = split_name(base_of(ren[0]))[0], split_name(base_of(ren[1]))[0]
+        name = base_of(path)
+        if name.lower().startswith(old_stem.lower()):
+            name = new_stem + name[len(old_stem):]
+        t = join(parent_of(ren[1]), name)
+        leftovers.remove(path)
+        groups.setdefault(dup_key(t), []).append(
+            {"src": path, "name": base_of(path), "target": t, "kind": "EXTRA", "note": "", "arc": None,
+             "label": masked(path.replace(src, "")), "res": None, "size": size_of(path), "eng": None, "langs": []})
     for it, why in match_orphan_subs(orphan_subs, groups, src, dest):
         if it:
             groups.setdefault(dup_key(it["target"]), []).append(it)

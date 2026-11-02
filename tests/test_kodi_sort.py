@@ -144,7 +144,13 @@ class Skips(unittest.TestCase):
         self.assertIsNone(rel("Movie.2019.sample.mkv")[0])
 
     def test_comic(self):
-        self.assertEqual(rel("Ironclad v01.cbz")[0], "Comics/Ironclad v01.cbz")
+        self.assertEqual(rel("Ironclad v01.cbz")[0], "Comics/Ironclad/Ironclad v01.cbz")
+
+    def test_comic_series_folders(self):
+        self.assertEqual(rel("Ironclad (2).cbz")[0], "Comics/Ironclad/Ironclad (2).cbz")
+        self.assertEqual(rel("Saga 054 (2018) (Digital).cbr")[0], "Comics/Saga/Saga 054 (2018) (Digital).cbr")
+        self.assertEqual(rel("Spider-Man 2099 001 (1992).cbz")[0],
+                         "Comics/Spider-Man 2099/Spider-Man 2099 001 (1992).cbz")
 
     def test_pdf_not_a_comic_by_default(self):
         # bills and manuals in a phone's Download folder were sent as comics
@@ -154,9 +160,9 @@ class Skips(unittest.TestCase):
 
     def test_pdf_in_comics_folder(self):
         target = ks.target_for("Nightwarden 001.pdf", D, "/downloads/Nightwarden Comics")[0]
-        self.assertEqual(str(target.relative_to(D)), "Comics/Nightwarden 001.pdf")
+        self.assertEqual(str(target.relative_to(D)), "Comics/Nightwarden/Nightwarden 001.pdf")
         target = ks.target_for("Berserk v01.epub", D, "/downloads/manga/Berserk")[0]
-        self.assertEqual(str(target.relative_to(D)), "Comics/Berserk v01.epub")
+        self.assertEqual(str(target.relative_to(D)), "Comics/Berserk/Berserk v01.epub")
 
     def test_hidden_file(self):
         with tempfile.TemporaryDirectory() as t:

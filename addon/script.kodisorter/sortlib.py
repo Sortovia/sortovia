@@ -132,6 +132,30 @@ def sub_lang(stem):
     return stem, ""
 
 
+# Volume / issue / chapter markers: "v01", "Vol. 2", "Volume 3", "#001", "Issue 4",
+# "Chapter 5", "c006", "ch.7", "TPB" ... everything from the first one is cut.
+# Without one, only a bare number at the very end is the issue ("Saga 054"),
+# so "Spider-Man 2099 001" keeps its "2099".
+COMIC_MARK_RE = re.compile(
+    r"[ ._\-]+(?:v(?:ol(?:ume)?)?\.?\s*\d+|#\s*\d+|issue\s*\d+|chapters?\s*\d+|ch\.?\s*\d+|c\d{2,4}"
+    r"|book\s*\d+|part\s*\d+|tpb|omnibus|annual)(?![a-z]).*$", re.I)
+COMIC_TRAIL_NUM_RE = re.compile(r"[ ._\-]+\d{1,4}(?:\.\d)?$")
+
+
+def comic_series(name):
+    """'Ironclad v01 (Digital) (Zone).cbz' -> 'Ironclad'; 'Ironclad (2).cbz' -> 'Ironclad';
+    'Saga 054 (2018).cbr' -> 'Saga'. Falls back to the cleaned name."""
+    stem = name.rsplit(".", 1)[0] if "." in name else name
+    stem = LEADING_TAGS_RE.sub("", stem)                    # "[Group] Name" -> "Name"
+    stem = re.sub(r"[\[\(\{][^\]\)\}]*[\]\)\}]", " ", stem)   # "(2)", "(Digital)", "[1080p]"
+    stem = re.sub(r"[._]+", " ", stem)
+    stem = re.sub(r"\s+", " ", stem).strip(" -")
+    series = COMIC_MARK_RE.sub("", " " + stem).strip(" -")
+    if series == stem:
+        series = COMIC_TRAIL_NUM_RE.sub("", " " + stem).strip(" -")
+    return safe(clean(series or stem)) or "Unsorted"
+
+
 def parse_special(stem):
     """'Show OVA - Title' -> (show_raw, number or None, title). None if not a special."""
     spaced = LEADING_TAGS_RE.sub("", re.sub(r"_+", " ", stem))
@@ -180,10 +204,10 @@ def plan_name(name, folder=""):
     if name.startswith("."):
         return None, "hidden / still downloading", ""
     if ext in COMICS:
-        return ("Comics", name), "comic", ""
+        return ("Comics", comic_series(name), name), "comic", ""
     if ext in BOOKS:
         if COMIC_FOLDER_RE.search(folder or ""):
-            return ("Comics", name), "comic", ""
+            return ("Comics", comic_series(name), name), "comic", ""
         return None, "document - PDFs/EPUBs are only moved from a Comics or Manga folder", ""
     if ext not in VIDEO and ext not in SUBS:
         return None, "not video/sub/comic", ""

@@ -145,3 +145,39 @@ def annotate(data, tm, region, mine, progress=None):
             r["where"] = {"all": "couldn't check (%s)" % e}
         time.sleep(0.1)
     return data
+
+
+# ---------- English movie titles ----------
+def _norm_title(t):
+    import unicodedata
+    t = unicodedata.normalize("NFKD", t or "")
+    t = "".join(c for c in t if not unicodedata.combining(c)).lower()
+    return re.sub(r"[^a-z0-9]+", "", t)
+
+
+def english_title(tm, title, year):
+    """The English title of a movie whose folder is named e.g. 'Bolshoi Gorod 3 (2026)'.
+    Only returned when TMDb confirms the current name is one of THAT movie's
+    alternative/translated titles (same year +-1); None = keep the name."""
+    params = {"query": title, "language": "en-US", "include_adult": "false"}
+    if year:
+        params["year"] = year
+    res = (tm.get("/search/movie", **params) or {}).get("results") or []
+    if not res and year:
+        params.pop("year")
+        res = (tm.get("/search/movie", **params) or {}).get("results") or []
+    me = _norm_title(title)
+    for r in res[:5]:
+        ry = (r.get("release_date") or "")[:4]
+        if year and ry.isdigit() and abs(int(ry) - int(year)) > 1:
+            continue
+        if me in (_norm_title(r.get("title")), _norm_title(r.get("original_title"))):
+            return None  # already its English (or original) title
+        d = tm.get("/movie/%d" % r["id"], append_to_response="alternative_titles,translations",
+                   language="en-US") or {}
+        names = set(_norm_title(a.get("title")) for a in (d.get("alternative_titles") or {}).get("titles", []))
+        names |= set(_norm_title((t.get("data") or {}).get("title"))
+                     for t in (d.get("translations") or {}).get("translations", []))
+        if me in names and d.get("title"):
+            return d["title"]
+    return None

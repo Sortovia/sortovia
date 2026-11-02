@@ -316,6 +316,7 @@ def park_archive(path):
     for vol in archive_volumes(path):
         target = join(parent_of(vol), "_Unpacked", base_of(vol))
         xbmcvfs.mkdirs(parent_of(target))
+        mark_nomedia(target)
         results.append(bool(xbmcvfs.rename(vol, target)))
     return all(results)
 
@@ -672,6 +673,43 @@ def copy_with_progress(src, dst, total):
 
 RENAME_FAILS = set()  # (source drive, destination drive) pairs where rename failed
 MADE_DIRS = set()
+# Folders Kodi Sorter parks things in. A ".nomedia" file inside makes Kodi's
+# library scan skip the folder, so parked videos never show up as shows.
+PARK_DIRS = ("_replaced", "_no english", "_unpacked")
+PARK_RE = re.compile(r"^(.*?[\\/](?:_replaced|_no english|_unpacked))(?=[\\/]|$)", re.I)
+NOMEDIA_DONE = set()
+
+
+def mark_nomedia(path):
+    """Put a .nomedia file in the park folder (_Unpacked etc.) that path is in."""
+    m = PARK_RE.match(path or "")
+    if not m:
+        return
+    root = ensure_slash(m.group(1))
+    if _norm(root) in NOMEDIA_DONE:
+        return
+    NOMEDIA_DONE.add(_norm(root))
+    flag = root + ".nomedia"
+    try:
+        if not xbmcvfs.exists(flag):
+            xbmcvfs.mkdirs(root)
+            f = xbmcvfs.File(flag, "w")
+            try:
+                f.write("Kodi Sorter: tells Kodi's library scan to skip this folder\n")
+            finally:
+                f.close()
+            log("added .nomedia to %s (Kodi won't scan it)" % masked(root))
+    except Exception as e:
+        log("couldn't add .nomedia to %s: %s" % (masked(root), e))
+
+
+def mark_park_folders(*bases):
+    """.nomedia in park folders left by earlier runs."""
+    for base in set(b for b in bases if b):
+        for name in ("_Replaced", "_No English", "_Unpacked"):
+            folder = join(base, name)
+            if _norm(ensure_slash(folder)) not in NOMEDIA_DONE and xbmcvfs.exists(ensure_slash(folder)):
+                mark_nomedia(folder)
 
 
 def _drive(path):
@@ -696,6 +734,7 @@ def move_file(src, dst, known_size=None):
     if _norm(folder) not in MADE_DIRS:
         xbmcvfs.mkdirs(folder)
         MADE_DIRS.add(_norm(folder))
+        mark_nomedia(folder)
     pair = (_drive(src), _drive(dst))
     if pair not in RENAME_FAILS:
         if xbmcvfs.rename(src, dst) and xbmcvfs.exists(dst):
@@ -2182,6 +2221,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode
         nfo_mode, sub_mode, ",".join(sub_keep_langs())))
     try:
         _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode, sub_mode, empty_mode)
+        mark_park_folders(src, dest)
     except Exception:
         import traceback
         log_block("ERROR", traceback.format_exc())

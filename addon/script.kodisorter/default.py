@@ -215,18 +215,46 @@ def already_sorted(path, target):
     return base_of(path).lower().startswith(stem)
 
 
-def walk(folder, skip=()):
+def walk(folder, skip=(), tree=None):
+    """Files under folder. tree (optional dict) records each folder seen as
+    folder -> [has files or skipped content, [subfolders walked]]."""
     folder = ensure_slash(folder)
     dirs, files = xbmcvfs.listdir(folder)
+    node = None
+    if tree is not None:
+        node = tree[folder] = [bool(files), []]
     for f in files:
         yield folder + f, f
     for d in dirs:
-        if d.lower() in ("_replaced", "_no english", "_unpacked", LOG_DIR.lower()):
+        if d.lower() in ("_replaced", "_no english", "_unpacked", LOG_DIR.lower()) or \
+                (skip and _norm(folder + d) in skip):
+            if node is not None:
+                node[0] = True  # holds a folder we don't look into: never "empty"
             continue
-        if skip and _norm(folder + d) in skip:
-            continue
-        for item in walk(folder + d, skip):
+        if node is not None:
+            node[1].append(ensure_slash(folder + d))
+        for item in walk(folder + d, skip, tree):
             yield item
+
+
+def empty_folders(tree, src, keep_top=False):
+    """Folders with no files anywhere below them, deepest first. Never the
+    source itself; with keep_top, not its top-level folders either."""
+    root = ensure_slash(src)
+    out, memo = [], {}
+
+    def empty(f):
+        if f not in memo:
+            node = tree.get(f)
+            memo[f] = node is not None and not node[0] and all([empty(d) for d in node[1]])
+        return memo[f]
+    for f in tree:
+        if f == root or not empty(f):
+            continue
+        if keep_top and _norm(parent_of(f)) == _norm(root):
+            continue
+        out.append(f)
+    return sorted(out, key=lambda f: -_norm(f).count("/"))
 
 
 # ---------- archives (.rar / .zip / .7z) ----------
@@ -1398,7 +1426,7 @@ def main():
                              nolabel="Start over", yeslabel="Resume"):
             remove_partial_copy(prev)
             run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"],
-                prev.get("nfo_mode", 0), prev.get("sub_mode", 0))
+                prev.get("nfo_mode", 0), prev.get("sub_mode", 0), prev.get("empty_mode", 0))
             return
         clear_session(spath)
 
@@ -1437,7 +1465,7 @@ def main():
             return
         if pick == 0:
             run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"],
-                last.get("nfo_mode", 0), last.get("sub_mode", 0))
+                last.get("nfo_mode", 0), last.get("sub_mode", 0), last.get("empty_mode", 0))
             return
 
     where = dlg.select("Where are the downloads?",
@@ -1482,7 +1510,12 @@ def main():
     sub_mode = ask_sub_mode(dlg)
     if sub_mode < 0:
         return
-    run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode, sub_mode)
+    empty_mode = dlg.select("Empty folders in the source:",
+                            ["Delete them (recommended)",
+                             "Keep them (only remove folders this run empties)"])
+    if empty_mode < 0:
+        return
+    run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode, sub_mode, empty_mode)
 
 
 MODE_NAMES = ["ask each time", "always keep the better copy", "never replace"]
@@ -1609,6 +1642,9 @@ def watch_settings(dlg, change=False):
     tm = whereto.TMDb(cfg["key"])
     if change or not cfg.get("region"):
         regions = tm.regions()
+        if not regions:
+            dlg.ok(ADDON, "TMDb didn't send the list of countries - check the internet connection and try again.")
+            return None
         codes = [c for c, _ in regions]
         cur = cfg.get("region") or "US"
         pick = dlg.select("Your country", ["%s (%s)" % (n, c) for c, n in regions],
@@ -2114,12 +2150,12 @@ def remove_empty_folders(src, folders):
     return removed
 
 
-def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode=0):
+def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode=0, empty_mode=0):
     log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s  nfo=%d  subs=%d keep %s" % (
         masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode],
         nfo_mode, sub_mode, ",".join(sub_keep_langs())))
     try:
-        _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode, sub_mode)
+        _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode, sub_mode, empty_mode)
     except Exception:
         import traceback
         log_block("ERROR", traceback.format_exc())
@@ -2133,15 +2169,15 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode
     send_logs("end")
 
 
-def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode=0):
+def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode=0, empty_mode=0):
     check_lang = lang_mode != 3
     session = {"src": src, "dest": dest, "mode": mode, "delete_old": delete_old,
-               "lang_mode": lang_mode, "nfo_mode": nfo_mode, "sub_mode": sub_mode, "stage": "scanning",
+               "lang_mode": lang_mode, "nfo_mode": nfo_mode, "sub_mode": sub_mode, "empty_mode": empty_mode, "stage": "scanning",
                "started": time.strftime("%Y-%m-%d %H:%M")}
     if not save_cache(spath, session):
         toast("Couldn't save progress - Resume won't be offered if this run is interrupted", 6000)
     save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
-                                                     ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode", "sub_mode")))
+                                                     ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode", "sub_mode", "empty_mode")))
     src = resolve_src(src, dlg)
     root, names = resolve_dest(dest)
     FOLDER_NAMES.update(names)
@@ -2168,7 +2204,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         log("destination is inside the source: skipping its TV/Movies/Comics folders")
     release_nfos = []
     nfo_index = {}  # folder (or ("arc", archive)) -> .nfo paths, for the audio fallback
-    for path, name in walk(src, skip):
+    src_tree = {}
+    for path, name in walk(src, skip, src_tree):
         ext = split_name(name)[1]
         if ext == ".nfo":
             release_nfos.append(path)
@@ -2199,6 +2236,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     orphan_subs, leftovers, video_paths = [], [], []
     titles = TitleFixer()
     keep_langs = sub_keep_langs()
+    movies_seen = [0]
     unwanted_subs = []
     renamed = {}  # old movie folder -> (old target, new target)
 
@@ -2239,6 +2277,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             skipped.append("SKIP  %s  (%s)" % (label if arc else name, kind))
             by_name += 1
             continue
+        if kind == "MOVIE":
+            movies_seen[0] += 1
         if kind == "MOVIE" and titles.ready:
             new_target = titles.fix(target, dest)
             if new_target != target:
@@ -2380,8 +2420,17 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     will_move = [it["src"] for it in plan] + ([it["src"] for it in no_eng] if lang_mode in (1, 2) else [])
     tidy_preview = tidy_plan(src, leftovers, video_paths, will_move) if nfo_mode != 3 else {}
     tidy_n = sum(len(v) for v in tidy_preview.values())
-    if notes or unknown_audio or archive_fail or unpacking or tidy_n or unwanted_subs:
+    phone = src.split("://")[0] in ("dav", "davs", "ftp")
+    empties = empty_folders(src_tree, src, keep_top=phone) if empty_mode == 0 else []
+    no_titles = movies_seen[0] and not titles.ready
+    if notes or unknown_audio or archive_fail or unpacking or tidy_n or unwanted_subs or empties or no_titles:
         lines.append("Notes:")
+        if empties:
+            lines.append("  %d empty folder(s) will be removed: %s" % (len(empties), ", ".join(
+                friendly(f[len(ensure_slash(src)):]) for f in empties[:8]) + (" ..." if len(empties) > 8 else "")))
+        if no_titles:
+            lines.append("  movie titles were NOT checked for other languages (e.g. a Polish title): "
+                         "no TMDb key yet - choose 'Set up the TMDb key' in the menu")
         if unwanted_subs:
             lines.append("  %d subtitle file(s) not in %s will be %s" % (
                 len(unwanted_subs), "/".join(lang_name(c) for c in keep_langs),
@@ -2420,13 +2469,22 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     preview = "\n".join(lines)
     log_block("SCAN RESULT (%d files: %s)" % (len(files), tally()), preview)
     title = "%s - scan finished: %d files (%s)" % (ADDON, len(files), tally())
-    if not plan and not no_eng and not tidy_n and not unwanted_subs:
+    tmdb_item = "Set up the TMDb key now to fix movie titles in other languages"
+    if not plan and not no_eng and not tidy_n and not unwanted_subs and not empties:
         clear_session(spath)
-        while dlg.select(title + " - nothing to move",
-                         ["View the full list", "Done"]) == 0:
-            dlg.textviewer("%s - preview (nothing moved)" % ADDON, preview)
-        return
+        while True:
+            opts = ["View the full list"] + ([tmdb_item] if no_titles else []) + ["Done"]
+            pick = dlg.select(title + " - nothing to move", opts)
+            if pick == 0:
+                dlg.textviewer("%s - preview (nothing moved)" % ADDON, preview)
+                continue
+            if pick >= 0 and opts[pick] == tmdb_item and watch_settings(dlg):
+                return _run(dlg, spath, session["src"], session["dest"], mode, delete_old, lang_mode,
+                            nfo_mode, sub_mode, empty_mode)
+            return
     what = "%d file(s)" % len(plan)
+    if empties:
+        what += " + remove %d empty folder(s)" % len(empties)
     if tidy_n:
         what += " + tidy %d leftover(s)" % tidy_n
     if unwanted_subs:
@@ -2438,7 +2496,12 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         choice = dlg.select(title, ["Move %s in the BACKGROUND - keep using Kodi" % what,
                                     "Move %s now, full screen" % what,
                                     "View the full list first (%d to move, %d skipped)" % (len(plan), len(skipped)),
-                                    "Cancel - move nothing"])
+                                    "Cancel - move nothing"] + ([tmdb_item] if no_titles else []))
+        if choice == 4:
+            if watch_settings(dlg):
+                return _run(dlg, spath, session["src"], session["dest"], mode, delete_old, lang_mode,
+                            nfo_mode, sub_mode, empty_mode)
+            continue
         if choice == 2:
             dlg.textviewer("%s - preview (nothing moved yet)" % ADDON, preview)
             continue
@@ -2576,6 +2639,19 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         prog.update(100, "Tidying up: release .nfo files and empty folders")
         try:
             tidy_after_sort(src, dest, moved_ok, leftovers, video_paths, nfo_mode, report, sub_dirs)
+            if empties:
+                gone = 0
+                for n, f in enumerate(empties):
+                    if n % 10 == 0:
+                        prog.update(int(n * 100 / len(empties)), "Removing empty folders: %d of %d" % (n + 1, len(empties)))
+                    try:
+                        d, fl = xbmcvfs.listdir(f)
+                    except Exception:
+                        continue
+                    if not d and not fl and (xbmcvfs.rmdir(f) or xbmcvfs.rmdir(f.rstrip("/\\"))):
+                        gone += 1
+                report.append("OK   removed %d of %d empty folder(s) found by the scan" % (gone, len(empties)))
+                log(report[-1])
         except Exception as e:  # tidying must never spoil a finished sort
             log("tidy-up failed: %s" % e)
             report.append("NOTE  tidy-up of .nfo files / empty folders failed: %s" % e)

@@ -12,6 +12,11 @@ E:\
 └── Tutorials\AutoCAD\<original file>.mp4
 ```
 
+**Already have a library?** You can point each kind at your own folders, with any name on any drive
+(for example `D:\My Shows`, `F:\Films`). New files are added to them, and nothing already there is moved. Inside
+those folders it reuses your existing show, season and movie folders: "Sams Sandwiches S15E01" goes into your
+`Sam's Sandwiches\Season 15`, not into a new near-duplicate folder.
+
 Before anything moves, it shows you the plan. Nothing is overwritten without your OK. Replaced copies go
 to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete them later.
 
@@ -93,8 +98,11 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
 4. Read the preview. It lists every move, everything it will skip and why, and notes such as "check the season".
 5. Choose **Move now**, in the background if you like. A report is saved, and you can reopen it from the start menu.
 
-The very first time, a welcome screen asks **what you want to sort** (TV, Movies, Comics, Tutorials) and offers
-this guide. You can change both later under **Help** in the start menu.
+The very first time, a welcome screen asks:
+- **what you want to sort** (TV, Movies, Comics, Tutorials),
+- whether you **already have folders** for them (pick each one, any name, any drive),
+
+and offers this guide. You can change all of these later under **Help** in the start menu.
 
 Next time, the start menu offers **Same as last time** and the extra tools.
 

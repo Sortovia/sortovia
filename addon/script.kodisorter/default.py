@@ -163,6 +163,113 @@ FOLDER_SYNONYMS = {
 }
 
 
+# Folders the person already has for a kind (Help > My library folders), anywhere,
+# e.g. {"TV": "win-lib://removable/D:\\My Shows/"}. Set per run from onboarding.json.
+# Kinds without one use <library root>/<FOLDER_NAMES[kind]> as before.
+KIND_DIRS = {}
+ONBOARD_KIND = {"TV": "TV", "MOVIE": "Movies", "COMIC": "Comics", "TUTORIAL": "Tutorials"}
+
+
+def kind_root(kind, dest):
+    """The folder a kind goes into: the person's own folder, or <dest>/TV etc."""
+    return KIND_DIRS.get(kind) or join(dest, FOLDER_NAMES.get(kind, kind))
+
+
+def rel_of(target, dest):
+    """A target as library parts, ["TV", "Show", "Season 01", "x.mkv"], also when TV
+    is the person's own folder somewhere else (then "TV" stands for that folder)."""
+    for kind, folder in KIND_DIRS.items():
+        top = ensure_slash(folder)
+        if _norm(target).startswith(_norm(top) + "/"):
+            return [FOLDER_NAMES.get(kind, kind)] + [p for p in re.split(r"[\\/]", target[len(top):]) if p]
+    if target.startswith(ensure_slash(dest)):
+        return [p for p in re.split(r"[\\/]", target[len(ensure_slash(dest)):]) if p]
+    return [base_of(target)]
+
+
+def from_rel(parts, dest):
+    """Inverse of rel_of."""
+    for kind, name in FOLDER_NAMES.items():
+        if parts and parts[0] == name and kind in KIND_DIRS:
+            return join(KIND_DIRS[kind], *parts[1:])
+    return join(dest, *parts)
+
+
+# ---------- reuse the library's own show / season / movie folders ----------
+# "Sams Sandwiches S15E01" goes into an existing "Sam's Sandwiches" folder, and into its
+# "Season 1" folder if that's how the library names seasons, instead of making
+# near-duplicate folders next to them. Each folder is listed once per run.
+DIR_CACHE = {}
+
+
+def _subdirs(path):
+    key = _norm(path)
+    if key not in DIR_CACHE:
+        try:
+            DIR_CACHE[key] = xbmcvfs.listdir(ensure_slash(path))[0] if xbmcvfs.exists(ensure_slash(path)) else []
+        except Exception:
+            DIR_CACHE[key] = []
+    return DIR_CACHE[key]
+
+
+def _title_key(name):
+    """('sams sandwiches', None) for "Sam's Sandwiches"; ('office us', '2005') for "The Office (US) (2005)"."""
+    m = re.match(r"^(.*?)\s*\((\d{4})\)\s*$", name)
+    title, year = (m.group(1), m.group(2)) if m else (name, None)
+    k = title.lower().replace("&", " and ")
+    k = re.sub(r"['\u2019`.]", "", k)
+    k = re.sub(r"[^a-z0-9]+", " ", k).strip()
+    return re.sub(r"^the ", "", k), year
+
+
+def match_folder(root, wanted, need_year=False):
+    """An existing folder in root that is the same show/movie as `wanted`, or None.
+    Years must agree when both have one (Doctor Who (2005) is not Doctor Who (1963));
+    movies (need_year) only match the same year."""
+    dirs = _subdirs(root)
+    if wanted in dirs:
+        return wanted
+    key, year = _title_key(wanted)
+    if not key:
+        return None
+    same = [d for d in dirs if _title_key(d)[0] == key]
+    exact = [d for d in same if _title_key(d)[1] == year]
+    if len(exact) == 1:
+        return exact[0]
+    if need_year or exact:
+        return None
+    loose = [d for d in same if not year or not _title_key(d)[1]]
+    return loose[0] if len(loose) == 1 else None
+
+
+def match_season(show_path, number):
+    for d in _subdirs(show_path):
+        m = re.match(r"^(?:season|series|staffel|saison|s)[ ._\-]*0*(\d+)$", d.strip(), re.I)
+        if (m and int(m.group(1)) == number) or (number == 0 and d.strip().lower() == "specials"):
+            return d
+    return None
+
+
+def use_library_names(parts, dest):
+    """Swap new show/season/movie folder names for the library's existing ones."""
+    kind = {FOLDER_NAMES["TV"]: "TV", FOLDER_NAMES["Movies"]: "Movies"}.get(parts[0])
+    if not kind or len(parts) < 3:
+        return parts
+    parts = list(parts)
+    root = kind_root(kind, dest)
+    have = match_folder(root, parts[1], need_year=(kind == "Movies"))
+    if have and have != parts[1]:
+        if parts[-1].lower().startswith(parts[1].lower()):
+            parts[-1] = have + parts[-1][len(parts[1]):]  # file named like its folder, so duplicates are spotted
+        parts[1] = have
+    if kind == "TV" and len(parts) >= 4:
+        m = re.match(r"^Season (\d+)$", parts[2])
+        season = m and match_season(join(root, parts[1]), int(m.group(1)))
+        if season:
+            parts[2] = season
+    return tuple(parts)
+
+
 def resolve_dest(dest):
     """(library root, {kind: folder name}) for the destination the user picked.
     E:\\Movies -> (E:\\, Movies=Movies, TV=TV or an existing 'TV Shows', ...).
@@ -205,7 +312,7 @@ def _norm(path):
 def sorted_folders(dest):
     """The destination's TV/Movies/Comics folders: skipped when the source is
     the same drive/folder (or contains it), so sorted files aren't re-sorted."""
-    return set(_norm(join(dest, f)) for f in FOLDER_NAMES.values())
+    return set(_norm(join(dest, f)) for f in FOLDER_NAMES.values()) | set(_norm(d) for d in KIND_DIRS.values())
 
 
 def already_sorted(path, target):
@@ -576,14 +683,15 @@ def plan_for(path, filename, dest):
     if parts is None:
         return None, kind, ""
     parts = (FOLDER_NAMES.get(parts[0], parts[0]),) + tuple(parts[1:])
+    parts = use_library_names(parts, dest)
     if split_name(filename)[1] in SUBS:
         parts = parts[:-1] + ("Subs",) + parts[-1:]  # Kodi looks in "Subs" next to the video
-    return join(dest, *parts), kind.upper(), note
+    return from_rel(parts, dest), kind.upper(), note
 
 
 def show_of(target, dest):
     """'<dest>/TV/Show Name/Season 01/x.mkv' -> 'Show Name'."""
-    parts = re.split(r"[\\/]", target[len(ensure_slash(dest)):])
+    parts = rel_of(target, dest)
     return parts[1] if len(parts) > 2 else parts[-1]
 
 
@@ -788,8 +896,7 @@ def move_file(src, dst, known_size=None):
 
 
 def replaced_path(old, dest):
-    rel = old[len(ensure_slash(dest)):] if old.startswith(ensure_slash(dest)) else base_of(old)
-    out = join(dest, "_Replaced", *re.split(r"[\\/]", rel))
+    out = join(dest, "_Replaced", *rel_of(old, dest))
     n = 2
     while xbmcvfs.exists(out):
         stem, ext = split_name(out)
@@ -1462,7 +1569,8 @@ def youtube_menu(dlg, spath, last):
                                            PHONE, c.get("port", "8080"))
     dest = last.get("dest") if last.get("dest") and "://" not in last["dest"] else ""
     if dest and not dlg.yesno(ADDON, "Sort the phone's Download/YouTube into %s?\n(Tutorials go to %s)"
-                              % (friendly(dest), friendly(join(resolve_dest(dest)[0], "Tutorials"))),
+                              % (friendly(dest), friendly(((onboarding_state().folders() if onboarding_state() else {})
+                                                          .get("TUTORIAL")) or join(resolve_dest(dest)[0], "Tutorials"))),
                               nolabel="Other drive", yeslabel="Yes"):
         dest = ""
     if not dest:
@@ -1981,9 +2089,9 @@ def _guess_items(release, dest):
     if m:
         show, year = split_year(m.group("show"))
         show_dir = safe("%s (%s)" % (show, year) if year else show)
-        if xbmcvfs.exists(ensure_slash(join(dest, FOLDER_NAMES["TV"], show_dir))):
+        if xbmcvfs.exists(ensure_slash(join(kind_root("TV", dest), show_dir))):
             return [{"kind": "TV", "arc": None, "src": "",
-                     "target": join(dest, FOLDER_NAMES["TV"], show_dir, "Season %02d" % int(m.group("s")), "x.mkv")}]
+                     "target": join(kind_root("TV", dest), show_dir, "Season %02d" % int(m.group("s")), "x.mkv")}]
     return []
 
 
@@ -2072,7 +2180,7 @@ class TitleFixer(object):
             self.ready = True
 
     def fix(self, target, dest):
-        rel = re.split(r"[\\/]", target[len(ensure_slash(dest)):])
+        rel = rel_of(target, dest)
         if len(rel) < 3 or rel[0] != FOLDER_NAMES["Movies"]:
             return target
         folder = rel[1]
@@ -2100,7 +2208,7 @@ class TitleFixer(object):
         if parts[-1].lower().startswith(folder.lower()):
             parts[-1] = new_folder + parts[-1][len(folder):]
         log("English title: %s -> %s" % (folder, new_folder))
-        return join(dest, *parts)
+        return from_rel(parts, dest)
 
     def save(self):
         if self.dirty:
@@ -2327,7 +2435,7 @@ def make_quality_nfos(moved, src, dest, report):
                     text = text or t
             if text is None:
                 continue
-        rel = re.split(r"[\\/]", target[len(ensure_slash(dest)):])
+        rel = rel_of(target, dest)
         m = re.match(r"^(.*) \((\d{4})\)$", rel[1] if len(rel) > 2 else "")
         title, year = (m.group(1), m.group(2)) if m else (split_name(rel[-1])[0], None)
         imdb = (nfos.imdb_ids(text) or nfos.imdb_ids(old) or [None])[0]
@@ -2450,11 +2558,18 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     src = resolve_src(src, dlg)
     root, names = resolve_dest(dest)
     FOLDER_NAMES.update(names)
+    KIND_DIRS.clear()
+    DIR_CACHE.clear()
+    ob = onboarding_state()
+    for k, path in ((ob.folders() if ob else {}) or {}).items():
+        if ONBOARD_KIND.get(k):
+            KIND_DIRS[ONBOARD_KIND[k]] = path
+            log("%s go into your own folder %s" % (ONBOARD_KIND[k], friendly(path)))
     if _norm(root) != _norm(dest):
         log("destination %s is the %s folder: library root %s" % (dest, base_of(dest), root))
     dest = root  # everything below works from the library root
     where_to = "Destination: movies -> %s, TV -> %s, comics -> %s, tutorials -> %s" % tuple(
-        friendly(join(dest, FOLDER_NAMES[k])) for k in ("Movies", "TV", "Comics", "Tutorials"))
+        friendly(kind_root(k, dest)) for k in ("Movies", "TV", "Comics", "Tutorials"))
     log(where_to)
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
         dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start xbox-share (Termux) or primitive ftpd, "
@@ -2579,7 +2694,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             new_target = titles.fix(target, dest)
             if new_target != target:
                 renamed[_norm(parent_of(path))] = (target, new_target)
-                note = "English title from TMDb (was %s)" % re.split(r"[\\/]", target[len(ensure_slash(dest)):])[1]
+                note = "English title from TMDb (was %s)" % rel_of(target, dest)[1]
                 target = new_target
         if sub_mode and not arc and split_name(name)[1] in SUBS and \
                 (unwanted_sub(target, keep_langs) or unwanted_sub(name, keep_langs)):
@@ -2914,8 +3029,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             cancelled = True
             break
         if lang_mode == 1:
-            rel = it["target"][len(ensure_slash(dest)):]
-            nt = join(dest, "_No English", *re.split(r"[\\/]", rel))
+            nt = join(dest, "_No English", *rel_of(it["target"], dest))
             ok, how = move_file(it["src"], nt)
             how = "moved to _No English" if ok else how
         else:

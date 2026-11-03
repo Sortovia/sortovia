@@ -49,6 +49,7 @@ class Dlg:
     def multiselect(self, h, opts, preselect=None): return self._a(("multi", tuple(preselect or ())))
     def select(self, h, opts): return self._a("select")
     def textviewer(self, h, t): self.seen.append(("text", t[:30]))
+    def browse(self, t, h, kind): return self._a("browse")
 
 
 class FirstRun(unittest.TestCase):
@@ -62,7 +63,7 @@ class FirstRun(unittest.TestCase):
     def test_welcome_once_then_kinds_kept(self):
         with tempfile.TemporaryDirectory() as d:
             o = self.make(d)
-            dlg = Dlg([[1, 3], True])  # Movies + Tutorials, read the guide
+            dlg = Dlg([[1, 3], False, True])  # Movies + Tutorials, no own folders, read the guide
             self.assertTrue(o.first_run(dlg))
             self.assertEqual(o.wanted(), ["MOVIE", "TUTORIAL"])
             self.assertTrue(any(isinstance(x, tuple) and x[0] == "text" for x in dlg.seen))
@@ -70,10 +71,21 @@ class FirstRun(unittest.TestCase):
             self.assertFalse(o2.first_run(Dlg([])))  # not shown again
             self.assertEqual(o2.wanted_line(), "Movies, Tutorials")
 
+    def test_pick_own_tv_folder(self):
+        with tempfile.TemporaryDirectory() as d:
+            o = self.make(d)
+            # kinds: all; yes I have folders; pick row 0 (TV) -> existing -> browse; Done (row 4); no guide
+            o.first_run(Dlg([[0, 1, 2, 3], True, 0, 0, "win-lib://removable/D:\\My Shows/", 4, False]))
+            self.assertEqual(o.folders(), {"TV": "win-lib://removable/D:\\My Shows/"})
+            self.assertEqual(o.folders_line(), "TV episodes -> D:\\My Shows")
+            # Help > My library folders > TV > use the standard folder again
+            o.choose_folders(Dlg([0, 1, 4]))
+            self.assertEqual(o.folders(), {})
+
     def test_back_on_first_run_keeps_everything(self):
         with tempfile.TemporaryDirectory() as d:
             o = self.make(d)
-            o.first_run(Dlg([None, False]))
+            o.first_run(Dlg([None, False, False]))
             self.assertEqual(o.wanted(), ob.ALL_KINDS)
             self.assertEqual(o.wanted_line(), "everything")
 

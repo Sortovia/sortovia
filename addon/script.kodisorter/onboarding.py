@@ -68,6 +68,15 @@ def changes_since(changelog, old, new):
     return md_to_kodi("\n".join(keep)) if keep else ""
 
 
+_STD = {"TV": "TV", "MOVIE": "Movies", "COMIC": "Comics", "TUTORIAL": "Tutorials"}
+
+
+def _friendly(path):
+    """win-lib://removable/D:\\My Shows/ -> D:\\My Shows"""
+    p = re.sub(r"^win-lib://[^/]*/", "", path or "").replace("/", "\\")
+    return re.sub(r"\\{2,}", r"\\", p).rstrip("\\") or path
+
+
 # ---------- Kodi side ----------
 def _read(path):
     try:
@@ -110,6 +119,46 @@ class Onboarding(object):
         w = self.wanted()
         return "everything" if len(w) == len(ALL_KINDS) else ", ".join(n for k, n in KINDS if k in w)
 
+    def folders(self):
+        """{kind: folder} for kinds that go into the person's own existing folders."""
+        return dict((k, v) for k, v in (self.state.get("folders") or {}).items() if k in ALL_KINDS and v)
+
+    def folders_line(self):
+        f = self.folders()
+        if not f:
+            return "standard TV / Movies / Comics / Tutorials folders"
+        return "; ".join("%s -> %s" % (n, _friendly(f[k])) for k, n in KINDS if k in f)
+
+    def choose_folders(self, dlg, first=False):
+        """Let the person point each kind at a folder they already have."""
+        if first and not dlg.yesno(
+                self.heading,
+                "Do you already have folders for your shows or movies (any name, any drive - e.g. "
+                "D:\\My Shows, E:\\Films)?\nKodi Sorter can add new files to them instead of making new "
+                "TV / Movies folders. Nothing already in them is moved.",
+                nolabel="No, use the standard folders", yeslabel="Yes, pick them"):
+            return
+        names = dict(KINDS)
+        while True:
+            have = self.folders()
+            opts = ["%s:  %s" % (names[k], _friendly(have[k]) if k in have else "standard folder (" + _STD[k] + ")")
+                    for k in self.wanted()]
+            opts.append("Done")
+            pick = dlg.select("Your library folders - pick one to change", opts)
+            if pick < 0 or pick == len(opts) - 1:
+                return
+            kind = self.wanted()[pick]
+            how = dlg.select(names[kind], ["Pick my existing %s folder..." % names[kind].lower(),
+                                           "Use the standard folder (%s on the destination drive)" % _STD[kind]])
+            folders = self.state.setdefault("folders", {})
+            if how == 0:
+                path = dlg.browse(0, "Pick the folder that holds your %s" % names[kind].lower(), "files")
+                if path:
+                    folders[kind] = path
+            elif how == 1:
+                folders.pop(kind, None)
+            self.save()
+
     def save(self):
         if self.state_file:
             _save(self.state_file, self.state)
@@ -149,6 +198,7 @@ class Onboarding(object):
             hello = "New in this version: a welcome screen, a guide you can read on the TV, and a choice of what to sort.\n" + hello
         dlg.ok("Welcome to %s" % self.heading, hello)
         self.choose_kinds(dlg, first=True)
+        self.choose_folders(dlg, first=True)
         if dlg.yesno(self.heading, "Read the guide now? (features and how to get started)\n"
                                    "You can open it any time from the menu: Help.",
                      nolabel="Later", yeslabel="Read it"):
@@ -177,6 +227,7 @@ class Onboarding(object):
                               ["Read the guide (features, first-time setup)",
                                "Version history (what each update added)",
                                "What to sort (now: %s)" % self.wanted_line(),
+                               "My library folders (now: %s)" % self.folders_line(),
                                "Show the welcome screen again"])
             if pick < 0:
                 return
@@ -187,5 +238,7 @@ class Onboarding(object):
             elif pick == 2:
                 self.choose_kinds(dlg)
             elif pick == 3:
+                self.choose_folders(dlg)
+            elif pick == 4:
                 self.state.pop("welcomed", None)
                 self.first_run(dlg)

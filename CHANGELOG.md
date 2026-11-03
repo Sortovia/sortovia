@@ -2,6 +2,11 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.27 – Use your existing library folders
+- **1.27.0** Each kind (TV, Movies, Comics, Tutorials) can go into **a folder you already have**, with any name on any drive. You choose them on the welcome screen or under Help → My library folders. Nothing already in them is moved.
+  - New files reuse your **existing show, season and movie folders**: *Sams Sandwiches* → your *Sam's Sandwiches*, *Season 01* → your *Season 1*, *Matrix 1999* → your *The Matrix (1999)*.
+  - Years must agree, so *Doctor Who (2005)* never lands in *Doctor Who (1963)*.
+
 ## 1.26 – Welcome screen and Help
 - **1.26.0** First run shows a **welcome screen**:
   - Choose **what to sort** (TV, Movies, Comics, Tutorials). Kinds you leave unticked are skipped and listed in the preview.

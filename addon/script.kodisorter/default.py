@@ -698,9 +698,23 @@ def is_better(new_res, new_size, old_res, old_size, new_eng=None, old_eng=None):
 
 
 # ---------- naming ----------
+def shown_path(path, src):
+    """A source path as a person reads it: %20 -> space, password hidden."""
+    p = masked(path.replace(src, ""))
+    if re.search(r"%[0-9a-fA-F]{2}", p):
+        try:
+            from urllib.parse import unquote
+        except ImportError:
+            from urllib import unquote
+        p = unquote(p)
+    return p
+
+
 def plan_for(path, filename, dest):
     """Returns (target or None, kind or skip reason, note)."""
     parts, kind, note = plan_name(filename, parent_of(path))
+    if parts is None and kind.startswith("YouTube"):
+        return None, kind, ""  # say why, not "too small" (a short YouTube video isn't a sample)
     # Short tutorial videos are real lessons, not samples: only other videos need the minimum size.
     if kind != "tutorial" and split_name(filename)[1] in VIDEO and 0 <= size_of(path) < MIN_VIDEO_BYTES:
         return None, "sample/too small", ""
@@ -2838,7 +2852,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         if split_name(name)[1].lower() not in AUDIO or name.startswith("."):
             continue
         busy.update(0, "Checking separate audio tracks\n%s" % name)
-        label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else masked(path.replace(src, ""))
+        label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else shown_path(path, src)
         eng, langs = english_status(path, name) if check_lang else (None, [])
         if eng is None and check_lang and ENG_HINT_RE.search(base_of(parent_of(path))):
             eng, langs = True, (langs or []) + ["folder name says English"]
@@ -2883,7 +2897,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         if target is None and arc and "rename by hand" in kind:
             # Inner file named "movie.mkv" etc: try the archive's own name.
             target, kind, note = plan_for(path, split_name(archive_of[arc])[0] + split_name(name)[1], dest)
-        label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else masked(path.replace(src, ""))
+        label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else shown_path(path, src)
         if not arc and split_name(name)[1] in VIDEO:
             if kind.startswith("sample"):
                 leftovers.append(path)  # sample clip: release leftover

@@ -3,6 +3,11 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.31 – YouTube download quality
+- **1.31.1** Better at YouTube titles:
+  - "walkthrough", "webinar", "quick start" and "getting started" count as tutorials.
+  - Producer Pal goes to Ableton Live, Claude Desktop to Claude, and "20⧸20" or "2020 software" to 2020 Design.
+  - Emoji and the downloader's look-alike characters (⧸ ｜ ：), which show as boxes on the Xbox, are removed from file names.
+  - The preview shows names without %20 codes, and a skipped YouTube video gives the real reason instead of "too small".
 - **1.31.0** **Download quality** in the YouTube menu: best up to 4K, 1080p (the default), 720p, 480p, or sound only (.m4a). Lower quality makes smaller files and uses less mobile data. The setting is kept on the phone, and each queued video remembers the quality it was queued with.
 
 ## 1.30 – Your language

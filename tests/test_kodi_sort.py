@@ -288,6 +288,21 @@ class Tutorials(unittest.TestCase):
         # outside a YouTube folder a program name alone is not enough
         self.assertEqual(ks.target_for("Revit 2025 Walls and Floors.mp4", D, "/x/complete")[1], "movie")
 
+    def test_real_youtube_titles(self):
+        y = "/phone/Download/YouTube"
+        for name, want in [
+            ("Producer Pal 1.0 Walkthrough with Claude Desktop.mp4",
+             "Tutorials/Ableton Live/Producer Pal 1.0 Walkthrough with Claude Desktop.mp4"),
+            ("AI controls my ABLETON LIVE Project \U0001f92f AbletonMCP installation Tutorial and Testing.mp4",
+             "Tutorials/Ableton Live/AI controls my ABLETON LIVE Project AbletonMCP installation Tutorial and Testing.mp4"),
+            ("Kitchen design using 20\u29f820 software.mp4", "Tutorials/2020 Design/Kitchen design using 20-20 software.mp4"),
+            ("2020 Design Webinar\uff1a Quick Start.mp4", "Tutorials/2020 Design/2020 Design Webinar - Quick Start.mp4"),
+            ("Design with me on 2020! || KITCHEN DESIGN on 2020 software.mp4",
+             "Tutorials/2020 Design/Design with me on 2020! KITCHEN DESIGN on 2020 software.mp4"),
+        ]:
+            t, kind, _ = ks.target_for(name, D, y)
+            self.assertEqual(str(t.relative_to(D)), want, name)
+
     def test_unknown_program_goes_to_other(self):
         self.assertEqual(rel("Cooking basics full course.mp4")[0], "Tutorials/Other/Cooking basics full course.mp4")
 

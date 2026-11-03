@@ -100,7 +100,7 @@ LANGS = {
 TUTORIAL_RE = re.compile(
     r"(?<![a-z])(?:tutorials?|full course|crash course|masterclass|master class|course for beginners|"
     r"beginners? course|beginner'?s guide|for beginners|for absolute beginners|step[ ._\-]by[ ._\-]step guide|"
-    r"udemy|lynda|linkedin learning|skillshare|pluralsight|coursera)(?![a-z])", re.I)
+    r"udemy|lynda|linkedin learning|skillshare|pluralsight|coursera|walkthrough|webinar|quick start|getting started)(?![a-z])", re.I)
 TUTORIAL_FOLDER_RE = re.compile(r"^(?:tutorials?|courses?|training|lessons|learning)$", re.I)
 # YouTube downloader folders (NewPipe, Seal, YTDLnis ...): a video there that names a
 # known program is a tutorial even without the word; anything else there is skipped,
@@ -120,19 +120,40 @@ TUTORIAL_SUBJECTS = [
     ("Premiere Pro", r"premiere"), ("After Effects", r"after[ ._\-]?effects"), ("Lightroom", r"lightroom"),
     ("DaVinci Resolve", r"davinci|resolve"), ("Excel", r"excel"), ("PowerPoint", r"power[ ._\-]?point"),
     ("Word", r"ms[ ._\-]?word|microsoft[ ._\-]?word"), ("Python", r"(?<!monty[ ._\\-])python"), ("Kodi", r"kodi"),
-    ("Ableton Live", r"ableton"), ("Claude Code", r"claude[ ._\-]?code"),
+    ("Ableton Live", r"ableton|producer[ ._\-]?pal"), ("Claude Code", r"claude[ ._\-]?code"),
+    ("Claude", r"claude[ ._\-]?(?:desktop|ai)|claudeai"),
     ("OpenClaw", r"open[ ._\-]?claw|clawdbot|moltbot"),
     # 20/20 (kitchen/bath design). "/" can't be in a file name, so 20-20 / 20 20; a bare
     # "2020" is a year, so that spelling only counts with Design/Fusion/Giza/CAP after it.
-    ("2020 Design", r"20[ ._\-]20(?![0-9])|2020[ ._\-]*(?:design|fusion|giza|cap)"),
+    ("2020 Design", r"20[ ._\-]20(?![0-9])|2020[ ._\-]*(?:design|fusion|giza|cap|software)|"
+                    r"(?:kitchen|bath|cabinet)s?\b.*\b2020(?![0-9])|\b2020\b.*(?:kitchen|bath|cabinet)"),
 ]
 TUTORIAL_SUBJECT_RES = [(n, re.compile(r"(?<![a-z0-9])(?:%s)(?![a-z])" % rx, re.I)) for n, rx in TUTORIAL_SUBJECTS]
 
 
+# Characters YouTube titles bring that the Xbox's font can't show (they appear as boxes):
+# the downloader's look-alikes for characters file names can't hold, and emoji.
+LOOKALIKES = {u"\u29f8": "-", u"\u2215": "-", u"\uff0f": "-", u"\uff5c": "-", u"\uff1a": " -", u"\uff02": "'",
+              u"\uff1f": "", u"\uff0a": "", u"\uff1c": "", u"\uff1e": "", u"\uff3c": "-"}
+
+
+def plain_title(text):
+    """'AI controls my Project \U0001f92f AbletonMCP' -> 'AI controls my Project AbletonMCP'; 'w\u29f8x' -> 'w-x'."""
+    import unicodedata
+    out = []
+    for ch in text:
+        ch = LOOKALIKES.get(ch, ch)
+        if len(ch) == 1 and (unicodedata.category(ch) in ("So", "Cs", "Co") or ch in u"\u200d\ufe0f\ufe0e"):
+            continue
+        out.append(ch)
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+
 def tutorial_subject(stem):
     """'Autodesk Revit - Full Beginner Course' -> 'Revit'. None when no known program is named."""
+    stem = plain_title(stem).replace("_", " ")
     for name, rx in TUTORIAL_SUBJECT_RES:
-        if rx.search(stem.replace("_", " ")):
+        if rx.search(stem):
             return name
     return None
 
@@ -154,11 +175,11 @@ def from_youtube(folder):
 def plan_tutorial(name, stem, folder):
     """('Tutorials', subject, name) or None."""
     sub = tutorial_folder(folder)
-    if sub is None and not TUTORIAL_RE.search(stem.replace("_", " ").replace(".", " ")) and \
+    if sub is None and not TUTORIAL_RE.search(plain_title(stem).replace("_", " ").replace(".", " ")) and \
             not (from_youtube(folder) and tutorial_subject(stem)):
         return None
     subject = sub or tutorial_subject(stem) or "Other"
-    return ("Tutorials", safe(subject), safe(PurePath(name).stem) + PurePath(name).suffix)
+    return ("Tutorials", safe(subject), safe(plain_title(PurePath(name).stem)) + PurePath(name).suffix)
 
 
 SMALL = {"a", "an", "the", "and", "of", "in", "on", "to", "for", "at", "by", "or"}

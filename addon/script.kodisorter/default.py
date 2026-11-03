@@ -1083,7 +1083,8 @@ def _is_share(ip, port, wait=1.5):
     except Exception as e:
         headers = getattr(e, "headers", None) or getattr(e, "hdrs", None)
     realm = (headers.get("WWW-Authenticate", "") if headers is not None else "") or ""
-    return "rclone" in realm.lower()
+    # rclone = xbox-share in Termux; kodisorter = the Android companion app
+    return "rclone" in realm.lower() or "kodisorter" in realm.lower()
 
 
 def _my_ip():

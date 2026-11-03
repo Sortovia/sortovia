@@ -260,8 +260,9 @@ def menu(dlg, find_ip, creds, log):
             jobs = phone.call("/yt/jobs")["jobs"]
         except RuntimeError as e:
             log("youtube helper: %s" % e)
-            dlg.ok(HEADING, "%s.\nThe phone is sharing, but its YouTube helper isn't answering. On the phone: "
-                            "stop xbox-share (Ctrl+C) and start it again - it starts the helper too." % e)
+            dlg.ok(HEADING, "%s.\nThe phone is sharing, but its YouTube helper isn't answering. With xbox-share "
+                            "in Termux: stop it (Ctrl+C) and start it again - it starts the helper too. The companion "
+                            "app can't download from YouTube yet (coming in its next version)." % e)
             return None
         opts = ["Search YouTube (pick videos from the results)...",
                 "Type a YouTube link (video or playlist)...",

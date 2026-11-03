@@ -223,6 +223,9 @@ def add_job(url, title="", quality=None):
     return job
 
 
+TRANSIENT_RE = re.compile(r"Did not get any data blocks|timed out|Connection reset|Connection aborted|"
+                          r"Temporary failure|Network is unreachable|IncompleteRead|HTTP Error 5\d\d|"
+                          r"Remote end closed|EOF occurred", re.I)
 PROG_RE = re.compile(r"^KSPROG\s*(.*)$")
 
 
@@ -247,6 +250,10 @@ def run_job(job):
         "--no-playlist", "--newline", "--quiet", "--progress", "--no-simulate",
     ] + QUALITIES[job.get("quality") if job.get("quality") in QUALITIES else DEFAULT_QUALITY][1] + [
         "--windows-filenames", "--trim-filenames", "180", "--no-mtime",
+        # The hotspot / mobile data drops out now and then ("Did not get any data blocks"):
+        # keep retrying pieces instead of failing the whole video.
+        "--retries", "15", "--fragment-retries", "30", "--retry-sleep", "fragment:exp=1:30",
+        "--socket-timeout", "30",
         # Whole download (and the final merge) happens in TMP, outside the share; publish() then
         # copies it in under a hidden name and renames it, so Kodi Sorter never sees half a file.
         "-P", TMP, "-o", "%(title)s.%(ext)s",
@@ -304,8 +311,16 @@ def run_job(job):
         if job["state"] in ("done", "failed", "cancelled"):
             pass
         else:
-            job["state"], job["error"] = "failed", explain("".join(err_lines))
-            log("failed: %s - %s" % (job["url"], job["error"]))
+            err = "".join(err_lines)
+            if TRANSIENT_RE.search(err) and job.get("tries", 0) < 3:
+                # a dropped connection: try again by itself (the part already downloaded is kept)
+                job["tries"] = job.get("tries", 0) + 1
+                job["state"], job["error"] = "queued", ""
+                log("connection dropped, trying again (%d of 3): %s" % (job["tries"], job["url"]))
+                WAKE.set()
+            else:
+                job["state"], job["error"] = "failed", explain(err)
+                log("failed: %s - %s" % (job["url"], job["error"]))
         save_jobs()
 
 

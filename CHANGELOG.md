@@ -34,6 +34,8 @@ Newest first. Each line says what the update changed for you.
 - **1.29.0** Kodi Sorter also finds the phone when it runs the new **Kodi Sorter companion** Android app instead of xbox-share in Termux.
 
 ## Phone setup
+- **YouTube helper (Nov 3):** dropped connections ("Did not get any data blocks") retry by themselves, up to 3 times per video, keeping what was already downloaded. Pieces are retried 30 times before that.
+
 - **One-step install for the phone (Nov 2026):** paste one line into Termux. Ubuntu isn't needed any more. It installs the Wi-Fi share, the YouTube downloader and the `xbox-share` command, and keeps the password from an older setup. See the README, section 3.
 
 ## 1.28 – Can Kodi read your folder?

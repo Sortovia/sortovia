@@ -1547,10 +1547,138 @@ def onboarding_state():
         import onboarding
         me = xbmcaddon.Addon()
         return onboarding.Onboarding(xbmcvfs.translatePath(me.getAddonInfo("path")),
-                                     data_file("onboarding.json"), me.getAddonInfo("version"), ADDON)
+                                     data_file("onboarding.json"), me.getAddonInfo("version"), ADDON,
+                                     checker=check_library_folder)
     except Exception as e:
         log("onboarding not available: %s" % e)
         return None
+
+
+# ---------- can Kodi's library read an existing folder? ----------
+REMEMBER = [True]  # False for a one-off run (reorganizing a library folder): keeps "Same as last time"
+EP_TAG_RE = re.compile(r"(?<![a-z0-9])(?:s\d{1,2}[ ._\-]?e\d{1,3}|\d{1,2}x\d{2,3})(?![0-9])", re.I)
+
+
+def _lib_key(path):
+    """Library and folder paths compared the same way (Kodi writes win-lib://removable/E:\\TV/...)."""
+    p = re.sub(r"^win-lib://[^/]*/", "", path or "").replace("\\", "/")
+    return re.sub(r"/{2,}", "/", p).rstrip("/").lower()
+
+
+def library_files(kind):
+    """Files Kodi's video library already has (episodes or movies), as _lib_key()s."""
+    import missing
+    if kind == "TV":
+        r = missing._rpc("VideoLibrary.GetEpisodes", {"properties": ["file"]}).get("episodes", [])
+    else:
+        r = missing._rpc("VideoLibrary.GetMovies", {"properties": ["file"]}).get("movies", [])
+    return set(_lib_key(x.get("file")) for x in r if x.get("file"))
+
+
+def video_sources():
+    import missing
+    r = missing._rpc("Files.GetSources", {"media": "video"}).get("sources", [])
+    return [_lib_key(x.get("file")) for x in r if x.get("file")]
+
+
+def folder_report(kind, folder, dest, lib, sources, progress=None):
+    """What Kodi can make of the videos in an existing TV or Movies folder.
+    Pure apart from listing the folder. kind: "TV" or "Movies"."""
+    top = _lib_key(folder)
+    rep = {"videos": 0, "in_library": 0, "readable": 0, "unreadable": [], "moves": 0, "move_bytes": 0,
+           "is_source": any(top == s or top.startswith(s + "/") for s in sources)}
+    for path, name in walk(folder):
+        if split_name(name)[1] not in VIDEO or name.startswith(".") or "sample" in name.lower():
+            continue
+        size = size_of(path)
+        if 0 <= size < MIN_VIDEO_BYTES:
+            continue
+        rep["videos"] += 1
+        if progress and rep["videos"] % 25 == 0:
+            progress(rep["videos"], name)
+        rel = [x for x in re.split(r"[\\/]", path[len(ensure_slash(folder)):]) if x]
+        stem = split_name(name)[0]
+        if _lib_key(path) in lib:
+            rep["in_library"] += 1
+        elif kind == "TV" and EP_TAG_RE.search(stem) and len(rel) >= 2:
+            rep["readable"] += 1  # an episode number, inside a show folder
+        elif kind == "Movies" and (split_year(stem)[1] or (len(rel) >= 2 and split_year(rel[-2])[1])):
+            rep["readable"] += 1  # a year in the file or folder name
+        else:
+            rep["unreadable"].append("/".join(rel))
+        target, k, _ = plan_for(path, name, dest)
+        if target and not already_sorted(path, target):
+            rep["moves"] += 1
+            rep["move_bytes"] += max(size, 0)
+    return rep
+
+
+def check_library_folder(dlg, okind, folder):
+    """After someone picks their own TV/Movies folder: tell them if Kodi's library
+    can't read it, and offer to reorganize it. Returns True to reorganize."""
+    kind = ONBOARD_KIND.get(okind)
+    if kind not in ("TV", "Movies"):
+        return False
+    KIND_DIRS[kind] = folder
+    DIR_CACHE.clear()
+    dest = parent_of(folder)
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, "Checking %s - can Kodi's library read it?" % friendly(folder))
+    try:
+        try:
+            lib, sources = library_files(kind), video_sources()
+        except Exception as e:
+            log("library check: %s" % e)
+            lib, sources = set(), []
+        rep = folder_report(kind, folder, dest, lib, sources,
+                            lambda n, name: prog.update(0, "Checking %s\n%d videos so far\n%s" % (friendly(folder), n, name)))
+    finally:
+        prog.close()
+    log("library folder check %s: %s" % (friendly(folder), dict((k, v if not isinstance(v, list) else len(v))
+                                                                for k, v in rep.items())))
+    word = "episodes" if kind == "TV" else "movies"
+    if not rep["videos"]:
+        return False
+    problems = []
+    if not rep["is_source"]:
+        problems.append("This folder isn't a Kodi video source yet, so the library never looks in it. "
+                        "Add it: Videos > Files > Add videos, pick the folder, and set \"This directory contains\" to %s."
+                        % ("TV shows" if kind == "TV" else "Movies"))
+    elif not rep["in_library"] and rep["readable"]:
+        problems.append("Kodi's library has none of these %s. The source may be set to the wrong type: Videos > Files > "
+                        "highlight the folder > context menu > Set content > %s, then Update library."
+                        % (word, "TV shows" if kind == "TV" else "Movies"))
+    bad = rep["unreadable"]
+    if bad:
+        problems.append("%d of %d videos have names or folders Kodi can't read%s, e.g.:\n  %s" % (
+            len(bad), rep["videos"], " (no episode number, or not inside a show folder)" if kind == "TV" else
+            " (no year in the file or folder name)", "\n  ".join(bad[:4])))
+    if not problems:
+        dlg.ok(ADDON, "%s looks good: Kodi's library has %d of its %d %s and can read the rest."
+               % (friendly(folder), rep["in_library"], rep["videos"], word))
+        return False
+    gb = rep["move_bytes"] / 1e9
+    hours = rep["move_bytes"] / (30e6 * 3600)  # the Xbox copies, then deletes, at about 30 MB/s
+    dlg.textviewer("%s - %s" % (ADDON, friendly(folder)), "\n\n".join(problems) + (
+        "\n\nKodi Sorter can reorganize this folder into Kodi-style folders (Show\\Season 01\\Show S01E02.mkv, "
+        "Movie (Year)\\Movie (Year).mkv), inside the same folder. That would move or rename %d files (%.1f GB)%s. "
+        "You see the full list before anything moves; files Kodi Sorter can't place stay where they are." % (
+            rep["moves"], gb, ", which takes about %.1f hours on the Xbox" % hours if hours >= 0.5 else "")
+        if rep["moves"] else ""))
+    if not rep["moves"]:
+        return False
+    return dlg.yesno(ADDON, "Reorganize %s into folders Kodi can recognize?\n(%d files, %.1f GB - a preview comes first)"
+                     % (friendly(folder), rep["moves"], gb), nolabel="Leave it as it is", yeslabel="Reorganize")
+
+
+def reorganize_folder(dlg, spath, okind, folder):
+    """Sort an existing library folder in place, with safe choices: ask before replacing,
+    no audio check, NFOs and subtitles left alone, only folders this run empties removed."""
+    REMEMBER[0] = False
+    try:
+        run(dlg, spath, folder, parent_of(folder), ASK, False, 3, 3, 0, 1)
+    finally:
+        REMEMBER[0] = True
 
 
 def youtube_menu(dlg, spath, last):
@@ -1613,6 +1741,10 @@ def main():
     ob = onboarding_state()
     if ob and not ob.first_run(dlg, returning=bool(load_cache(data_file("last_settings.json")).get("src"))):
         ob.whats_new(dlg)
+    if ob and ob.pop_reorganize():
+        kind, folder = ob.last_reorganize
+        reorganize_folder(dlg, spath, kind, folder)
+        return
 
     spath = session_file()
     prev = load_cache(spath)
@@ -1650,6 +1782,8 @@ def main():
         if pick == 9:
             if ob:
                 ob.help_menu(dlg)
+                if ob.pop_reorganize():
+                    reorganize_folder(dlg, spath, *ob.last_reorganize)
             return
         if pick == 2:
             check_for_update(dlg, manual=True)
@@ -2553,7 +2687,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                "started": time.strftime("%Y-%m-%d %H:%M")}
     if not save_cache(spath, session):
         toast("Couldn't save progress - Resume won't be offered if this run is interrupted", 6000)
-    save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
+    if REMEMBER[0]:
+        save_cache(data_file("last_settings.json"), dict((k, session[k]) for k in
                                                      ("src", "dest", "mode", "delete_old", "lang_mode", "nfo_mode", "sub_mode", "empty_mode")))
     src = resolve_src(src, dlg)
     root, names = resolve_dest(dest)

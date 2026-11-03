@@ -2,6 +2,14 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.28 – Can Kodi read your folder?
+- **1.28.0** When you pick an existing TV or Movies folder, Kodi Sorter checks it against Kodi's library:
+  - how many videos Kodi already has,
+  - whether the folder is a video source with the right content type,
+  - which files have names Kodi can't read.
+
+  If anything's wrong, it explains how to fix it and offers to **reorganize the folder into Kodi-style folders**, in place. It shows how many files would move and roughly how long that takes, and the usual preview comes first. Safe choices are used: it asks before replacing anything, skips the audio check, leaves NFOs and subtitles alone, and doesn't change "Same as last time".
+
 ## 1.27 – Use your existing library folders
 - **1.27.0** Each kind (TV, Movies, Comics, Tutorials) can go into **a folder you already have**, with any name on any drive. You choose them on the welcome screen or under Help → My library folders. Nothing already in them is moved.
   - New files reuse your **existing show, season and movie folders**: *Sams Sandwiches* → your *Sam's Sandwiches*, *Season 01* → your *Season 1*, *Matrix 1999* → your *The Matrix (1999)*.

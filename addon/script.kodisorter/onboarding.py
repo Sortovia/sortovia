@@ -103,7 +103,10 @@ def _save(path, data):
 
 
 class Onboarding(object):
-    def __init__(self, addon_path, data_path, version, heading):
+    def __init__(self, addon_path, data_path, version, heading, checker=None):
+        # checker(dlg, kind, folder) -> True when the person wants that folder reorganized
+        self.checker = checker
+        self.last_reorganize = None
         self.res = os.path.join(addon_path, "resources")
         self.state_file = data_path
         self.version = version
@@ -155,9 +158,23 @@ class Onboarding(object):
                 path = dlg.browse(0, "Pick the folder that holds your %s" % names[kind].lower(), "files")
                 if path:
                     folders[kind] = path
+                    self.save()
+                    if self.checker and self.checker(dlg, kind, path):
+                        self.state["reorganize"] = [kind, path]  # done after the welcome / help screens
+                        self.save()
+                        return
             elif how == 1:
                 folders.pop(kind, None)
             self.save()
+
+    def pop_reorganize(self):
+        """A folder the person asked to reorganize: sets last_reorganize, returns True once."""
+        r = self.state.pop("reorganize", None)
+        if not r:
+            return False
+        self.save()
+        self.last_reorganize = tuple(r)
+        return True
 
     def save(self):
         if self.state_file:

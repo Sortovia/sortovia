@@ -17,6 +17,14 @@ E:\
 those folders it reuses your existing show, season and movie folders: "Sams Sandwiches S15E01" goes into your
 `Sam's Sandwiches\Season 15`, not into a new near-duplicate folder.
 
+When you pick an existing TV or Movies folder, Kodi Sorter **checks whether Kodi's library can read it**:
+- how many of its videos are already in the library,
+- whether the folder is set up as a Kodi video source at all,
+- which files have names Kodi can't read (no episode number, no year, not inside a show folder).
+
+If something's wrong, it tells you how to fix it and offers to **reorganize the folder into Kodi-style folders**, in
+place. You see the full list before anything moves.
+
 Before anything moves, it shows you the plan. Nothing is overwritten without your OK. Replaced copies go
 to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete them later.
 

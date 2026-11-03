@@ -104,5 +104,70 @@ class LibraryFolders(unittest.TestCase):
         self.assertIn(self.d._norm(self.shows), self.d.sorted_folders(self.dest))
 
 
+class LibraryCheck(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.d = load_default(os.path.join(self.tmp, "data"))
+        self.shows = os.path.join(self.tmp, "D", "My Shows") + "/"
+        self.files = {
+            "Fargo/Season 1/Fargo S01E01.mkv": "in library",
+            "Fargo/Season 1/fargo.s01e02.720p.mkv": "readable",
+            "Sams Sandwiches 3x04.mkv": "loose in the root",
+            "Random Show/episode 7.mkv": "no number",
+        }
+        for rel in self.files:
+            p = os.path.join(self.shows, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as f:
+                f.truncate(51 * 1024 * 1024)
+        self.d.KIND_DIRS.clear()
+        self.d.DIR_CACHE.clear()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def lib(self):
+        return {self.d._lib_key(self.shows + "Fargo/Season 1/Fargo S01E01.mkv")}
+
+    def test_report(self):
+        self.d.KIND_DIRS["TV"] = self.shows
+        rep = self.d.folder_report("TV", self.shows, self.d.parent_of(self.shows), self.lib(),
+                                   [self.d._lib_key(os.path.join(self.tmp, "D"))])
+        self.assertEqual((rep["videos"], rep["in_library"], rep["readable"]), (4, 1, 1))
+        self.assertEqual(sorted(rep["unreadable"]), ["Sams Sandwiches 3x04.mkv", "Random Show/episode 7.mkv"])
+        self.assertTrue(rep["is_source"])
+        # fargo.s01e02.720p gets its Kodi name, Sams Sandwiches 3x04 gets a show folder; the in-library
+        # file is already right and "episode 7" can't be placed: 2 moves
+        self.assertEqual(rep["moves"], 2)
+
+    def test_not_a_source(self):
+        rep = self.d.folder_report("TV", self.shows, self.d.parent_of(self.shows), set(), ["/somewhere/else"])
+        self.assertFalse(rep["is_source"])
+
+    def test_dialogs(self):
+        import missing
+        lib = self.lib()
+        shows = self.d._lib_key(self.shows)
+        missing._rpc = lambda m, p: ({"episodes": [{"file": f} for f in lib]} if m == "VideoLibrary.GetEpisodes"
+                                     else {"sources": [{"file": shows}]})
+        gui = sys.modules["xbmcgui"]
+
+        class Prog:
+            def create(self, *a): pass
+            def update(self, *a): pass
+            def close(self): pass
+        gui.DialogProgress = Prog
+        seen = []
+
+        class Dlg:
+            def textviewer(self, h, t): seen.append(t)
+            def yesno(self, h, m, **k): seen.append(m); return True
+            def ok(self, h, m): seen.append(m)
+        self.assertTrue(self.d.check_library_folder(Dlg(), "TV", self.shows))
+        self.assertIn("2 of 4 videos have names or folders Kodi can't read", seen[0])
+        self.assertIn("Reorganize", seen[1])
+        self.assertFalse(self.d.check_library_folder(Dlg(), "COMIC", self.shows))  # only TV/Movies are checked
+
+
 if __name__ == "__main__":
     unittest.main()

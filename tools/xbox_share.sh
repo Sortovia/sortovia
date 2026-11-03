@@ -39,7 +39,15 @@ echo
 echo " On the Xbox: Kodi Sorter > Choose folders again >"
 echo "   My phone over Wi-Fi - phone storage"
 echo " Keep Termux open while files copy. Ctrl+C stops sharing."
+echo " YouTube downloads: Kodi Sorter > Download from YouTube (port 8081)."
 echo " (The NOTICE lines below are normal - it is working.)"
 echo "============================================"
-exec rclone serve webdav "$DIR" --addr ":$PORT" --user kodi --pass "$PASS" \
+# YouTube downloads for the add-on (port 8081, same password): see yt_helper.py
+HELPER="$(dirname "$(readlink -f "$0")")/yt_helper.py"
+if [ -f "$HELPER" ] && [ "$DIR" = "/storage/emulated/0/Download" ]; then
+  YT_SHARE="$DIR" python3 "$HELPER" &
+  HPID=$!
+  trap 'kill $HPID 2>/dev/null' EXIT INT TERM
+fi
+rclone serve webdav "$DIR" --addr ":$PORT" --user kodi --pass "$PASS" \
   --dir-cache-time 5s --poll-interval 0 --log-level NOTICE

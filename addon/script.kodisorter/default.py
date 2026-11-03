@@ -1434,6 +1434,34 @@ def yesno_default_yes(dlg, msg, nolabel, yeslabel):
 
 
 # ---------- main ----------
+def youtube_menu(dlg, spath, last):
+    """Search/queue YouTube downloads on the phone; optionally sort the finished ones."""
+    import youtube
+
+    def creds():
+        return load_cache(data_file("phone.json")).get("dav") or {}
+
+    def find_ip():
+        return phone_address(dlg, ask=True, port=int(creds().get("port", 8080)))
+    if youtube.menu(dlg, find_ip, creds, log) != "sort":
+        return
+    c = creds()
+    src = "dav://%s:%s@%s:%s/YouTube/" % (quote(c.get("user", "kodi"), ""), quote(c["pass"], ""),
+                                           PHONE, c.get("port", "8080"))
+    dest = last.get("dest") if last.get("dest") and "://" not in last["dest"] else ""
+    if dest and not dlg.yesno(ADDON, "Sort the phone's Download/YouTube into %s?\n(Tutorials go to %s)"
+                              % (friendly(dest), friendly(join(resolve_dest(dest)[0], "Tutorials"))),
+                              nolabel="Other drive", yeslabel="Yes"):
+        dest = ""
+    if not dest:
+        dest = dlg.browse(0, "Pick DESTINATION: the drive that holds your library (e.g. E:)", "files")
+        if not dest:
+            return
+    # Same choices as the last run; YouTube downloads don't need the audio check.
+    run(dlg, spath, src, dest, last.get("mode", ASK), last.get("delete_old", False), 3,
+        last.get("nfo_mode", 3), last.get("sub_mode", 0), last.get("empty_mode", 1))
+
+
 def main():
     dlg = xbmcgui.Dialog()
     status = home().getProperty(PROP_RUN)
@@ -1488,8 +1516,12 @@ def main():
                            "Send Kodi's log to my phone now (xbox-share must be running)",
                            "Find missing episodes in my TV library",
                            "Where to watch a show...",
-                           "View a text / NFO file"])
+                           "View a text / NFO file",
+                           "Download from YouTube (the phone downloads, then sort here)..."])
         if pick < 0:
+            return
+        if pick == 8:
+            youtube_menu(dlg, spath, last)
             return
         if pick == 2:
             check_for_update(dlg, manual=True)

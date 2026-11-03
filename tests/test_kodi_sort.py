@@ -256,8 +256,9 @@ class Tutorials(unittest.TestCase):
     def test_named_course_goes_to_program_folder(self):
         self.assertEqual(rel("AutoCAD 2026 FULL Course For BEGINNERS!.mp4")[:2],
                          ("Tutorials/AutoCAD/AutoCAD 2026 FULL Course For BEGINNERS!.mp4", "tutorial"))
+        # the downloader's full-width bar shows as a box on the Xbox: it becomes a plain dash
         self.assertEqual(rel("Autodesk Revit - Full Beginner Course \uff5c Complete Project - Start to finish.webm")[0],
-                         "Tutorials/Revit/Autodesk Revit - Full Beginner Course \uff5c Complete Project - Start to finish.webm")
+                         "Tutorials/Revit/Autodesk Revit - Full Beginner Course - Complete Project - Start to finish.webm")
 
     def test_dash_number_is_not_an_episode(self):
         self.assertEqual(rel("AutoCAD 3D House Modeling Tutorial - 1.mp4")[0],

@@ -102,6 +102,10 @@ TUTORIAL_RE = re.compile(
     r"beginners? course|beginner'?s guide|for beginners|for absolute beginners|step[ ._\-]by[ ._\-]step guide|"
     r"udemy|lynda|linkedin learning|skillshare|pluralsight|coursera)(?![a-z])", re.I)
 TUTORIAL_FOLDER_RE = re.compile(r"^(?:tutorials?|courses?|training|lessons|learning)$", re.I)
+# YouTube downloader folders (NewPipe, Seal, YTDLnis ...): a video there that names a
+# known program is a tutorial even without the word; anything else there is skipped,
+# never guessed as a movie ("Some Song 2024.mp4" is not a film).
+YOUTUBE_FOLDER_RE = re.compile(r"^(?:youtube|newpipe|seal|ytdlnis|ytdlp|yt-dlp|snaptube|vidmate|tubemate)$", re.I)
 # Subject folder from a name: the first match wins, so the specific names come first
 # ("AutoCAD Civil 3D" -> Civil 3D, "Autodesk Revit" -> Revit).
 TUTORIAL_SUBJECTS = [
@@ -115,7 +119,7 @@ TUTORIAL_SUBJECTS = [
     ("Photoshop", r"photoshop"), ("Illustrator", r"illustrator"), ("InDesign", r"indesign"),
     ("Premiere Pro", r"premiere"), ("After Effects", r"after[ ._\-]?effects"), ("Lightroom", r"lightroom"),
     ("DaVinci Resolve", r"davinci|resolve"), ("Excel", r"excel"), ("PowerPoint", r"power[ ._\-]?point"),
-    ("Word", r"ms[ ._\-]?word|microsoft[ ._\-]?word"), ("Python", r"python"), ("Kodi", r"kodi"),
+    ("Word", r"ms[ ._\-]?word|microsoft[ ._\-]?word"), ("Python", r"(?<!monty[ ._\\-])python"), ("Kodi", r"kodi"),
     ("Ableton Live", r"ableton"), ("Claude Code", r"claude[ ._\-]?code"),
     ("OpenClaw", r"open[ ._\-]?claw|clawdbot|moltbot"),
     # 20/20 (kitchen/bath design). "/" can't be in a file name, so 20-20 / 20 20; a bare
@@ -143,10 +147,15 @@ def tutorial_folder(folder):
     return None
 
 
+def from_youtube(folder):
+    return any(YOUTUBE_FOLDER_RE.match(p.strip()) for p in re.split(r"[\\/]", folder or "") if p)
+
+
 def plan_tutorial(name, stem, folder):
     """('Tutorials', subject, name) or None."""
     sub = tutorial_folder(folder)
-    if sub is None and not TUTORIAL_RE.search(stem.replace("_", " ").replace(".", " ")):
+    if sub is None and not TUTORIAL_RE.search(stem.replace("_", " ").replace(".", " ")) and \
+            not (from_youtube(folder) and tutorial_subject(stem)):
         return None
     subject = sub or tutorial_subject(stem) or "Other"
     return ("Tutorials", safe(subject), safe(PurePath(name).stem) + PurePath(name).suffix)
@@ -339,6 +348,8 @@ def plan_name(name, folder=""):
         tut = plan_tutorial(name, stem, folder)
         if tut and not (TV_RE.search(stem) or TV_X_RE.search(stem)):
             return tut, "tutorial", ""
+        if from_youtube(folder):
+            return None, "YouTube download that isn't a tutorial - left where it is", ""
     if ext in VIDEO and CREDITS_RE.search(stem) and not re.search(r"(?i)(?<![a-z0-9])s00e\d{2}(?![0-9])", stem):
         # (an S00Exx name is one already sorted into Specials: treated like any episode below)
         cr = parse_credits(SITE_PREFIX_RE.sub("", stem))

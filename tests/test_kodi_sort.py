@@ -279,6 +279,15 @@ class Tutorials(unittest.TestCase):
                               ("Excel 2020 Tutorial.mp4", "Excel")]:
             self.assertEqual(rel(name)[0], "Tutorials/%s/%s" % (subject, name))
 
+    def test_youtube_folder(self):
+        y = "/phone/Download/YouTube/Newpipe"
+        t, kind, _ = ks.target_for("Revit 2025 Walls and Floors.mp4", D, y)
+        self.assertEqual((str(t.relative_to(D)), kind), ("Tutorials/Revit/Revit 2025 Walls and Floors.mp4", "tutorial"))
+        for name in ("Some Song 2024.mp4", "Monty Python Sketch.mp4"):
+            self.assertIsNone(ks.target_for(name, D, y)[0], name)
+        # outside a YouTube folder a program name alone is not enough
+        self.assertEqual(ks.target_for("Revit 2025 Walls and Floors.mp4", D, "/x/complete")[1], "movie")
+
     def test_unknown_program_goes_to_other(self):
         self.assertEqual(rel("Cooking basics full course.mp4")[0], "Tutorials/Other/Cooking basics full course.mp4")
 

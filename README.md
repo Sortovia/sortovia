@@ -117,26 +117,30 @@ Next time, the start menu offers **Same as last time** and the extra tools.
 Optional: when you first use a TMDb feature (English movie titles, Where to watch), it asks for a free TMDb API key, your
 country and your streaming services.
 
-### 3. The phone (Android with Termux), optional
+### 3. The phone (Android), optional
 
 This lets the Xbox read the phone's Download folder, send its logs there and download from YouTube.
 
-1. Install **Termux** (from F-Droid), then install Ubuntu inside it with `proot-distro`, and inside Ubuntu run
-   `apt install rclone`.
-2. Install the `xbox-share` command from this repository:
-   - in plain Termux: `cp tools/termux-xbox-share $PREFIX/bin/xbox-share`. It starts the Ubuntu one and keeps
-     the phone awake.
+1. Install **Termux** from **F-Droid** (https://f-droid.org/packages/com.termux/) or from Termux's GitHub page.
+   The Play Store version is outdated and doesn't work.
+2. Open Termux and paste this one line:
+
+   ```
+   pkg install -y curl && curl -fsSL https://akaguyver.github.io/kodi-repo/phone/install.sh | bash
+   ```
+
+   It installs everything (a few minutes the first time). Tap **Allow** when Android asks about storage. It ends by
+   showing your password. Run the same line again any time to update.
 3. Turn on the phone's **Mobile hotspot** and connect the Xbox to it.
-4. Run **`xbox-share`** in Termux. It shows a password. Kodi Sorter finds the phone by itself and asks for
-   that password once.
-5. Keep Termux open while files copy.
+4. In Termux type **`xbox-share`**. Kodi Sorter on the Xbox finds the phone by itself and asks for the password once.
+5. Keep Termux open (in the background is fine) while you use it.
 
 For a USB drive plugged into the phone, use the *primitive ftpd* app (F-Droid) and choose
 "USB drive on the phone" in Kodi Sorter.
 
 ### 4. Download from YouTube, optional
 
-1. In plain Termux, run `pkg install yt-dlp ffmpeg nodejs`.
+1. The installer above already set up everything YouTube needs.
 2. **Cookies (once, and again when downloads start failing):** YouTube only allows downloads from a signed-in browser.
    1. In Firefox on the phone, add the **cookies.txt** (or *Get cookies.txt LOCALLY*) extension.
    2. Sign in to youtube.com in a **private tab**.
@@ -160,6 +164,7 @@ Only download videos you're allowed to keep: your own, or ones the creator permi
 |---|---|
 | `addon/script.kodisorter/` | the Kodi add-on (`default.py`; naming rules in `sortlib.py`) |
 | `kodi_sort.py` | command-line version for a PC or phone (`python3 kodi_sort.py --src SRC --dest DEST`; dry run unless `--go`) |
+| `tools/phone/install.sh` | one-step phone setup for Termux (published at akaguyver.github.io/kodi-repo/phone/) |
 | `tools/xbox_share.sh` | the phone's WebDAV share for the Xbox |
 | `tools/yt_helper.py` | the phone's YouTube download helper (started by xbox-share, port 8081) |
 | `tools/build_kodi_repo.py` | builds the zips for the Kodi repository site |

@@ -2,6 +2,9 @@
 
 Newest first. Each line says what the update changed for you.
 
+## Phone setup
+- **One-step install for the phone (Nov 2026):** paste one line into Termux. Ubuntu isn't needed any more. It installs the Wi-Fi share, the YouTube downloader and the `xbox-share` command, and keeps the password from an older setup. See the README, section 3.
+
 ## 1.28 – Can Kodi read your folder?
 - **1.28.1** **Search & download from YouTube** and **Help** are on the start menu from the very first run, so you don't need to sort something first.
 - **1.28.0** When you pick an existing TV or Movies folder, Kodi Sorter checks it against Kodi's library:

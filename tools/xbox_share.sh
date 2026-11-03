@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # xbox-share: let Kodi Sorter on the Xbox read the phone's downloads over the
 # hotspot Wi-Fi (no mobile data used). Runs a password-protected WebDAV server.
 #   xbox-share                      share /storage/emulated/0/Download
@@ -15,7 +15,7 @@ fi
 PASS=$(cat "$CONF/password")
 
 if ! command -v rclone >/dev/null; then
-  echo "rclone is missing: run  apt install rclone"; exit 1
+  echo "rclone is missing: in Termux run  pkg install rclone  (or run the Kodi Sorter installer again)"; exit 1
 fi
 if [ ! -d "$DIR" ]; then
   echo "Folder not found: $DIR"; exit 1

@@ -55,6 +55,14 @@ def build(out: Path):
         links.append(top.name)
         print(f"built {zpath.relative_to(out)}")
 
+    # Phone helper for other people: one-step Termux installer + the scripts it fetches.
+    phone = out / "phone"
+    phone.mkdir(exist_ok=True)
+    for src in (ROOT.parent / "tools" / "phone" / "install.sh", ROOT.parent / "tools" / "xbox_share.sh",
+                ROOT.parent / "tools" / "yt_helper.py"):
+        (phone / src.name).write_bytes(src.read_bytes())
+    print("built phone/ (install.sh, xbox_share.sh, yt_helper.py)")
+
     addons_xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<addons>\n'
                   + "\n".join(entries) + "\n</addons>\n")
     (out / "addons.xml").write_text(addons_xml, encoding="utf-8")

@@ -263,7 +263,7 @@ def menu(dlg, find_ip, creds, log):
             dlg.ok(HEADING, "%s.\nThe phone is sharing, but its YouTube helper isn't answering. On the phone: "
                             "stop xbox-share (Ctrl+C) and start it again - it starts the helper too." % e)
             return None
-        opts = ["Search YouTube...",
+        opts = ["Search YouTube (pick videos from the results)...",
                 "Type a YouTube link (video or playlist)...",
                 "Downloads: %s" % queue_line(jobs),
                 "Sort the finished downloads into my library now",

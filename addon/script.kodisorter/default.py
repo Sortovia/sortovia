@@ -1772,7 +1772,7 @@ def main():
                            "Find missing episodes in my TV library",
                            "Where to watch a show...",
                            "View a text / NFO file",
-                           "Download from YouTube (the phone downloads, then sort here)...",
+                           "Search & download from YouTube (the phone downloads, then sort here)...",
                            "Help: guide, version history, what to sort (now: %s)" % (ob.wanted_line() if ob else "everything")])
         if pick < 0:
             return
@@ -1807,6 +1807,23 @@ def main():
         if pick == 0:
             run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"],
                 last.get("nfo_mode", 0), last.get("sub_mode", 0), last.get("empty_mode", 0))
+            return
+
+    if not (last.get("src") and last.get("dest")):
+        # Nothing sorted yet: still offer YouTube and Help, not only a sort.
+        first = dlg.select(ADDON, ["Sort my downloads into Kodi folders",
+                                   "Search & download from YouTube (the phone downloads, then sort here)...",
+                                   "Help: guide, version history, what to sort"])
+        if first < 0:
+            return
+        if first == 1:
+            youtube_menu(dlg, spath, last)
+            return
+        if first == 2:
+            if ob:
+                ob.help_menu(dlg)
+                if ob.pop_reorganize():
+                    reorganize_folder(dlg, spath, *ob.last_reorganize)
             return
 
     where = dlg.select("Where are the downloads?",

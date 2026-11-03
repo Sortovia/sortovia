@@ -3,6 +3,7 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.28 – Can Kodi read your folder?
+- **1.28.1** **Search & download from YouTube** and **Help** are on the start menu from the very first run, so you don't need to sort something first.
 - **1.28.0** When you pick an existing TV or Movies folder, Kodi Sorter checks it against Kodi's library:
   - how many videos Kodi already has,
   - whether the folder is a video source with the right content type,

@@ -25,6 +25,18 @@ class MarkdownForKodi(unittest.TestCase):
             self.assertNotIn(junk, t)
 
 
+    def test_wrapped_lines_joined(self):
+        t = ob.md_to_kodi("- Movies go to\n  their folder. More\n  text here.\n- Next item\n\nA paragraph\nwrapped.\n\n```\nkeep\nlines\n```\n")
+        self.assertIn("\u2022 Movies go to their folder. More text here.", t)
+        self.assertIn("\u2022 Next item", t)
+        self.assertIn("A paragraph wrapped.", t)
+        self.assertIn("    keep\n    lines", t)
+
+    def test_real_readme_sentences_not_split(self):
+        t = ob.md_to_kodi((ROOT / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("a movie named in another language gets its English title", t)
+
+
 class WhatsNew(unittest.TestCase):
     def test_versions_between(self):
         cl = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
@@ -81,6 +93,14 @@ class FirstRun(unittest.TestCase):
             # Help > My library folders > TV > use the standard folder again
             o.choose_folders(Dlg([0, 1, 4]))
             self.assertEqual(o.folders(), {})
+
+    def test_standard_folder_shows_the_drive(self):
+        with tempfile.TemporaryDirectory() as d:
+            o = self.make(d)
+            self.assertIn("on the drive you sort to", o._std_line("MOVIE"))
+            o.std_folder = lambda k: {"MOVIE": "E:\\Movies"}.get(k)
+            self.assertEqual(o._std_line("MOVIE"), "standard folder: E:\\Movies")
+            self.assertEqual(o._std_line("MOVIE", short=True), "E:\\Movies")
 
     def test_back_on_first_run_keeps_everything(self):
         with tempfile.TemporaryDirectory() as d:

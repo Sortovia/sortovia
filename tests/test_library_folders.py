@@ -140,6 +140,13 @@ class LibraryCheck(unittest.TestCase):
         # file is already right and "episode 7" can't be placed: 2 moves
         self.assertEqual(rep["moves"], 2)
 
+    def test_in_library_counts_as_source(self):
+        # Kodi reported its sources in another path form on the Xbox: 356 of 357 videos in the
+        # library but "not a source". Videos in the library prove the folder is scanned.
+        rep = self.d.folder_report("TV", self.shows, self.d.parent_of(self.shows), self.lib(), ["x:/elsewhere"])
+        self.assertTrue(rep["is_source"])
+        self.assertEqual(self.d._lib_key("win-lib://removable/E%3A%5CTV%5C"), "e:/tv")
+
     def test_not_a_source(self):
         rep = self.d.folder_report("TV", self.shows, self.d.parent_of(self.shows), set(), ["/somewhere/else"])
         self.assertFalse(rep["is_source"])

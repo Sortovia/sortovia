@@ -14,11 +14,33 @@ KINDS = [("TV", "TV episodes"), ("MOVIE", "Movies"), ("COMIC", "Comics"), ("TUTO
 ALL_KINDS = [k for k, _ in KINDS]
 
 
+def unwrap(md):
+    """Join lines the README wraps for GitHub back into one line per paragraph or list item,
+    so Kodi's viewer (which wraps by itself) doesn't break sentences in the middle."""
+    out = []
+    in_code = False
+    for line in md.splitlines():
+        if line.strip().startswith("```"):
+            in_code = not in_code
+            out.append(line)
+            continue
+        starts_block = (not line.strip() or in_code or re.match(r"^\s*([-*]|\d+\.)\s", line)
+                        or re.match(r"^\s*(#|\||-{3,})", line))
+        prev = out[-1] if out else ""
+        prev_text = (prev.strip() and not prev.strip().startswith(("```", "#", "|"))
+                     and not re.match(r"^\s*-{3,}\s*$", prev))
+        if not starts_block and prev_text:
+            out[-1] = prev.rstrip() + " " + line.strip()
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def md_to_kodi(md):
     """Markdown -> text for Kodi's text viewer."""
     out = []
     in_code = False
-    for line in md.splitlines():
+    for line in unwrap(md).splitlines():
         if line.strip().startswith("```"):
             in_code = not in_code
             continue
@@ -103,7 +125,9 @@ def _save(path, data):
 
 
 class Onboarding(object):
-    def __init__(self, addon_path, data_path, version, heading, checker=None):
+    def __init__(self, addon_path, data_path, version, heading, checker=None, std_folder=None):
+        # std_folder(kind) -> "E:\\Movies": where a kind goes by default (None = not known yet)
+        self.std_folder = std_folder
         # checker(dlg, kind, folder) -> True when the person wants that folder reorganized
         self.checker = checker
         self.last_reorganize = None
@@ -121,6 +145,18 @@ class Onboarding(object):
     def wanted_line(self):
         w = self.wanted()
         return "everything" if len(w) == len(ALL_KINDS) else ", ".join(n for k, n in KINDS if k in w)
+
+    def _std_line(self, kind, short=False):
+        """"standard folder: E:\\Movies", or where it will be when the drive isn't known yet."""
+        where = None
+        try:
+            where = self.std_folder(kind) if self.std_folder else None
+        except Exception:
+            where = None
+        if where:
+            return where if short else "standard folder: %s" % where
+        text = "%s on the drive you sort to (you pick it when you sort)" % _STD[kind]
+        return text if short else "standard folder: " + text
 
     def folders(self):
         """{kind: folder} for kinds that go into the person's own existing folders."""
@@ -144,7 +180,7 @@ class Onboarding(object):
         names = dict(KINDS)
         while True:
             have = self.folders()
-            opts = ["%s:  %s" % (names[k], _friendly(have[k]) if k in have else "standard folder (" + _STD[k] + ")")
+            opts = ["%s:  %s" % (names[k], _friendly(have[k]) if k in have else self._std_line(k))
                     for k in self.wanted()]
             opts.append("Done")
             pick = dlg.select("Your library folders - pick one to change", opts)
@@ -152,7 +188,7 @@ class Onboarding(object):
                 return
             kind = self.wanted()[pick]
             how = dlg.select(names[kind], ["Pick my existing %s folder..." % names[kind].lower(),
-                                           "Use the standard folder (%s on the destination drive)" % _STD[kind]])
+                                           "Use the standard folder: %s" % self._std_line(kind, short=True)])
             folders = self.state.setdefault("folders", {})
             if how == 0:
                 path = dlg.browse(0, "Pick the folder that holds your %s" % names[kind].lower(), "files")

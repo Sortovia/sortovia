@@ -3,6 +3,10 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.29 – Companion app ready
+- **1.29.1** Fixes from the first run on the Xbox:
+  - **Library folders** show where the standard folders are (for example `E:\Movies`).
+  - **The guide** no longer breaks sentences across lines.
+  - A folder whose videos are already in Kodi's library is no longer reported as "not a Kodi video source".
 - **1.29.0** Kodi Sorter also finds the phone when it runs the new **Kodi Sorter companion** Android app instead of xbox-share in Termux.
 
 ## Phone setup

@@ -1542,6 +1542,20 @@ def yesno_default_yes(dlg, msg, nolabel, yeslabel):
 
 
 # ---------- main ----------
+def standard_folder(okind):
+    """Where a kind goes without a folder of its own, for the screen: "E:\\Movies".
+    Based on the last run's destination; None before the first run."""
+    dest = load_cache(data_file("last_settings.json")).get("dest")
+    if not dest or "://" in dest and not dest.startswith("win-lib://"):
+        return None
+    try:
+        root, names = resolve_dest(dest)
+    except Exception:
+        return None
+    kind = ONBOARD_KIND.get(okind)
+    return friendly(join(root, names.get(kind, kind))) if kind else None
+
+
 def onboarding_state():
     """Welcome screen / what to sort / guide (onboarding.py). None if it can't load."""
     try:
@@ -1549,7 +1563,7 @@ def onboarding_state():
         me = xbmcaddon.Addon()
         return onboarding.Onboarding(xbmcvfs.translatePath(me.getAddonInfo("path")),
                                      data_file("onboarding.json"), me.getAddonInfo("version"), ADDON,
-                                     checker=check_library_folder)
+                                     checker=check_library_folder, std_folder=standard_folder)
     except Exception as e:
         log("onboarding not available: %s" % e)
         return None
@@ -1562,7 +1576,14 @@ EP_TAG_RE = re.compile(r"(?<![a-z0-9])(?:s\d{1,2}[ ._\-]?e\d{1,3}|\d{1,2}x\d{2,3
 
 def _lib_key(path):
     """Library and folder paths compared the same way (Kodi writes win-lib://removable/E:\\TV/...)."""
-    p = re.sub(r"^win-lib://[^/]*/", "", path or "").replace("\\", "/")
+    p = path or ""
+    if re.search(r"%[0-9a-fA-F]{2}", p):
+        try:
+            from urllib.parse import unquote
+        except ImportError:
+            from urllib import unquote
+        p = unquote(p)
+    p = re.sub(r"^win-lib://[^/]*/", "", p).replace("\\", "/")
     return re.sub(r"/{2,}", "/", p).rstrip("/").lower()
 
 
@@ -1611,6 +1632,8 @@ def folder_report(kind, folder, dest, lib, sources, progress=None):
         if target and not already_sorted(path, target):
             rep["moves"] += 1
             rep["move_bytes"] += max(size, 0)
+    if rep["in_library"]:
+        rep["is_source"] = True  # Kodi's library already has videos from here: it is scanned
     return rep
 
 
@@ -1628,6 +1651,7 @@ def check_library_folder(dlg, okind, folder):
     try:
         try:
             lib, sources = library_files(kind), video_sources()
+            log("video sources Kodi reports: %s" % ", ".join(sources) or "none")
         except Exception as e:
             log("library check: %s" % e)
             lib, sources = set(), []

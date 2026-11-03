@@ -38,6 +38,35 @@ OUT = os.path.join(SHARE, "YouTube")
 TMP = os.path.expanduser("~/.cache/xbox-share/yt")  # half-done files stay out of the share
 COOKIES = os.path.join(CONF, "youtube-cookies.txt")
 JOBS_FILE = os.path.join(CONF, "yt-jobs.json")
+SETTINGS_FILE = os.path.join(CONF, "yt-settings.json")
+
+# Download quality (Kodi Sorter > YouTube > Download quality). Each is "the best up to this",
+# preferring H.264/AAC in .mp4, which every Kodi plays; 4K on YouTube is VP9/AV1 only.
+QUALITIES = {
+    "2160": ("Best, up to 4K (big files)", ["-S", "res:2160,vcodec:h264,acodec:aac,ext:mp4:m4a", "--merge-output-format", "mp4"]),
+    "1080": ("Full HD 1080p (recommended)", ["-S", "res:1080,vcodec:h264,acodec:aac,ext:mp4:m4a", "--merge-output-format", "mp4"]),
+    "720": ("HD 720p (smaller, saves data)", ["-S", "res:720,vcodec:h264,acodec:aac,ext:mp4:m4a", "--merge-output-format", "mp4"]),
+    "480": ("SD 480p (smallest video)", ["-S", "res:480,vcodec:h264,acodec:aac,ext:mp4:m4a", "--merge-output-format", "mp4"]),
+    "audio": ("Sound only (.m4a - not sorted into the library)", ["-f", "bestaudio[ext=m4a]/bestaudio", "-x", "--audio-format", "m4a"]),
+}
+DEFAULT_QUALITY = "1080"
+
+
+def settings():
+    try:
+        with open(SETTINGS_FILE) as f:
+            s = json.load(f)
+    except (OSError, ValueError):
+        s = {}
+    if s.get("quality") not in QUALITIES:
+        s["quality"] = DEFAULT_QUALITY
+    return s
+
+
+def save_settings(s):
+    os.makedirs(CONF, exist_ok=True)
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(s, f)
 TERMUX_BIN = "/data/data/com.termux/files/usr/bin"
 
 
@@ -179,13 +208,14 @@ def load_jobs():
             j["state"] = "queued"  # helper was stopped part way: start that one again
 
 
-def add_job(url, title=""):
+def add_job(url, title="", quality=None):
     with LOCK:
         for j in JOBS:
             if j["url"] == url and j["state"] in ("queued", "downloading"):
                 return j
         job = {"id": "%d%03d" % (time.time(), len(JOBS) % 1000), "url": url, "title": title or url,
                "state": "queued", "pct": 0.0, "speed": "", "eta": "", "file": "", "error": "",
+               "quality": quality if quality in QUALITIES else settings()["quality"],
                "added": time.strftime("%Y-%m-%d %H:%M")}
         JOBS.append(job)
         save_jobs()
@@ -215,8 +245,7 @@ def run_job(job):
     os.makedirs(TMP, exist_ok=True)
     cmd = base_cmd() + [
         "--no-playlist", "--newline", "--quiet", "--progress", "--no-simulate",
-        # 1080p at most, H.264 + AAC in .mp4 when YouTube has it (plays everywhere, Xbox included)
-        "-S", "res:1080,vcodec:h264,acodec:aac,ext:mp4:m4a", "--merge-output-format", "mp4",
+    ] + QUALITIES[job.get("quality") if job.get("quality") in QUALITIES else DEFAULT_QUALITY][1] + [
         "--windows-filenames", "--trim-filenames", "180", "--no-mtime",
         # Whole download (and the final merge) happens in TMP, outside the share; publish() then
         # copies it in under a hidden name and renames it, so Kodi Sorter never sees half a file.
@@ -385,7 +414,7 @@ class Handler(BaseHTTPRequestHandler):
             if not url:
                 return self._send({"error": "that isn't a YouTube link"}, 400)
             cookies_status()
-            return self._send({"job": add_job(url, b.get("title", ""))})
+            return self._send({"job": add_job(url, b.get("title", ""), b.get("quality"))})
         if u.path == "/yt/cancel":
             with LOCK:
                 job = next((j for j in JOBS if j["id"] == b.get("id")), None)
@@ -396,6 +425,13 @@ class Handler(BaseHTTPRequestHandler):
                     JOBS.remove(job)
                 save_jobs()
             return self._send({"ok": bool(job)})
+        if u.path == "/yt/settings":
+            s = settings()
+            if b.get("quality") in QUALITIES:
+                s["quality"] = b["quality"]
+                save_settings(s)
+                log("download quality: %s" % QUALITIES[s["quality"]][0])
+            return self._send({"settings": s, "qualities": [[k, v[0]] for k, v in QUALITIES.items()]})
         if u.path == "/yt/cookies":
             # "Import cookies now": look in Download right away and say what happened
             st = cookies_status()

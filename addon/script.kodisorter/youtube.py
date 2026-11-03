@@ -111,6 +111,31 @@ def job_label(j):
     return "waiting %s" % t
 
 
+def quality_info(phone):
+    """(current key, [[key, label], ...]) from the phone, or (None, []) with an older helper."""
+    r = phone.call("/yt/settings", {})
+    if not r.get("settings"):
+        return None, []
+    return r["settings"].get("quality"), r.get("qualities") or []
+
+
+def quality_label(cur, qualities):
+    return dict((k, v) for k, v in qualities).get(cur) or cur or "?"
+
+
+def choose_quality(dlg, phone):
+    cur, qs = quality_info(phone)
+    if not qs:
+        dlg.ok(HEADING, "The phone's YouTube helper is older than this option. On the phone: stop xbox-share "
+                        "(Ctrl+C) and start it again, then try again.")
+        return
+    labels = [("%s  (now)" % v) if k == cur else v for k, v in qs]
+    pick = dlg.select("Download quality - the best YouTube has, up to this", labels)
+    if pick >= 0:
+        phone.call("/yt/settings", {"quality": qs[pick][0]})
+        xbmcgui.Dialog().notification(HEADING, "Download quality: %s" % qs[pick][1], xbmcgui.NOTIFICATION_INFO, 4000)
+
+
 def import_cookies(dlg, phone):
     """Look for a cookies file in the phone's Download now and say plainly what happened."""
     c = phone.call("/yt/cookies", {}).get("cookies") or {}
@@ -184,8 +209,10 @@ def queue_videos(dlg, phone, items):
             added += 1
         elif r.get("error"):
             dlg.ok(HEADING, r["error"])
-    if added and dlg.yesno(HEADING, "%d video%s queued on the phone.\nWatch the download progress?"
-                           % (added, "" if added == 1 else "s"), nolabel="Later", yeslabel="Watch"):
+    cur, qs = quality_info(phone)
+    q = ("\nQuality: %s (change it in the YouTube menu)" % quality_label(cur, qs)) if qs else ""
+    if added and dlg.yesno(HEADING, "%d video%s queued on the phone.%s\nWatch the download progress?"
+                           % (added, "" if added == 1 else "s", q), nolabel="Later", yeslabel="Watch"):
         watch(phone)
 
 
@@ -297,6 +324,7 @@ def menu(dlg, find_ip, creds, log):
                             "in Termux: stop it (Ctrl+C) and start it again - it starts the helper too. The companion "
                             "app can't download from YouTube yet (coming in its next version)." % e)
             return None
+        qcur, qlist = quality_info(phone)
         c = st.get("cookies") or {}
         if c.get("imported"):
             xbmcgui.Dialog().notification(HEADING, "Cookies imported from %s" % c["imported"], xbmcgui.NOTIFICATION_INFO, 5000)
@@ -305,7 +333,9 @@ def menu(dlg, find_ip, creds, log):
                 "Downloads: %s" % queue_line(jobs),
                 "Sort the finished downloads into my library now",
                 "How to set up cookies (sign-in) - %s" % cookie_line(st),
-                "Import cookies now (from the phone's Download folder)"]
+                "Import cookies now (from the phone's Download folder)",
+                "Download quality: %s" % (quality_label(qcur, qlist) if qlist
+                                          else "restart xbox-share on the phone to choose")]
         pick = dlg.select("%s - %s" % (HEADING, cookie_line(st)), opts)
         try:
             if pick < 0:
@@ -326,5 +356,7 @@ def menu(dlg, find_ip, creds, log):
                 dlg.textviewer("%s - cookies" % HEADING, COOKIE_HELP)
             elif pick == 5:
                 import_cookies(dlg, phone)
+            elif pick == 6:
+                choose_quality(dlg, phone)
         except RuntimeError as e:
             dlg.ok(HEADING, str(e))

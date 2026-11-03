@@ -2,6 +2,9 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.31 – YouTube download quality
+- **1.31.0** **Download quality** in the YouTube menu: best up to 4K, 1080p (the default), 720p, 480p, or sound only (.m4a). Lower quality makes smaller files and uses less mobile data. The setting is kept on the phone, and each queued video remembers the quality it was queued with.
+
 ## 1.30 – Your language
 - **1.30.1** Fixes:
   - **Scans crashed** in 1.30.0 (a mistake in the movie-title lookup). Fixed, and a new test now loads every add-on file.

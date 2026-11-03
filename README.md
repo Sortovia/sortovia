@@ -159,6 +159,7 @@ For a USB drive plugged into the phone, use the *primitive ftpd* app (F-Droid) a
 4. In Kodi Sorter, choose **Download from YouTube**, then:
    - **Search YouTube** or **Type a link** (a video or a playlist),
    - **Downloads** to watch progress,
+   - **Download quality**: up to 4K, 1080p (default), 720p, 480p or sound only,
    - **Sort the finished downloads** to put them into `Tutorials`.
 
 Only download videos you're allowed to keep: your own, or ones the creator permits.

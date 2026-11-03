@@ -2180,7 +2180,9 @@ def audio_fits(a, v_src, v_arc, v_name, v_target, src, dest):
 
 def match_audio_tracks(tracks, groups, src, dest):
     """Separate audio files -> <video folder>/<video name>.mka (Kodi plays it as
-    an extra audio track). Yields (item, None) or (None, skip line)."""
+    an extra audio track) - only when the video has no English audio of its own,
+    so a release that already has English doesn't get a second copy of it.
+    Yields (item, None) or (None, skip line)."""
     videos = [it for items in groups.values() for it in items
               if it["kind"] in ("TV", "MOVIE") and split_name(it["name"])[1] in VIDEO]
     used = {}
@@ -2194,6 +2196,18 @@ def match_audio_tracks(tracks, groups, src, dest):
                 a["label"], "matches more than one video" if targets else "couldn't tell which video it belongs to")
             continue
         vt = list(targets.values())[0]
+        own = None
+        for v in videos:
+            if dup_key(v["target"]) != dup_key(vt):
+                continue
+            if "own_eng" not in v:
+                v["own_eng"] = v["eng"]
+            if v["own_eng"] is None:  # inside an archive, or audio check off: look now
+                v["own_eng"] = english_status(v["src"], v["name"])[0]
+            own = own or v["own_eng"]
+        if own:
+            yield None, "SKIP  %s  (separate audio track - the video already has English audio)" % a["label"]
+            continue
         stem, ext = split_name(a["name"])
         suffix = sub_lang(stem)[1]  # keeps a ".en" the file name already had
         key = (vt.lower(), suffix, ext.lower())
@@ -2543,6 +2557,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             dub = next((a for a in audio_tracks if a["eng"] and
                         audio_fits(a, path, arc, name, target, src, dest)), None)
             if dub:  # Japanese-only video with an English dub next to it: it has English
+                item["own_eng"] = item["eng"]  # the video's own answer, for match_audio_tracks
                 item["eng"], item["langs"] = True, list(item["langs"]) + ["English in %s" % dub["name"]]
         if check_lang and item["eng"] is False:
             if lang_mode == 0:

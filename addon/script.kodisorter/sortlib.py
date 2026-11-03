@@ -12,6 +12,9 @@ from pathlib import PurePath
 
 VIDEO = {".mkv", ".mp4", ".avi", ".m4v", ".mov", ".wmv", ".ts", ".webm"}
 SUBS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
+# Separate audio tracks (usually an English dub shipped next to the video):
+# moved next to their video with the same name, so Kodi offers them as an extra track.
+AUDIO = {".mka", ".ac3", ".eac3", ".dts"}
 COMICS = {".cbz", ".cbr", ".cb7", ".cbt"}
 # PDFs/EPUBs are usually bills, manuals, receipts: only comics when they sit
 # in a folder whose name says so ("Comics", "Manga", "Nightwarden comics" ...).
@@ -234,6 +237,14 @@ def parse_episode(stem):
     if m and m.group("show").strip(" ._-"):
         return m.group("show"), 1, "S01E%02d" % int(m.group("e")), True
     return None
+
+
+def episode_tag(name):
+    """'S01E05 - Quiet Streets.mka' -> 'S01E05'. Works with no show name in
+    front (extras folders often drop it). None when there's no episode number."""
+    stem = SITE_PREFIX_RE.sub("", PurePath(name).stem)
+    ep = parse_episode("x " + stem)
+    return ep[2].split(" ")[0].upper() if ep else None
 
 
 def plan_name(name, folder=""):

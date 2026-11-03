@@ -197,6 +197,17 @@ class SafeNames(unittest.TestCase):
         self.assertNotRegex(target, r'[<>:"|?*]')
 
 
+class AudioTracks(unittest.TestCase):
+    def test_episode_tag_without_show_name(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "addon" / "script.kodisorter"))
+        from sortlib import episode_tag, AUDIO
+        self.assertIn(".mka", AUDIO)
+        self.assertEqual(episode_tag("S01E05 - Quiet Streets.mka"), "S01E05")
+        self.assertEqual(episode_tag("Neonpunk Skyrunners - S01E05 - Quiet Streets.mkv"), "S01E05")
+        self.assertEqual(episode_tag("[SubTeam] Frieren - 05 (1080p).mka"), "S01E05")
+        self.assertIsNone(episode_tag("Movie.2019.English.mka"))
+
+
 class InPlace(unittest.TestCase):
     """dest on the same drive as src: files are renamed, already-sorted ones ignored."""
 

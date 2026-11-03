@@ -23,7 +23,7 @@ import xbmcgui
 import xbmcvfs
 
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
-from sortlib import VIDEO, SUBS, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
+from sortlib import VIDEO, SUBS, AUDIO, episode_tag, sub_lang, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
 
 try:
     ADDON = "Kodi Sorter " + xbmcaddon.Addon().getAddonInfo("version")
@@ -504,7 +504,7 @@ def audio_languages(path):
         f = xbmcvfs.File(path)
         try:
             size = f.size()
-            if ext in (".mkv", ".webm"):
+            if ext in (".mkv", ".webm", ".mka"):
                 return _mkv_langs(f, size)
             if ext in (".mp4", ".m4v", ".mov"):
                 return _mp4_langs(f, size)
@@ -2162,6 +2162,50 @@ def match_orphan_subs(orphans, groups, src, dest, progress=None):
                "label": label, "res": None, "size": size_of(path), "eng": None, "langs": []}, None, path
 
 
+def audio_fits(a, v_src, v_arc, v_name, v_target, src, dest):
+    """Does the separate audio file `a` belong to this video? Same archive (or
+    same folder / release folder), same episode number, and same show when the
+    audio's own name has one."""
+    if a["arc"] or v_arc:
+        if a["arc"] != v_arc:
+            return False
+    elif not _under(a["src"], parent_of(v_src)):
+        rf = release_folder(a["src"], src)
+        if not rf or _norm(rf) != _norm(release_folder(v_src, src) or ""):
+            return False
+    if a["tag"] != episode_tag(v_name):
+        return False
+    return not a["show"] or a["show"] == show_of(v_target, dest).lower()
+
+
+def match_audio_tracks(tracks, groups, src, dest):
+    """Separate audio files -> <video folder>/<video name>.mka (Kodi plays it as
+    an extra audio track). Yields (item, None) or (None, skip line)."""
+    videos = [it for items in groups.values() for it in items
+              if it["kind"] in ("TV", "MOVIE") and split_name(it["name"])[1] in VIDEO]
+    used = {}
+    for a in tracks:
+        targets = {}
+        for v in videos:
+            if audio_fits(a, v["src"], v["arc"], v["name"], v["target"], src, dest):
+                targets[dup_key(v["target"])] = v["target"]
+        if len(targets) != 1:
+            yield None, "SKIP  %s  (separate audio track - %s)" % (
+                a["label"], "matches more than one video" if targets else "couldn't tell which video it belongs to")
+            continue
+        vt = list(targets.values())[0]
+        stem, ext = split_name(a["name"])
+        suffix = sub_lang(stem)[1]  # keeps a ".en" the file name already had
+        key = (vt.lower(), suffix, ext.lower())
+        used[key] = used.get(key, 0) + 1
+        if used[key] > 1:
+            suffix += ".%d" % used[key]
+        target = join(parent_of(vt), split_name(base_of(vt))[0] + suffix + ext.lower())
+        yield {"src": a["src"], "name": a["name"], "target": target, "kind": "AUDIO", "note": "", "arc": a["arc"],
+               "label": a["label"], "res": None, "size": size_of(a["src"]), "eng": a["eng"],
+               "langs": a["langs"]}, None
+
+
 def read_text(path, limit=512 * 1024):
     try:
         f = xbmcvfs.File(path)
@@ -2390,6 +2434,22 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     nfo_texts = {}
     import nfos
     orphan_subs, leftovers, video_paths = [], [], []
+    audio_tracks = []  # separate audio files (an English dub in .mka ...): go next to their video
+    for path, name, arc in files:
+        if split_name(name)[1].lower() not in AUDIO or name.startswith("."):
+            continue
+        busy.update(0, "Checking separate audio tracks\n%s" % name)
+        label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else masked(path.replace(src, ""))
+        eng, langs = english_status(path, name) if check_lang else (None, [])
+        if eng is None and check_lang and ENG_HINT_RE.search(base_of(parent_of(path))):
+            eng, langs = True, (langs or []) + ["folder name says English"]
+        if eng is False:
+            skipped.append("SKIP  %s  (separate audio track, no English: %s)" % (label, ", ".join(langs)))
+            continue
+        parts, pkind, _ = plan_name(split_name(name)[0] + ".mkv")
+        audio_tracks.append({"src": path, "name": name, "arc": arc, "label": label, "eng": eng,
+                             "langs": langs or [], "tag": episode_tag(name),
+                             "show": parts[1].lower() if parts and pkind == "tv" else None})
     titles = TitleFixer()
     keep_langs = sub_keep_langs()
     movies_seen = [0]
@@ -2414,6 +2474,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             return
         busy.update(int(i * 100 / max(len(files), 1)),
                     "Step 1 of 3 - scanning %d of %d\n%s\n%s" % (i + 1, len(files), tally(), name))
+        if split_name(name)[1].lower() in AUDIO and not name.startswith("."):
+            continue  # separate audio track: checked above, matched to its video below
         target, kind, note = plan_for(path, name, dest)
         if target is None and arc and "rename by hand" in kind:
             # Inner file named "movie.mkv" etc: try the archive's own name.
@@ -2477,6 +2539,11 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                 else:
                     item["eng"], item["langs"] = eng, langs + ["from %s" % nfo_name]
                     from_nfo[0] += 1
+        if check_lang and item["eng"] is not True and kind in ("TV", "MOVIE") and split_name(name)[1] in VIDEO:
+            dub = next((a for a in audio_tracks if a["eng"] and
+                        audio_fits(a, path, arc, name, target, src, dest)), None)
+            if dub:  # Japanese-only video with an English dub next to it: it has English
+                item["eng"], item["langs"] = True, list(item["langs"]) + ["English in %s" % dub["name"]]
         if check_lang and item["eng"] is False:
             if lang_mode == 0:
                 skipped.append("NO ENGLISH  %s  (%s)" % (label if arc else name, lang_note(False, item["langs"])))
@@ -2513,6 +2580,14 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         if sub_mode and (unwanted_sub(it["target"], keep_langs) if it else unwanted_sub(path, keep_langs, False)):
             unwanted_subs.append(path)  # other language: deleted / parked, matched or not
         elif it:
+            groups.setdefault(dup_key(it["target"]), []).append(it)
+            other += 1
+        else:
+            skipped.append(why)
+            by_name += 1
+
+    for it, why in match_audio_tracks(audio_tracks, groups, src, dest):
+        if it:
             groups.setdefault(dup_key(it["target"]), []).append(it)
             other += 1
         else:

@@ -6,6 +6,7 @@ naming fix made here applies to both.
   TV:     TV/Show Name (Year)/Season 01/Show Name (Year) S01E02.mkv
   Movies: Movies/Movie Name (Year)/Movie Name (Year).mkv
   Comics: Comics/<original file name>
+  Tutorials: Tutorials/<Subject>/<original file name>   (AutoCAD, Revit ...)
 """
 import re
 from pathlib import PurePath
@@ -91,6 +92,60 @@ LANGS = {
     "te": "te", "tel": "te", "telugu": "te", "bn": "bn", "ben": "bn", "bengali": "bn",
     "gl": "gl", "glg": "gl", "galician": "gl", "eu": "eu", "baq": "eu", "eus": "eu", "basque": "eu",
 }
+
+# Tutorials: a name that says so ("AutoCAD 2026 FULL Course For BEGINNERS!",
+# "Revit Tutorial - Walls"), or a file inside a "Tutorials"/"Courses" folder.
+# Words like "how to", "lesson", "training" are left out: they are film titles too
+# ("How to Train Your Dragon", "Training Day").
+TUTORIAL_RE = re.compile(
+    r"(?<![a-z])(?:tutorials?|full course|crash course|masterclass|master class|course for beginners|"
+    r"beginners? course|beginner'?s guide|for beginners|for absolute beginners|step[ ._\-]by[ ._\-]step guide|"
+    r"udemy|lynda|linkedin learning|skillshare|pluralsight|coursera)(?![a-z])", re.I)
+TUTORIAL_FOLDER_RE = re.compile(r"^(?:tutorials?|courses?|training|lessons|learning)$", re.I)
+# Subject folder from a name: the first match wins, so the specific names come first
+# ("AutoCAD Civil 3D" -> Civil 3D, "Autodesk Revit" -> Revit).
+TUTORIAL_SUBJECTS = [
+    ("Civil 3D", r"civil[ ._\-]?3d"), ("AutoCAD", r"auto[ ._\-]?cad"), ("Revit", r"revit"),
+    ("SketchUp", r"sketch[ ._\-]?up"), ("Blender", r"blender"), ("Fusion 360", r"fusion[ ._\-]?360"),
+    ("SolidWorks", r"solid[ ._\-]?works"), ("Inventor", r"inventor"), ("3ds Max", r"3ds[ ._\-]?max"),
+    ("Maya", r"maya"), ("Rhino", r"rhino(?:ceros)?|grasshopper"), ("ArchiCAD", r"archi[ ._\-]?cad"),
+    ("Navisworks", r"navisworks"), ("Lumion", r"lumion"), ("Enscape", r"enscape"), ("V-Ray", r"v[ ._\-]?ray"),
+    ("Twinmotion", r"twinmotion"), ("FreeCAD", r"free[ ._\-]?cad"), ("Cinema 4D", r"cinema[ ._\-]?4d|c4d"),
+    ("ZBrush", r"z[ ._\-]?brush"), ("Unreal Engine", r"unreal"), ("Unity", r"unity"),
+    ("Photoshop", r"photoshop"), ("Illustrator", r"illustrator"), ("InDesign", r"indesign"),
+    ("Premiere Pro", r"premiere"), ("After Effects", r"after[ ._\-]?effects"), ("Lightroom", r"lightroom"),
+    ("DaVinci Resolve", r"davinci|resolve"), ("Excel", r"excel"), ("PowerPoint", r"power[ ._\-]?point"),
+    ("Word", r"ms[ ._\-]?word|microsoft[ ._\-]?word"), ("Python", r"python"), ("Kodi", r"kodi"),
+]
+TUTORIAL_SUBJECT_RES = [(n, re.compile(r"(?<![a-z0-9])(?:%s)(?![a-z])" % rx, re.I)) for n, rx in TUTORIAL_SUBJECTS]
+
+
+def tutorial_subject(stem):
+    """'Autodesk Revit - Full Beginner Course' -> 'Revit'. None when no known program is named."""
+    for name, rx in TUTORIAL_SUBJECT_RES:
+        if rx.search(stem.replace("_", " ")):
+            return name
+    return None
+
+
+def tutorial_folder(folder):
+    """The subject folder the user already put a file in: '.../Tutorials/AutoCAD/x' -> 'AutoCAD'.
+    '' when it sits straight in Tutorials, None when it isn't under a Tutorials folder."""
+    parts = [p for p in re.split(r"[\\/]", folder or "") if p]
+    for i in range(len(parts) - 1, -1, -1):
+        if TUTORIAL_FOLDER_RE.match(parts[i].strip()):
+            return parts[i + 1].strip() if i + 1 < len(parts) else ""
+    return None
+
+
+def plan_tutorial(name, stem, folder):
+    """('Tutorials', subject, name) or None."""
+    sub = tutorial_folder(folder)
+    if sub is None and not TUTORIAL_RE.search(stem.replace("_", " ").replace(".", " ")):
+        return None
+    subject = sub or tutorial_subject(stem) or "Other"
+    return ("Tutorials", safe(subject), safe(PurePath(name).stem) + PurePath(name).suffix)
+
 
 SMALL = {"a", "an", "the", "and", "of", "in", "on", "to", "for", "at", "by", "or"}
 
@@ -250,7 +305,7 @@ def episode_tag(name):
 def plan_name(name, folder=""):
     """Where a file called `name` belongs, relative to the destination.
     `folder` is the folder it's in (only used to decide if a PDF is a comic).
-    Returns (parts or None, kind, note). kind is 'tv', 'movie' or 'comic' when
+    Returns (parts or None, kind, note). kind is 'tv', 'movie', 'comic' or 'tutorial' when
     parts is set, otherwise the reason it was skipped."""
     if re.search(r"%[0-9a-fA-F]{2}", name):
         # URL-encoded name from an early version: "%5bsubcrew%5dtinman" -> "[subcrew]tinman"
@@ -275,6 +330,10 @@ def plan_name(name, folder=""):
         return None, "not video/sub/comic", ""
     if ext in VIDEO and "sample" in stem.lower():
         return None, "sample", ""
+    if ext in VIDEO or ext in SUBS:
+        tut = plan_tutorial(name, stem, folder)
+        if tut and not (TV_RE.search(stem) or TV_X_RE.search(stem)):
+            return tut, "tutorial", ""
     if ext in VIDEO and CREDITS_RE.search(stem) and not re.search(r"(?i)(?<![a-z0-9])s00e\d{2}(?![0-9])", stem):
         # (an S00Exx name is one already sorted into Specials: treated like any episode below)
         cr = parse_credits(SITE_PREFIX_RE.sub("", stem))

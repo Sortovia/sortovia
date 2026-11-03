@@ -28,7 +28,7 @@ from sortlib import (  # noqa: E402,F401
     sub_lang, parse_episode, plan_name,
 )
 
-KODI_FOLDERS = ("TV", "Movies", "Comics")
+KODI_FOLDERS = ("TV", "Movies", "Comics", "Tutorials")
 
 
 def target_for(name: str, dest: Path, folder: str = ""):
@@ -44,9 +44,10 @@ def plan_for(path: Path, dest: Path):
     """target_for plus the checks that need the real file."""
     if path.name.startswith("."):
         return None, "skip (hidden / still downloading)", ""
-    if path.suffix.lower() in VIDEO and path.stat().st_size < MIN_VIDEO_BYTES:
+    target, kind, note = target_for(path.name, dest, str(path.parent))
+    if kind != "tutorial" and path.suffix.lower() in VIDEO and path.stat().st_size < MIN_VIDEO_BYTES:
         return None, "skip (too small - sample?)", ""
-    return target_for(path.name, dest, str(path.parent))
+    return target, kind, note
 
 
 def under(p: Path, folder: Path) -> bool:

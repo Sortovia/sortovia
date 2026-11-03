@@ -2,6 +2,7 @@
 #   TV:     <dest>/TV/Show Name (Year)/Season 01/Show Name (Year) S01E02.mkv
 #   Movies: <dest>/Movies/Movie Name (Year)/Movie Name (Year).mkv
 #   Comics: <dest>/Comics/<original name>
+#   Tutorials: <dest>/Tutorials/<AutoCAD, Revit ...>/<original name>
 # Duplicates: keeps the better copy (higher resolution, else bigger file).
 # Can check audio tracks and keep only files with English audio.
 # Nothing is overwritten without your OK; replaced copies go to <dest>/_Replaced
@@ -149,15 +150,16 @@ def size_of(path):
         return -1
 
 
-KODI_FOLDERS = ("TV", "Movies", "Comics")
+KODI_FOLDERS = ("TV", "Movies", "Comics", "Tutorials")
 # The folder each kind goes into, under the library root. Set per run by
 # resolve_dest: picking E:\\Movies (or "Films", "TV Shows" ...) uses that folder,
 # and the other kinds go to their folders next to it.
-FOLDER_NAMES = {"TV": "TV", "Movies": "Movies", "Comics": "Comics"}
+FOLDER_NAMES = {"TV": "TV", "Movies": "Movies", "Comics": "Comics", "Tutorials": "Tutorials"}
 FOLDER_SYNONYMS = {
     "TV": ("tv", "tv shows", "tvshows", "tv series", "shows", "series", "television"),
     "Movies": ("movies", "movie", "films", "film"),
     "Comics": ("comics", "comic", "manga", "graphic novels"),
+    "Tutorials": ("tutorials", "tutorial", "courses"),
 }
 
 
@@ -567,9 +569,10 @@ def is_better(new_res, new_size, old_res, old_size, new_eng=None, old_eng=None):
 # ---------- naming ----------
 def plan_for(path, filename, dest):
     """Returns (target or None, kind or skip reason, note)."""
-    if split_name(filename)[1] in VIDEO and 0 <= size_of(path) < MIN_VIDEO_BYTES:
-        return None, "sample/too small", ""
     parts, kind, note = plan_name(filename, parent_of(path))
+    # Short tutorial videos are real lessons, not samples: only other videos need the minimum size.
+    if kind != "tutorial" and split_name(filename)[1] in VIDEO and 0 <= size_of(path) < MIN_VIDEO_BYTES:
+        return None, "sample/too small", ""
     if parts is None:
         return None, kind, ""
     parts = (FOLDER_NAMES.get(parts[0], parts[0]),) + tuple(parts[1:])
@@ -2398,8 +2401,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     if _norm(root) != _norm(dest):
         log("destination %s is the %s folder: library root %s" % (dest, base_of(dest), root))
     dest = root  # everything below works from the library root
-    where_to = "Destination: movies -> %s, TV -> %s, comics -> %s" % tuple(
-        friendly(join(dest, FOLDER_NAMES[k])) for k in ("Movies", "TV", "Comics"))
+    where_to = "Destination: movies -> %s, TV -> %s, comics -> %s, tutorials -> %s" % tuple(
+        friendly(join(dest, FOLDER_NAMES[k])) for k in ("Movies", "TV", "Comics", "Tutorials"))
     log(where_to)
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
         dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start xbox-share (Termux) or primitive ftpd, "

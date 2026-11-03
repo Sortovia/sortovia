@@ -252,5 +252,40 @@ class InPlace(unittest.TestCase):
             self.assertEqual(before, sorted(os.walk(root)))
 
 
+class Tutorials(unittest.TestCase):
+    def test_named_course_goes_to_program_folder(self):
+        self.assertEqual(rel("AutoCAD 2026 FULL Course For BEGINNERS!.mp4")[:2],
+                         ("Tutorials/AutoCAD/AutoCAD 2026 FULL Course For BEGINNERS!.mp4", "tutorial"))
+        self.assertEqual(rel("Autodesk Revit - Full Beginner Course \uff5c Complete Project - Start to finish.webm")[0],
+                         "Tutorials/Revit/Autodesk Revit - Full Beginner Course \uff5c Complete Project - Start to finish.webm")
+
+    def test_dash_number_is_not_an_episode(self):
+        self.assertEqual(rel("AutoCAD 3D House Modeling Tutorial - 1.mp4")[0],
+                         "Tutorials/AutoCAD/AutoCAD 3D House Modeling Tutorial - 1.mp4")
+
+    def test_users_own_subject_folder_wins(self):
+        t, kind, _ = ks.target_for("Walls and Floors.mp4", D, "/x/Download/Tutorials/Revit")
+        self.assertEqual((str(t.relative_to(D)), kind), ("Tutorials/Revit/Walls and Floors.mp4", "tutorial"))
+        t, _, _ = ks.target_for("Intro.mp4", D, "/x/Tutorials")
+        self.assertEqual(str(t.relative_to(D)), "Tutorials/Other/Intro.mp4")
+
+    def test_unknown_program_goes_to_other(self):
+        self.assertEqual(rel("Cooking basics full course.mp4")[0], "Tutorials/Other/Cooking basics full course.mp4")
+
+    def test_films_and_episodes_unchanged(self):
+        self.assertEqual(rel("How to Train Your Dragon (2010).mkv")[1], "movie")
+        self.assertEqual(rel("Training Day (2001).mkv")[1], "movie")
+        self.assertEqual(rel("Sams.Sandwiches.S15E01.1080p.mkv")[1], "tv")
+
+    def test_small_tutorial_not_skipped_as_sample(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "AutoCAD 2025 - 3D Tutorial For Beginners!.mp4"
+            f.write_bytes(b"x" * 1000)
+            self.assertEqual(ks.plan_for(f, D)[1], "tutorial")
+            g = Path(d) / "Some Film (2020).mp4"
+            g.write_bytes(b"x" * 1000)
+            self.assertIsNone(ks.plan_for(g, D)[0])
+
+
 if __name__ == "__main__":
     unittest.main()

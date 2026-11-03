@@ -195,7 +195,7 @@ def to_cyrillic(latin):
     return "".join(out)
 
 
-def english_title(tm, title, year, notes=None):
+def english_title(tm, title, year, notes=None, language=language):
     """The English title of a movie whose folder is named e.g. 'Bolshoi Gorod 3 (2026)'.
     Only returned when TMDb confirms the current name is one of THAT movie's
     alternative/translated titles (same year +-1, any script); None = keep it.
@@ -203,7 +203,7 @@ def english_title(tm, title, year, notes=None):
     notes = notes if notes is not None else []
 
     def search(q):
-        params = {"query": q, "language": "en-US", "include_adult": "false"}
+        params = {"query": q, "language": language, "include_adult": "false"}
         if year:
             params["year"] = year
         res = (tm.get("/search/movie", **params) or {}).get("results") or []
@@ -225,7 +225,7 @@ def english_title(tm, title, year, notes=None):
         if me == _skeleton(r.get("title")):
             return None  # already its English title
         d = tm.get("/movie/%d" % r["id"], append_to_response="alternative_titles,translations",
-                   language="en-US") or {}
+                   language=language) or {}
         names = [r.get("original_title")]
         names += [a.get("title") for a in (d.get("alternative_titles") or {}).get("titles", [])]
         names += [(t.get("data") or {}).get("title") for t in (d.get("translations") or {}).get("translations", [])]

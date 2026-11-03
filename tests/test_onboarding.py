@@ -75,7 +75,7 @@ class FirstRun(unittest.TestCase):
     def test_welcome_once_then_kinds_kept(self):
         with tempfile.TemporaryDirectory() as d:
             o = self.make(d)
-            dlg = Dlg([[1, 3], False, True])  # Movies + Tutorials, no own folders, read the guide
+            dlg = Dlg([[1, 3], 3, False, True])  # Movies + Tutorials, 3rd language in the list, no own folders, guide
             self.assertTrue(o.first_run(dlg))
             self.assertEqual(o.wanted(), ["MOVIE", "TUTORIAL"])
             self.assertTrue(any(isinstance(x, tuple) and x[0] == "text" for x in dlg.seen))
@@ -87,7 +87,7 @@ class FirstRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             o = self.make(d)
             # kinds: all; yes I have folders; pick row 0 (TV) -> existing -> browse; Done (row 4); no guide
-            o.first_run(Dlg([[0, 1, 2, 3], True, 0, 0, "win-lib://removable/D:\\My Shows/", 4, False]))
+            o.first_run(Dlg([[0, 1, 2, 3], -1, True, 0, 0, "win-lib://removable/D:\\My Shows/", 4, False]))
             self.assertEqual(o.folders(), {"TV": "win-lib://removable/D:\\My Shows/"})
             self.assertEqual(o.folders_line(), "TV episodes -> D:\\My Shows")
             # Help > My library folders > TV > use the standard folder again
@@ -102,10 +102,22 @@ class FirstRun(unittest.TestCase):
             self.assertEqual(o._std_line("MOVIE"), "standard folder: E:\\Movies")
             self.assertEqual(o._std_line("MOVIE", short=True), "E:\\Movies")
 
+    def test_language_choice(self):
+        with tempfile.TemporaryDirectory() as d:
+            o = self.make(d)
+            self.assertEqual(o.language().code, "en")  # default
+            o.kodi_lang = "de"
+            o.choose_language(Dlg([0]))  # "Use Kodi's language"
+            self.assertEqual((o.language().code, o.language_line()), ("de", "German (Kodi's language)"))
+            import lang
+            spanish = [c for c, _ in lang.choices()].index("es") + 1
+            o.choose_language(Dlg([spanish]))
+            self.assertEqual(o.language().name, "Spanish")
+
     def test_back_on_first_run_keeps_everything(self):
         with tempfile.TemporaryDirectory() as d:
             o = self.make(d)
-            o.first_run(Dlg([None, False, False]))
+            o.first_run(Dlg([None, -1, False, False]))
             self.assertEqual(o.wanted(), ob.ALL_KINDS)
             self.assertEqual(o.wanted_line(), "everything")
 

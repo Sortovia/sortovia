@@ -54,7 +54,8 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
 **Choosing between copies**
 - Duplicates: keeps the better copy. English audio wins first, then the higher resolution, then the bigger file.
   You choose whether it asks you, always replaces, or never replaces.
-- Audio language check: videos with **no English audio** can be skipped, moved to `_No English`, or deleted.
+- Audio language check: videos with **no audio in your language** (English unless you choose another) can be
+  skipped, moved to `_No English` (or `_No Spanish` ...), or deleted.
   It reads the file's own audio tracks. When the tracks don't say, it reads the release's `.nfo`.
 - Samples (videos under 50 MB, or named "sample") are left alone. Tutorials are exempt from the size limit.
 
@@ -108,6 +109,8 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
 
 The very first time, a welcome screen asks:
 - **what you want to sort** (TV, Movies, Comics, Tutorials),
+- **your language**: the audio it looks for, the subtitles it keeps and the language of movie titles (English
+  unless you choose another, or "Kodi's language"),
 - whether you **already have folders** for them (pick each one, any name, any drive),
 
 and offers this guide. You can change all of these later under **Help** in the start menu.
@@ -142,12 +145,16 @@ For a USB drive plugged into the phone, use the *primitive ftpd* app (F-Droid) a
 
 1. The installer above already set up everything YouTube needs.
 2. **Cookies (once, and again when downloads start failing):** YouTube only allows downloads from a signed-in browser.
-   1. In Firefox on the phone, add the **cookies.txt** (or *Get cookies.txt LOCALLY*) extension.
-   2. Sign in to youtube.com in a **private tab**.
-   3. Export the cookies for that site into **Download**, then close the private tab.
+   1. In Firefox on the phone, open addons.mozilla.org, search for **cookies.txt** (the one called just that; it works on Android) and tap **Add to Firefox**.
+   2. **If Add to Firefox is greyed out** (for example *Get cookies.txt LOCALLY*, which isn't marked for Android), install it from its file:
+      - Firefox → Settings → About Firefox, and tap the Firefox logo **5 times** to turn on the debug menu.
+      - Back in Settings, choose **Install extension from file** and pick the `.xpi` file from Download. Only signed files from addons.mozilla.org install.
+   3. Allow the extension in private tabs: Extensions → the extension → Settings → *Run in private browsing*.
+   4. Open a **private tab**, sign in to youtube.com, and export the cookies for that site (Netscape format) into **Download**. Then close the tab without signing out.
 
    The phone's helper moves the file out of the shared folder and uses it from there. Treat this file like a
-   password: it's your YouTube sign-in.
+   password: it's your YouTube sign-in. The same steps are in Kodi Sorter → Search & download from YouTube →
+   How to set up cookies.
 3. Start `xbox-share`. It also starts the YouTube helper.
 4. In Kodi Sorter, choose **Download from YouTube**, then:
    - **Search YouTube** or **Type a link** (a video or a playlist),

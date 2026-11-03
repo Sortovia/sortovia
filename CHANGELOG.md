@@ -2,6 +2,13 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.30 – Your language
+- **1.30.0** Choose **your language** on the welcome screen or under Help → Your language. You can pick one or use **Kodi's language**.
+  - Kodi Sorter keeps videos with audio in that language. Ones without go to `_No Spanish` and so on, or are skipped or deleted as you choose.
+  - It keeps subtitles in that language, and names movies by their title in that language (TMDb).
+  - Untagged audio tracks only count as English when English is your language.
+  - The YouTube cookie guide now explains how to add an extension from its file when **Add to Firefox** is greyed out.
+
 ## 1.29 – Companion app ready
 - **1.29.1** Fixes from the first run on the Xbox:
   - **Library folders** show where the standard folders are (for example `E:\Movies`).

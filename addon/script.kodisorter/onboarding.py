@@ -125,7 +125,8 @@ def _save(path, data):
 
 
 class Onboarding(object):
-    def __init__(self, addon_path, data_path, version, heading, checker=None, std_folder=None):
+    def __init__(self, addon_path, data_path, version, heading, checker=None, std_folder=None, kodi_lang="en"):
+        self.kodi_lang = kodi_lang
         # std_folder(kind) -> "E:\\Movies": where a kind goes by default (None = not known yet)
         self.std_folder = std_folder
         # checker(dlg, kind, folder) -> True when the person wants that folder reorganized
@@ -145,6 +146,28 @@ class Onboarding(object):
     def wanted_line(self):
         w = self.wanted()
         return "everything" if len(w) == len(ALL_KINDS) else ", ".join(n for k, n in KINDS if k in w)
+
+    def language(self):
+        import lang
+        return lang.resolve(self.state.get("language", "en"), self.kodi_lang)
+
+    def language_line(self):
+        l = self.language()
+        return ("%s (Kodi's language)" % l.name) if self.state.get("language") == "kodi" else l.name
+
+    def choose_language(self, dlg):
+        """Your language: the audio to look for, subtitles to keep, movie titles from TMDb."""
+        import lang
+        kodi = lang.resolve("kodi", self.kodi_lang)
+        opts = [("kodi", "Use Kodi's language (%s)" % kodi.name)] + lang.choices()
+        now = self.state.get("language", "en")
+        labels = [("%s  (now)" % n) if c == now else n for c, n in opts]
+        pick = dlg.select("Your language - Kodi Sorter keeps videos with audio in it, keeps its subtitles "
+                          "and names movies in it", labels)
+        if pick >= 0:
+            self.state["language"] = opts[pick][0]
+            self.save()
+        return pick >= 0
 
     def _std_line(self, kind, short=False):
         """"standard folder: E:\\Movies", or where it will be when the drive isn't known yet."""
@@ -251,6 +274,7 @@ class Onboarding(object):
             hello = "New in this version: a welcome screen, a guide you can read on the TV, and a choice of what to sort.\n" + hello
         dlg.ok("Welcome to %s" % self.heading, hello)
         self.choose_kinds(dlg, first=True)
+        self.choose_language(dlg)
         self.choose_folders(dlg, first=True)
         if dlg.yesno(self.heading, "Read the guide now? (features and how to get started)\n"
                                    "You can open it any time from the menu: Help.",
@@ -281,6 +305,7 @@ class Onboarding(object):
                                "Version history (what each update added)",
                                "What to sort (now: %s)" % self.wanted_line(),
                                "My library folders (now: %s)" % self.folders_line(),
+                               "Your language (now: %s)" % self.language_line(),
                                "Show the welcome screen again"])
             if pick < 0:
                 return
@@ -293,5 +318,7 @@ class Onboarding(object):
             elif pick == 3:
                 self.choose_folders(dlg)
             elif pick == 4:
+                self.choose_language(dlg)
+            elif pick == 5:
                 self.state.pop("welcomed", None)
                 self.first_run(dlg)

@@ -4,7 +4,7 @@
 #   Comics: <dest>/Comics/<original name>
 #   Tutorials: <dest>/Tutorials/<AutoCAD, Revit ...>/<original name>
 # Duplicates: keeps the better copy (higher resolution, else bigger file).
-# Can check audio tracks and keep only files with English audio.
+# Can check audio tracks and keep only files with audio in your language (English unless you choose another).
 # Nothing is overwritten without your OK; replaced copies go to <dest>/_Replaced
 # unless you choose to delete them.
 import hashlib
@@ -335,7 +335,7 @@ def walk(folder, skip=(), tree=None):
     for f in files:
         yield folder + f, f
     for d in dirs:
-        if d.lower() in ("_replaced", "_no english", "_unpacked", LOG_DIR.lower()) or \
+        if d.lower() in ("_replaced", "_unpacked", LOG_DIR.lower()) or NO_LANG_RE.match(d) or \
                 (skip and _norm(folder + d) in skip):
             if node is not None:
                 node[0] = True  # holds a folder we don't look into: never "empty"
@@ -467,7 +467,27 @@ def renumber_special(target, name, state):
 
 # ---------- audio language detection (reads file headers, no playback) ----------
 # Only an explicit English mention counts. "Dual audio"/"multi" could be French + Japanese.
-ENG_HINT_RE = re.compile(r"(?<![a-z])(eng|english)(?![a-z])", re.I)
+import lang as langmod
+# The person's language (Help > Your language): the audio looked for, subtitles kept and
+# movie titles from TMDb. The "eng"/"English" names inside the code mean "your language".
+PREF = [langmod.Language("en")]
+
+
+def set_language(setting=None):
+    """Load the chosen language (or Kodi's own menu language)."""
+    if setting is None:
+        setting = load_cache(data_file("onboarding.json")).get("language", "en")
+    try:
+        kodi = xbmc.getLanguage(xbmc.ISO_639_1)
+    except Exception:
+        kodi = "en"
+    PREF[0] = langmod.resolve(setting, kodi)
+    return PREF[0]
+
+
+def LN():
+    """The language's name for messages: "English", "Spanish" ..."""
+    return PREF[0].name
 
 
 def _read_vint(f, keep_marker=False):
@@ -537,8 +557,12 @@ def _mkv_langs(f, file_size):
                         langs.append(lang)
                     elif "english" in name:
                         langs.append("eng")
-                    else:
+                    elif PREF[0].code != "en" and PREF[0].hint_re.search(name):
+                        langs.append(PREF[0].code)  # track named "Castellano", "Deutsch" ...
+                    elif PREF[0].code == "en":
                         langs.append("eng")  # Matroska default language is English
+                    else:
+                        langs.append("und")  # untagged: don't call it "not your language"
             elif eid == 0x1F43B675:          # Cluster: tracks should have come before this
                 return False
             if size < 0:
@@ -625,23 +649,23 @@ def audio_languages(path):
 
 
 def english_status(path, name):
-    """True = has English audio, False = audio found but none English, None = unknown."""
+    """True = has audio in your language, False = audio found but none in it, None = unknown."""
     langs = audio_languages(path)
     if langs:
-        if any(l in ("eng", "en") for l in langs):
+        if any(PREF[0].matches(l) for l in langs):
             return True, langs
         if all(l not in ("und", "") for l in langs):
             return False, langs
-    if ENG_HINT_RE.search(name):
-        return True, langs or ["filename says English"]
+    if PREF[0].hint_re.search(name):
+        return True, langs or ["filename says %s" % LN()]
     return None, langs or []
 
 
 def lang_note(eng, langs):
     if eng is True:
-        return "English audio"
+        return "%s audio" % LN()
     if eng is False:
-        return "no English audio: " + ", ".join(langs)
+        return "no %s audio: " % LN() + ", ".join(langs)
     return "audio language unknown"
 
 
@@ -787,7 +811,9 @@ MADE_DIRS = set()
 # Folders Kodi Sorter parks things in. A ".nomedia" file inside makes Kodi's
 # library scan skip the folder, so parked videos never show up as shows.
 PARK_DIRS = ("_replaced", "_no english", "_unpacked")
-PARK_RE = re.compile(r"^(.*?[\\/](?:_replaced|_no english|_unpacked))(?=[\\/]|$)", re.I)
+# "_No English", "_No Spanish" ...: files without audio in the person's language
+NO_LANG_RE = re.compile(r"^_no [a-z]+$", re.I)
+PARK_RE = re.compile(r"^(.*?[\\/](?:_replaced|_no [a-z]+|_unpacked))(?=[\\/]|$)", re.I)
 NOMEDIA_DONE = set()
 
 
@@ -822,7 +848,7 @@ def mark_nomedia(path):
 def mark_park_folders(*bases):
     """.nomedia in park folders left by earlier runs."""
     for base in set(b for b in bases if b):
-        for name in ("_Replaced", "_No English", "_Unpacked"):
+        for name in ("_Replaced", PREF[0].no_folder, "_Unpacked"):
             folder = join(base, name)
             if _norm(ensure_slash(folder)) not in NOMEDIA_DONE and xbmcvfs.exists(ensure_slash(folder)):
                 mark_nomedia(folder)
@@ -1542,6 +1568,13 @@ def yesno_default_yes(dlg, msg, nolabel, yeslabel):
 
 
 # ---------- main ----------
+def _kodi_lang():
+    try:
+        return xbmc.getLanguage(xbmc.ISO_639_1)
+    except Exception:
+        return "en"
+
+
 def standard_folder(okind):
     """Where a kind goes without a folder of its own, for the screen: "E:\\Movies".
     Based on the last run's destination; None before the first run."""
@@ -1563,7 +1596,8 @@ def onboarding_state():
         me = xbmcaddon.Addon()
         return onboarding.Onboarding(xbmcvfs.translatePath(me.getAddonInfo("path")),
                                      data_file("onboarding.json"), me.getAddonInfo("version"), ADDON,
-                                     checker=check_library_folder, std_folder=standard_folder)
+                                     checker=check_library_folder, std_folder=standard_folder,
+                                     kodi_lang=_kodi_lang())
     except Exception as e:
         log("onboarding not available: %s" % e)
         return None
@@ -1764,8 +1798,10 @@ def main():
     if check_for_update(dlg):
         return
     ob = onboarding_state()
+    set_language()
     if ob and not ob.first_run(dlg, returning=bool(load_cache(data_file("last_settings.json")).get("src"))):
         ob.whats_new(dlg)
+    set_language()  # the welcome screen may have just set it
     if ob and ob.pop_reorganize():
         kind, folder = ob.last_reorganize
         reorganize_folder(dlg, spath, kind, folder)
@@ -1879,9 +1915,9 @@ def main():
                                 ["Move it to a _Replaced folder (safe - delete later)",
                                  "Delete it"]) == 1
 
-    lang_mode = dlg.select("Video files with NO English audio track:",
+    lang_mode = dlg.select("Video files with NO %s audio track (Help > Your language to change):" % LN(),
                            ["Leave them on the source drive (skip)",
-                            "Move them to a _No English folder",
+                            "Move them to a %s folder" % PREF[0].no_folder,
                             "Delete them",
                             "Don't check audio languages"])
     if lang_mode < 0:
@@ -1902,8 +1938,9 @@ def main():
 
 
 MODE_NAMES = ["ask each time", "always keep the better copy", "never replace"]
-LANG_NAMES = ["skip no-English files", "move no-English to _No English",
-              "delete no-English files", "don't check audio"]
+def lang_mode_name(mode):
+    return ["skip no-%s files" % LN(), "move no-%s to %s" % (LN(), PREF[0].no_folder),
+            "delete no-%s files" % LN(), "don't check audio"][mode]
 
 
 def read_text(path):
@@ -2181,7 +2218,7 @@ def nfo_audio_hint(path, arc, src, index, texts):
     if not found:
         return None
     langs = sorted(found)
-    return ("en" in found), langs, used
+    return (PREF[0].code in found), langs, used
 
 
 # ---------- after a sort: release NFOs and empty folders ----------
@@ -2367,7 +2404,7 @@ class TitleFixer(object):
             import whereto
             try:
                 notes = []
-                self.cache[key] = whereto.english_title(self.tm, title, year, notes) or ""
+                self.cache[key] = whereto.english_title(self.tm, title, year, notes, language=PREF[0].tmdb) or ""
                 self.dirty = True
                 if not self.cache[key] and notes:
                     log("title check %s: %s" % (folder, " | ".join(notes)[:600]))
@@ -2396,7 +2433,7 @@ SUB_KEEP_ALL, SUB_DELETE, SUB_PARK = 0, 1, 2
 
 
 def sub_keep_langs():
-    return load_cache(data_file("subs.json")).get("keep") or ["en"]
+    return load_cache(data_file("subs.json")).get("keep") or [PREF[0].code]
 
 
 def lang_name(code):
@@ -2545,7 +2582,7 @@ def match_audio_tracks(tracks, groups, src, dest):
                 v["own_eng"] = english_status(v["src"], v["name"])[0]
             own = own or v["own_eng"]
         if own:
-            yield None, "SKIP  %s  (separate audio track - the video already has English audio)" % a["label"]
+            yield None, "SKIP  %s  (separate audio track - the video already has %s audio)" % (a["label"], LN())
             continue
         stem, ext = split_name(a["name"])
         suffix = sub_lang(stem)[1]  # keeps a ".en" the file name already had
@@ -2704,7 +2741,7 @@ def remove_empty_folders(src, folders):
 
 def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode=0, empty_mode=0):
     log("RUN START  from=%s  to=%s  duplicates=%s%s  audio=%s  nfo=%d  subs=%d keep %s" % (
-        masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", LANG_NAMES[lang_mode],
+        masked(src), dest, MODE_NAMES[mode], " (delete replaced)" if delete_old else "", lang_mode_name(lang_mode),
         nfo_mode, sub_mode, ",".join(sub_keep_langs())))
     try:
         _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode, sub_mode, empty_mode)
@@ -2723,6 +2760,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode
 
 
 def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode=0, empty_mode=0):
+    log("language: %s" % set_language().name)
     check_lang = lang_mode != 3
     session = {"src": src, "dest": dest, "mode": mode, "delete_old": delete_old,
                "lang_mode": lang_mode, "nfo_mode": nfo_mode, "sub_mode": sub_mode, "empty_mode": empty_mode, "stage": "scanning",
@@ -2805,7 +2843,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         if eng is None and check_lang and ENG_HINT_RE.search(base_of(parent_of(path))):
             eng, langs = True, (langs or []) + ["folder name says English"]
         if eng is False:
-            skipped.append("SKIP  %s  (separate audio track, no English: %s)" % (label, ", ".join(langs)))
+            skipped.append("SKIP  %s  (separate audio track, no %s: %s)" % (label, LN(), ", ".join(langs)))
             continue
         parts, pkind, _ = plan_name(split_name(name)[0] + ".mkv")
         audio_tracks.append({"src": path, "name": name, "arc": arc, "label": label, "eng": eng,
@@ -2871,7 +2909,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             new_target = titles.fix(target, dest)
             if new_target != target:
                 renamed[_norm(parent_of(path))] = (target, new_target)
-                note = "English title from TMDb (was %s)" % rel_of(target, dest)[1]
+                note = "%s title from TMDb (was %s)" % (LN(), rel_of(target, dest)[1])
                 target = new_target
         if sub_mode and not arc and split_name(name)[1] in SUBS and \
                 (unwanted_sub(target, keep_langs) or unwanted_sub(name, keep_langs)):
@@ -2905,7 +2943,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             if hint:
                 eng, langs, nfo_name = hint
                 if eng is False and lang_mode == 2:
-                    log("%s: %s says no English audio - not deleting on an NFO's word" % (name, nfo_name))
+                    log("%s: %s says no %s audio - not deleting on an NFO's word" % (name, nfo_name, LN()))
                 else:
                     item["eng"], item["langs"] = eng, langs + ["from %s" % nfo_name]
                     from_nfo[0] += 1
@@ -2914,7 +2952,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                         audio_fits(a, path, arc, name, target, src, dest)), None)
             if dub:  # Japanese-only video with an English dub next to it: it has English
                 item["own_eng"] = item["eng"]  # the video's own answer, for match_audio_tracks
-                item["eng"], item["langs"] = True, list(item["langs"]) + ["English in %s" % dub["name"]]
+                item["eng"], item["langs"] = True, list(item["langs"]) + ["%s in %s" % (LN(), dub["name"])]
         if check_lang and item["eng"] is False:
             if lang_mode == 0:
                 skipped.append("NO ENGLISH  %s  (%s)" % (label if arc else name, lang_note(False, item["langs"])))
@@ -3016,8 +3054,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         plan.append(best)
     busy.close()
 
-    lines = ["%d file(s) to move (%d would replace a lower-quality copy), %d with no English audio, %d skipped."
-             % (len(plan), replaces, len(no_eng), len(skipped)), where_to + "\n"]
+    lines = ["%d file(s) to move (%d would replace a lower-quality copy), %d with no %s audio, %d skipped."
+             % (len(plan), replaces, len(no_eng), LN(), len(skipped)), where_to + "\n"]
     # Notes are grouped by show and listed once at the top, not under every episode.
     notes, unknown_audio = {}, {}
     for it in plan:
@@ -3075,8 +3113,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             lines.append("    new: %s   vs   existing: %s" % (
                 describe(it["res"], it["size"]), describe(it["old_res"], it["old_size"])))
     if no_eng:
-        verb = "MOVE to _No English" if lang_mode == 1 else "DELETE"
-        lines.append("\n--- No English audio: will %s ---" % verb)
+        verb = "MOVE to %s" % PREF[0].no_folder if lang_mode == 1 else "DELETE"
+        lines.append("\n--- No %s audio: will %s ---" % (LN(), verb))
         for it in no_eng:
             lines.append("%s  (%s)" % (it["name"], lang_note(False, it["langs"])))
     if skipped:
@@ -3108,8 +3146,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     if unwanted_subs:
         what += " + %s %d foreign subtitle(s)" % ("delete" if sub_mode == SUB_DELETE else "park", len(unwanted_subs))
     if no_eng:
-        what += " + %s %d with no English audio" % (
-            "move" if lang_mode == 1 else "DELETE", len(no_eng))
+        what += " + %s %d with no %s audio" % (
+            "move" if lang_mode == 1 else "DELETE", len(no_eng), LN())
     while True:
         choice = dlg.select(title, ["Move %s in the BACKGROUND - keep using Kodi" % what,
                                     "Move %s now, full screen" % what,
@@ -3206,9 +3244,9 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             cancelled = True
             break
         if lang_mode == 1:
-            nt = join(dest, "_No English", *rel_of(it["target"], dest))
+            nt = join(dest, PREF[0].no_folder, *rel_of(it["target"], dest))
             ok, how = move_file(it["src"], nt)
-            how = "moved to _No English" if ok else how
+            how = ("moved to %s" % PREF[0].no_folder) if ok else how
         else:
             ok = xbmcvfs.delete(it["src"])
             how = "deleted" if ok else "delete failed"

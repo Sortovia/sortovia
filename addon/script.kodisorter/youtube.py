@@ -24,15 +24,28 @@ except ImportError:  # Kodi 18 and older
 PORT = 8081
 HEADING = "Download from YouTube"
 
-COOKIE_HELP = """YouTube only lets the phone download when it sends the cookies of a browser that is signed in to YouTube ("Sign in to confirm you're not a bot"). Android doesn't let other apps read a browser's cookies, so you export them once as a file:
+COOKIE_HELP = """YouTube only lets the phone download when it sends the cookies of a browser that is signed in to YouTube ("Sign in to confirm you're not a bot"). Android doesn't let other apps read a browser's cookies, so you export them once as a file.
 
-1. On the phone, install Firefox (Play Store) and sign in to youtube.com in it.
-2. Firefox menu > Extensions > find "cookies.txt" (or "Get cookies.txt LOCALLY") > Add.
-3. Tip from the yt-dlp team: open a PRIVATE tab, allow the extension in private tabs, sign in to youtube.com there, export, then close the private tab. Cookies from a normal tab get replaced by YouTube within a day or so; private-tab cookies last much longer.
-4. With youtube.com open, tap the extension and export / download the cookies for this site. The file (cookies.txt or youtube.com_cookies.txt) goes into the phone's Download folder.
-5. That's all. The phone's helper finds it, moves it out of the shared Download folder (so the Xbox share can't see your sign-in) and uses it for every download.
+[B]1. Get Firefox and a cookie extension[/B]
+- Install Firefox from the Play Store.
+- In Firefox open addons.mozilla.org and search for "cookies.txt". Pick the one called just "cookies.txt" - it works on Android - and tap Add to Firefox, then Add.
+- If Add to Firefox is greyed out (some extensions, like "Get cookies.txt LOCALLY", aren't marked for Android), install it from its file instead:
+  a) Firefox menu > Settings > About Firefox, and tap the Firefox logo 5 times until it says the debug menu is on.
+  b) Go back to Settings: a new item "Install extension from file" is near the bottom.
+  c) Pick the extension's .xpi file in your Download folder. (Get it on a computer or in Firefox's "Desktop site" mode from the extension's page on addons.mozilla.org - "Download file". Only files from addons.mozilla.org install, because they are signed.)
 
-When downloads start failing with "export a new cookies.txt", repeat steps 3-4.
+[B]2. Let it work in private tabs[/B]
+Firefox menu > Extensions > the cookie extension > Settings > turn on "Run in private browsing".
+
+[B]3. Export the cookies[/B]
+- Firefox menu > New private tab, go to youtube.com and sign in.
+- Firefox menu > Extensions > the cookie extension > export the cookies for this site. Choose the "Netscape" format if it asks. The file (cookies.txt or youtube.com_cookies.txt) lands in your Download folder.
+- Close the private tab - don't sign out, or the cookies stop working. (Cookies from a normal tab get replaced by YouTube within a day or so; private-tab cookies last much longer.)
+
+[B]4. That's all[/B]
+The phone's helper finds the file, moves it out of the shared Download folder (so the Xbox share can't see your sign-in) and uses it for every download. This menu then says "cookies from today".
+
+When downloads start failing with "export a new cookies.txt", repeat step 3.
 
 The cookies are your YouTube account's sign-in: don't send the file to anyone."""
 

@@ -96,8 +96,10 @@ def job_label(j):
     s = j.get("state")
     if s == "downloading":
         part = " (sound)" if (j.get("part") or 1) > 1 else ""
-        extra = ", ".join(x for x in (j.get("speed"), j.get("eta") and "%s left" % j["eta"]) if x)
-        return "%3d%%%s  %s%s" % (j.get("pct") or 0, part, t, ("   [%s]" % extra) if extra else "")
+        extra = ", ".join(x for x in ("%.0f MB" % j["mb"] if j.get("mb") else "", j.get("speed"),
+                                      j.get("eta") and "%s left" % j["eta"]) if x)
+        pct = ("%3d%%" % j["pct"]) if j.get("pct") else ("%.0f MB" % j["mb"] if j.get("mb") else "  0%")
+        return "%s%s  %s%s" % (pct, part, t, ("   [%s]" % extra) if extra else "")
     if s == "copying":
         return "100%%  %s   [saving into Download/YouTube]" % t
     if s == "done":
@@ -109,6 +111,22 @@ def job_label(j):
     return "waiting %s" % t
 
 
+def import_cookies(dlg, phone):
+    """Look for a cookies file in the phone's Download now and say plainly what happened."""
+    c = phone.call("/yt/cookies", {}).get("cookies") or {}
+    if c.get("imported"):
+        msg = "Cookies imported from %s." % c["imported"]
+        msg += ("\nThey're signed in to YouTube - downloads should work now." if c.get("signed_in") else
+                "\nBut they aren't signed in to YouTube: sign in to youtube.com in the private tab first, then export again.")
+    elif c.get("present"):
+        msg = ("No new cookies file in Download, so the phone keeps the ones it has (%s)." % cookie_line({"cookies": c}) +
+               "\nTo replace them: export cookies.txt into Download again, then choose this again.")
+    else:
+        msg = ("No cookies file found in the phone's Download folder.\nExport it with the Firefox extension first "
+               "(see How to set up cookies). The file is usually called cookies.txt or youtube.com_cookies.txt.")
+    dlg.ok(HEADING, msg)
+
+
 def queue_line(jobs):
     waiting = sum(1 for j in jobs if j["state"] == "queued")
     now = [j for j in jobs if j["state"] in ("downloading", "copying")]
@@ -116,7 +134,9 @@ def queue_line(jobs):
     failed = sum(1 for j in jobs if j["state"] == "failed")
     bits = []
     if now:
-        bits.append("%d%% %s" % (now[0].get("pct") or 0, (now[0].get("title") or "")[:40]))
+        n = now[0]
+        bits.append("%s %s" % (("%d%%" % n["pct"]) if n.get("pct") else ("%.0f MB" % n["mb"] if n.get("mb") else "starting"),
+                               (n.get("title") or "")[:40]))
     if waiting:
         bits.append("%d waiting" % waiting)
     if done:
@@ -277,11 +297,15 @@ def menu(dlg, find_ip, creds, log):
                             "in Termux: stop it (Ctrl+C) and start it again - it starts the helper too. The companion "
                             "app can't download from YouTube yet (coming in its next version)." % e)
             return None
+        c = st.get("cookies") or {}
+        if c.get("imported"):
+            xbmcgui.Dialog().notification(HEADING, "Cookies imported from %s" % c["imported"], xbmcgui.NOTIFICATION_INFO, 5000)
         opts = ["Search YouTube (pick videos from the results)...",
                 "Type a YouTube link (video or playlist)...",
                 "Downloads: %s" % queue_line(jobs),
                 "Sort the finished downloads into my library now",
-                "How to set up cookies (sign-in) - %s" % cookie_line(st)]
+                "How to set up cookies (sign-in) - %s" % cookie_line(st),
+                "Import cookies now (from the phone's Download folder)"]
         pick = dlg.select("%s - %s" % (HEADING, cookie_line(st)), opts)
         try:
             if pick < 0:
@@ -300,5 +324,7 @@ def menu(dlg, find_ip, creds, log):
                 return "sort"
             elif pick == 4:
                 dlg.textviewer("%s - cookies" % HEADING, COOKIE_HELP)
+            elif pick == 5:
+                import_cookies(dlg, phone)
         except RuntimeError as e:
             dlg.ok(HEADING, str(e))

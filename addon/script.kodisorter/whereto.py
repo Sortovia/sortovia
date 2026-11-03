@@ -195,7 +195,7 @@ def to_cyrillic(latin):
     return "".join(out)
 
 
-def english_title(tm, title, year, notes=None, language=language):
+def english_title(tm, title, year, notes=None, language="en-US"):
     """The English title of a movie whose folder is named e.g. 'Bolshoi Gorod 3 (2026)'.
     Only returned when TMDb confirms the current name is one of THAT movie's
     alternative/translated titles (same year +-1, any script); None = keep it.

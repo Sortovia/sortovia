@@ -3,6 +3,11 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.30 – Your language
+- **1.30.1** Fixes:
+  - **Scans crashed** in 1.30.0 (a mistake in the movie-title lookup). Fixed, and a new test now loads every add-on file.
+  - **Import cookies now** in the YouTube menu, with a plain message: imported, already have them, or no file found. A note also pops up whenever new cookies are picked up.
+  - Downloads YouTube sends in pieces show progress (pieces done, MB) instead of 0%.
+  - Hidden folders (like `.adblocker_1dm`) are skipped when scanning.
 - **1.30.0** Choose **your language** on the welcome screen or under Help → Your language. You can pick one or use **Kodi's language**.
   - Kodi Sorter keeps videos with audio in that language. Ones without go to `_No Spanish` and so on, or are skipped or deleted as you choose.
   - It keeps subtitles in that language, and names movies by their title in that language (TMDb).

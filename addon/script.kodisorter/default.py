@@ -335,7 +335,7 @@ def walk(folder, skip=(), tree=None):
     for f in files:
         yield folder + f, f
     for d in dirs:
-        if d.lower() in ("_replaced", "_unpacked", LOG_DIR.lower()) or NO_LANG_RE.match(d) or \
+        if d.startswith(".") or d.lower() in ("_replaced", "_unpacked", LOG_DIR.lower()) or NO_LANG_RE.match(d) or \
                 (skip and _norm(folder + d) in skip):
             if node is not None:
                 node[0] = True  # holds a folder we don't look into: never "empty"

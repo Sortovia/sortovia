@@ -79,14 +79,18 @@ def import_cookies():
         except OSError:
             pass
         log("cookies imported from %s" % os.path.basename(path))
-        return True
-    return False
+        LAST_IMPORT["name"], LAST_IMPORT["when"] = os.path.basename(path), time.time()
+        return os.path.basename(path)
+    return None
+
+
+LAST_IMPORT = {"name": None, "when": 0}
 
 
 def cookies_status():
-    import_cookies()
+    just = import_cookies()
     if not os.path.exists(COOKIES):
-        return {"present": False}
+        return {"present": False, "imported": None}
     age = (time.time() - os.path.getmtime(COOKIES)) / 86400
     signed_in = False
     try:
@@ -94,7 +98,8 @@ def cookies_status():
             signed_in = any(n in f.read() for n in ("\tSAPISID\t", "\tLOGIN_INFO\t", "\t__Secure-3PSID\t"))
     except OSError:
         pass
-    return {"present": True, "age_days": round(age, 1), "signed_in": signed_in}
+    return {"present": True, "age_days": round(age, 1), "signed_in": signed_in, "imported": just,
+            "last_import": LAST_IMPORT["name"], "last_import_ago_s": int(time.time() - LAST_IMPORT["when"]) if LAST_IMPORT["when"] else None}
 
 
 def base_cmd():
@@ -188,7 +193,21 @@ def add_job(url, title=""):
     return job
 
 
-PROG_RE = re.compile(r"^KSPROG\s+([\d.]+)%?\|(.*?)\|(.*)$")
+PROG_RE = re.compile(r"^KSPROG\s*(.*)$")
+
+
+def parse_progress(line):
+    """KSPROG percent|speed|eta|fragment|fragments|bytes -> (pct or None, speed, eta, bytes).
+    Videos YouTube sends in pieces (HLS) often have no percent: it comes from the pieces then."""
+    f = (line.split(" ", 1)[1] if " " in line else "").split("|")
+    f += [""] * (6 - len(f))
+    num = lambda x: float(x) if re.match(r"^\d+(\.\d+)?$", (x or "").strip()) else None
+    pct = num(f[0].strip().rstrip("%"))
+    idx, cnt = num(f[3]), num(f[4])
+    if pct is None and idx and cnt:
+        pct = min(100.0, 100.0 * idx / cnt)
+    clean = lambda x: "" if x.strip() in ("NA", "N/A", "Unknown", "None") else x.strip()
+    return pct, clean(f[1]), clean(f[2]), num(f[5])
 
 
 def run_job(job):
@@ -202,7 +221,8 @@ def run_job(job):
         # Whole download (and the final merge) happens in TMP, outside the share; publish() then
         # copies it in under a hidden name and renames it, so Kodi Sorter never sees half a file.
         "-P", TMP, "-o", "%(title)s.%(ext)s",
-        "--progress-template", "download:KSPROG %(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
+        "--progress-template", "download:KSPROG %(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s"
+                               "|%(progress.fragment_index)s|%(progress.fragment_count)s|%(progress.downloaded_bytes)s",
         "--print", "before_dl:KSTITLE %(title)s",
         "--print", "after_move:KSFILE %(filepath)s",
         job["url"],
@@ -220,11 +240,15 @@ def run_job(job):
         m = PROG_RE.match(line)
         with LOCK:
             if m:
-                pct = float(m.group(1))
-                if pct < last_pct - 50:
-                    part += 1  # video done, now the sound track
-                last_pct = pct
-                job["pct"], job["speed"], job["eta"] = pct, m.group(2).strip(), m.group(3).strip()
+                pct, speed, eta, got = parse_progress(line)
+                if pct is not None:
+                    if pct < last_pct - 50:
+                        part += 1  # video done, now the sound track
+                    last_pct = pct
+                    job["pct"] = pct
+                job["speed"], job["eta"] = speed, eta
+                if got:
+                    job["mb"] = round(got / 1e6, 1)
                 job["part"] = part + 1
             elif line.startswith("KSTITLE "):
                 job["title"] = line[8:]
@@ -372,6 +396,10 @@ class Handler(BaseHTTPRequestHandler):
                     JOBS.remove(job)
                 save_jobs()
             return self._send({"ok": bool(job)})
+        if u.path == "/yt/cookies":
+            # "Import cookies now": look in Download right away and say what happened
+            st = cookies_status()
+            return self._send({"cookies": st})
         if u.path == "/yt/clear":
             with LOCK:
                 JOBS[:] = [j for j in JOBS if j["state"] in ("queued", "downloading")]

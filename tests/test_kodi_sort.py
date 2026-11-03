@@ -269,6 +269,16 @@ class Tutorials(unittest.TestCase):
         t, _, _ = ks.target_for("Intro.mp4", D, "/x/Tutorials")
         self.assertEqual(str(t.relative_to(D)), "Tutorials/Other/Intro.mp4")
 
+    def test_more_programs(self):
+        for name, subject in [("Ableton Live 12 Tutorial for Beginners.mp4", "Ableton Live"),
+                              ("Claude Code Full Course 2026.mp4", "Claude Code"),
+                              ("OpenClaw Tutorial - Setup.mp4", "OpenClaw"),
+                              ("20-20 Design Tutorial Part 1.mp4", "2020 Design"),
+                              ("2020 Design Live Tutorial.mp4", "2020 Design"),
+                              ("AutoCAD 2020 Tutorial.mp4", "AutoCAD"),
+                              ("Excel 2020 Tutorial.mp4", "Excel")]:
+            self.assertEqual(rel(name)[0], "Tutorials/%s/%s" % (subject, name))
+
     def test_unknown_program_goes_to_other(self):
         self.assertEqual(rel("Cooking basics full course.mp4")[0], "Tutorials/Other/Cooking basics full course.mp4")
 

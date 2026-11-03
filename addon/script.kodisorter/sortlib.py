@@ -116,6 +116,11 @@ TUTORIAL_SUBJECTS = [
     ("Premiere Pro", r"premiere"), ("After Effects", r"after[ ._\-]?effects"), ("Lightroom", r"lightroom"),
     ("DaVinci Resolve", r"davinci|resolve"), ("Excel", r"excel"), ("PowerPoint", r"power[ ._\-]?point"),
     ("Word", r"ms[ ._\-]?word|microsoft[ ._\-]?word"), ("Python", r"python"), ("Kodi", r"kodi"),
+    ("Ableton Live", r"ableton"), ("Claude Code", r"claude[ ._\-]?code"),
+    ("OpenClaw", r"open[ ._\-]?claw|clawdbot|moltbot"),
+    # 20/20 (kitchen/bath design). "/" can't be in a file name, so 20-20 / 20 20; a bare
+    # "2020" is a year, so that spelling only counts with Design/Fusion/Giza/CAP after it.
+    ("2020 Design", r"20[ ._\-]20(?![0-9])|2020[ ._\-]*(?:design|fusion|giza|cap)"),
 ]
 TUTORIAL_SUBJECT_RES = [(n, re.compile(r"(?<![a-z0-9])(?:%s)(?![a-z])" % rx, re.I)) for n, rx in TUTORIAL_SUBJECTS]
 

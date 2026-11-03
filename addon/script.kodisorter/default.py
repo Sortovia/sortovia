@@ -1763,21 +1763,41 @@ def youtube_menu(dlg, spath, last):
 
     def find_ip():
         return phone_address(dlg, ask=True, port=int(creds().get("port", 8080)))
-    if youtube.menu(dlg, find_ip, creds, log) != "sort":
-        return
+    ypath = data_file("youtube.json")
+
+    def saved_dest():
+        """Where YouTube downloads are sorted: the drive picked once, else the last run's drive."""
+        d = load_cache(ypath).get("dest") or last.get("dest") or ""
+        return d if d and ("://" not in d or d.startswith("win-lib://")) else ""
+
+    def tutorials_at(d):
+        own = (onboarding_state().folders() if onboarding_state() else {}).get("TUTORIAL")
+        return friendly(own or join(resolve_dest(d)[0], "Tutorials")) if (own or d) else ""
+
+    def pick_dest():
+        d = dlg.browse(0, "Where should YouTube downloads be sorted? Pick the drive that holds your library (e.g. E:)", "files")
+        if d:
+            y = load_cache(ypath)
+            y["dest"] = d
+            save_cache(ypath, y)
+            toast("YouTube downloads will be sorted into %s from now on" % tutorials_at(d))
+        return d
+    while True:
+        what = youtube.menu(dlg, find_ip, creds, log,
+                            dest_line=lambda: tutorials_at(saved_dest()) or "not chosen yet")
+        if what == "dest":
+            pick_dest()
+            continue
+        if what != "sort":
+            return
+        break
     c = creds()
     src = "dav://%s:%s@%s:%s/YouTube/" % (quote(c.get("user", "kodi"), ""), quote(c["pass"], ""),
                                            PHONE, c.get("port", "8080"))
-    dest = last.get("dest") if last.get("dest") and "://" not in last["dest"] else ""
-    if dest and not dlg.yesno(ADDON, "Sort the phone's Download/YouTube into %s?\n(Tutorials go to %s)"
-                              % (friendly(dest), friendly(((onboarding_state().folders() if onboarding_state() else {})
-                                                          .get("TUTORIAL")) or join(resolve_dest(dest)[0], "Tutorials"))),
-                              nolabel="Other drive", yeslabel="Yes"):
-        dest = ""
+    dest = saved_dest() or pick_dest()  # asked once; after that it goes straight there
     if not dest:
-        dest = dlg.browse(0, "Pick DESTINATION: the drive that holds your library (e.g. E:)", "files")
-        if not dest:
-            return
+        return
+    log("sorting YouTube downloads into %s" % tutorials_at(dest))
     # Same choices as the last run; YouTube downloads don't need the audio check.
     run(dlg, spath, src, dest, last.get("mode", ASK), last.get("delete_old", False), 3,
         last.get("nfo_mode", 3), last.get("sub_mode", 0), last.get("empty_mode", 1))
@@ -3357,8 +3377,10 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         dlg.textviewer("%s - done" % ADDON, text)
     if not cancelled:
         clear_session(spath)  # finished: nothing to resume next time
-    if ok_count:
+    if ok_count and any(it.get("kind") in ("TV", "MOVIE") for it in moved_ok):
         xbmc.executebuiltin("UpdateLibrary(video)")
+    elif ok_count:
+        log("no library update: only tutorials/comics/leftovers changed (they aren't in Kodi's library)")
 
 
 main()

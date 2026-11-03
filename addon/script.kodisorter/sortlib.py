@@ -133,7 +133,7 @@ TUTORIAL_SUBJECT_RES = [(n, re.compile(r"(?<![a-z0-9])(?:%s)(?![a-z])" % rx, re.
 
 # Characters YouTube titles bring that the Xbox's font can't show (they appear as boxes):
 # the downloader's look-alikes for characters file names can't hold, and emoji.
-LOOKALIKES = {u"\u29f8": "-", u"\u2215": "-", u"\uff0f": "-", u"\uff5c": "-", u"\uff1a": " -", u"\uff02": "'",
+LOOKALIKES = {u"\u29f8": "-", u"\u2215": "-", u"\uff0f": "-", u"\uff5c": " - ", u"\uff1a": " -", u"\uff02": "'",
               u"\uff1f": "", u"\uff0a": "", u"\uff1c": "", u"\uff1e": "", u"\uff3c": "-"}
 
 
@@ -146,7 +146,9 @@ def plain_title(text):
         if len(ch) == 1 and (unicodedata.category(ch) in ("So", "Cs", "Co") or ch in u"\u200d\ufe0f\ufe0e"):
             continue
         out.append(ch)
-    return re.sub(r"\s+", " ", "".join(out)).strip()
+    text = re.sub(r"\s+", " ", "".join(out)).strip()
+    # "Design with me ｜｜ KITCHEN" -> "Design with me - KITCHEN" (not "-- " or "- -")
+    return re.sub(r"\s*-(?:\s*-)+\s*", " - ", text)
 
 
 def tutorial_subject(stem):

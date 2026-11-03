@@ -3,6 +3,10 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.31 – YouTube download quality
+- **1.31.2**
+  - **Sorting YouTube downloads goes straight to your default folder.** You choose it once, and change it under "Where sorted videos go" in the YouTube menu. Before, it asked every time, because it ignored Xbox drive paths.
+  - **No library rescan** when a run only moved tutorials or comics. They aren't in Kodi's library.
+  - Titles in the Downloads list no longer show boxes, and "｜｜" becomes " - " instead of "--".
 - **1.31.1** Better at YouTube titles:
   - "walkthrough", "webinar", "quick start" and "getting started" count as tutorials.
   - Producer Pal goes to Ableton Live, Claude Desktop to Claude, and "20⧸20" or "2020 software" to 2020 Design.

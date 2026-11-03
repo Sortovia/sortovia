@@ -91,8 +91,16 @@ def cookie_line(st):
     return "cookies from %s%s" % (when, "" if c.get("signed_in") else " - NOT signed in, export again")
 
 
+def _plain(text):
+    try:
+        from sortlib import plain_title
+        return plain_title(text)
+    except Exception:
+        return text
+
+
 def job_label(j):
-    t = j.get("title") or j.get("url")
+    t = _plain(j.get("title") or j.get("url") or "")
     s = j.get("state")
     if s == "downloading":
         part = " (sound)" if (j.get("part") or 1) > 1 else ""
@@ -103,7 +111,7 @@ def job_label(j):
     if s == "copying":
         return "100%%  %s   [saving into Download/YouTube]" % t
     if s == "done":
-        return "DONE    %s" % (j.get("file") or t)
+        return "DONE    %s" % _plain(j.get("file") or t)
     if s == "failed":
         return "FAILED  %s - %s" % (t, j.get("error"))
     if s == "cancelled":
@@ -300,8 +308,8 @@ def downloads(dlg, phone):
                 phone.call("/yt/cancel", {"id": j["id"]})
 
 
-def menu(dlg, find_ip, creds, log):
-    """Returns "sort" when the user wants the finished downloads sorted now."""
+def menu(dlg, find_ip, creds, log, dest_line=None):
+    """Returns "sort" (sort the finished downloads now), "dest" (choose where they're sorted) or None."""
     c = creds()
     if not c or not c.get("pass"):
         dlg.ok(HEADING, "First set up the phone share: start xbox-share on the phone, then in Kodi Sorter "
@@ -331,11 +339,12 @@ def menu(dlg, find_ip, creds, log):
         opts = ["Search YouTube (pick videos from the results)...",
                 "Type a YouTube link (video or playlist)...",
                 "Downloads: %s" % queue_line(jobs),
-                "Sort the finished downloads into my library now",
+                "Sort the finished downloads now (into %s)" % (dest_line() if dest_line else "your library"),
                 "How to set up cookies (sign-in) - %s" % cookie_line(st),
                 "Import cookies now (from the phone's Download folder)",
                 "Download quality: %s" % (quality_label(qcur, qlist) if qlist
-                                          else "restart xbox-share on the phone to choose")]
+                                          else "restart xbox-share on the phone to choose"),
+                "Where sorted videos go: %s (change)" % (dest_line() if dest_line else "?")]
         pick = dlg.select("%s - %s" % (HEADING, cookie_line(st)), opts)
         try:
             if pick < 0:
@@ -358,5 +367,7 @@ def menu(dlg, find_ip, creds, log):
                 import_cookies(dlg, phone)
             elif pick == 6:
                 choose_quality(dlg, phone)
+            elif pick == 7:
+                return "dest"
         except RuntimeError as e:
             dlg.ok(HEADING, str(e))

@@ -160,6 +160,7 @@ For a USB drive plugged into the phone, use the *primitive ftpd* app (F-Droid) a
    - **Search YouTube** or **Type a link** (a video or a playlist),
    - **Downloads** to watch progress,
    - **Download quality**: up to 4K, 1080p (default), 720p, 480p or sound only,
+   - **Where sorted videos go**: chosen once (for example `E:\Tutorials`); sorting then goes straight there,
    - **Sort the finished downloads** to put them into `Tutorials`.
 
 Only download videos you're allowed to keep: your own, or ones the creator permits.

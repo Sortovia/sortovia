@@ -300,6 +300,9 @@ class Tutorials(unittest.TestCase):
             ("2020 Design Webinar\uff1a Quick Start.mp4", "Tutorials/2020 Design/2020 Design Webinar - Quick Start.mp4"),
             ("Design with me on 2020! || KITCHEN DESIGN on 2020 software.mp4",
              "Tutorials/2020 Design/Design with me on 2020! KITCHEN DESIGN on 2020 software.mp4"),
+            ("Design with me on 2020! \uff5c\uff5c KITCHEN DESIGN on 2020 software.mp4",  # how yt-dlp really writes ||
+             "Tutorials/2020 Design/Design with me on 2020! - KITCHEN DESIGN on 2020 software.mp4"),
+            ("Spider-Man Blender Tutorial.mp4", "Tutorials/Blender/Spider-Man Blender Tutorial.mp4"),
         ]:
             t, kind, _ = ks.target_for(name, D, y)
             self.assertEqual(str(t.relative_to(D)), want, name)

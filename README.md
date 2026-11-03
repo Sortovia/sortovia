@@ -80,8 +80,8 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
 2. Go to **Settings → File manager → Add source**. Type `https://akaguyver.github.io/kodi-repo/`
    and name it `kodirepo`.
 3. Go to **Settings → Add-ons → Install from zip file → kodirepo** and pick the newest **`script.kodisorter-x.y.z.zip`**.
-4. (Recommended) Go to **Add-ons → Install from repository → Kodi Add-on repository → VFS add-ons →
-   Archive support**. Without it, `.rar` and `.7z` files can't be unpacked.
+4. (Recommended) Go to **Add-ons → Install from repository → Kodi Add-on repository → VFS add-ons → Archive support**.
+   Without it, `.rar` and `.7z` files can't be unpacked.
 5. Open Kodi Sorter from **Add-ons → Program add-ons**. From then on it updates itself.
 
 ### 2. First run
@@ -92,6 +92,9 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
    unsure, the first option is the safe one.
 4. Read the preview. It lists every move, everything it will skip and why, and notes such as "check the season".
 5. Choose **Move now**, in the background if you like. A report is saved, and you can reopen it from the start menu.
+
+The very first time, a welcome screen asks **what you want to sort** (TV, Movies, Comics, Tutorials) and offers
+this guide. You can change both later under **Help** in the start menu.
 
 Next time, the start menu offers **Same as last time** and the extra tools.
 
@@ -148,4 +151,4 @@ Only download videos you're allowed to keep: your own, or ones the creator permi
 
 ## Version history
 
-See [CHANGELOG.md](CHANGELOG.md) for what each update added.
+See [CHANGELOG.md](CHANGELOG.md) for what each update added. In Kodi: Kodi Sorter → **Help** → Version history.

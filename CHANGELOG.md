@@ -2,6 +2,13 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.26 – Welcome screen and Help
+- **1.26.0** First run shows a **welcome screen**:
+  - Choose **what to sort** (TV, Movies, Comics, Tutorials). Kinds you leave unticked are skipped and listed in the preview.
+  - It offers to show **the guide** (this README) on the TV.
+  - New **Help** menu item: the guide, the version history and "what to sort".
+  - After each update, a short **what's new** note.
+
 ## 1.25 – Download from YouTube
 - **1.25.0** New menu item, **Download from YouTube**:
   - Search YouTube or type a link (a video or a playlist) on the Xbox. The phone downloads it into `Download/YouTube` (up to 1080p, in a format the Xbox plays).

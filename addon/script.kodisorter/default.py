@@ -1434,6 +1434,18 @@ def yesno_default_yes(dlg, msg, nolabel, yeslabel):
 
 
 # ---------- main ----------
+def onboarding_state():
+    """Welcome screen / what to sort / guide (onboarding.py). None if it can't load."""
+    try:
+        import onboarding
+        me = xbmcaddon.Addon()
+        return onboarding.Onboarding(xbmcvfs.translatePath(me.getAddonInfo("path")),
+                                     data_file("onboarding.json"), me.getAddonInfo("version"), ADDON)
+    except Exception as e:
+        log("onboarding not available: %s" % e)
+        return None
+
+
 def youtube_menu(dlg, spath, last):
     """Search/queue YouTube downloads on the phone; optionally sort the finished ones."""
     import youtube
@@ -1490,6 +1502,9 @@ def main():
     send_logs("start", dlg)
     if check_for_update(dlg):
         return
+    ob = onboarding_state()
+    if ob and not ob.first_run(dlg, returning=bool(load_cache(data_file("last_settings.json")).get("src"))):
+        ob.whats_new(dlg)
 
     spath = session_file()
     prev = load_cache(spath)
@@ -1517,11 +1532,16 @@ def main():
                            "Find missing episodes in my TV library",
                            "Where to watch a show...",
                            "View a text / NFO file",
-                           "Download from YouTube (the phone downloads, then sort here)..."])
+                           "Download from YouTube (the phone downloads, then sort here)...",
+                           "Help: guide, version history, what to sort (now: %s)" % (ob.wanted_line() if ob else "everything")])
         if pick < 0:
             return
         if pick == 8:
             youtube_menu(dlg, spath, last)
+            return
+        if pick == 9:
+            if ob:
+                ob.help_menu(dlg)
             return
         if pick == 2:
             check_for_update(dlg, manual=True)
@@ -2513,6 +2533,10 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         return t + (", %d audio from .nfo" % from_nfo[0] if from_nfo[0] else "")
     spec_path = data_file("specials.json")
     specials = {"by_name": load_cache(spec_path), "used": {}, "titles": {}}
+    ob = onboarding_state()
+    wanted = ob.wanted() if ob else None
+    if ob and len(wanted) < 4:
+        log("sorting only: %s (Help > What to sort)" % ob.wanted_line())
     for i, (path, name, arc) in enumerate(files):
         if busy.iscanceled():
             save_cache(cpath, cache)
@@ -2535,6 +2559,11 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                 leftovers.append(path)  # sample clip: release leftover
             else:
                 video_paths.append(path)
+        if target is not None and wanted is not None and kind in ("TV", "MOVIE", "COMIC", "TUTORIAL") \
+                and kind not in wanted:
+            skipped.append("SKIP  %s  (%s - not ticked in Help > What to sort)" % (label if arc else name, kind.lower()))
+            by_name += 1
+            continue
         if target is None and not arc and split_name(name)[1] in SUBS:
             orphan_subs.append((path, name, label))  # "11_English.srt": matched to a video below
             continue

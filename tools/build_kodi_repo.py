@@ -39,6 +39,10 @@ def build(out: Path):
             for f in sorted(addon.rglob("*")):
                 if f.is_file() and "__pycache__" not in f.parts:
                     z.write(f, f"{addon.name}/{f.relative_to(addon).as_posix()}")
+            if addon.name == "script.kodisorter":
+                # The guide and version history shown inside the add-on (welcome screen, Help).
+                for doc in ("README.md", "CHANGELOG.md"):
+                    z.write(ROOT.parent / doc, f"{addon.name}/resources/{doc}")
         entries.append(re.sub(r"^<\?xml[^>]*\?>\s*", "", xml).strip())
         (zpath.parent / (zpath.name + ".md5")).write_text(
             hashlib.md5(zpath.read_bytes()).hexdigest())

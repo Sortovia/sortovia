@@ -3,6 +3,7 @@
 # hotspot Wi-Fi (no mobile data used). Runs a password-protected WebDAV server.
 #   xbox-share                      share /storage/emulated/0/Download
 #   xbox-share /storage/emulated/0/Movies   share another folder
+#   xbox-share password             just show the password (e.g. to type it into the companion app)
 # Stop it with Ctrl+C (or close Termux).
 DIR="${1:-/storage/emulated/0/Download}"
 PORT=8080
@@ -13,6 +14,10 @@ if [ ! -s "$CONF/password" ]; then
   tr -dc 'a-z0-9' </dev/urandom | head -c 8 >"$CONF/password"
 fi
 PASS=$(cat "$CONF/password")
+if [ "$1" = "password" ] || [ "$1" = "pass" ]; then
+  echo "xbox-share password: $PASS   (user name: kodi)"
+  exit 0
+fi
 
 if ! command -v rclone >/dev/null; then
   echo "rclone is missing: in Termux run  pkg install rclone  (or run the Kodi Sorter installer again)"; exit 1

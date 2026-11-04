@@ -23,8 +23,9 @@ class FreeSpace(unittest.TestCase):
         vfs.Stat = Stat
         vfs.listdir = lambda p: ([x for x in os.listdir(real(p)) if os.path.isdir(os.path.join(real(p), x))],
                                  [x for x in os.listdir(real(p)) if os.path.isfile(os.path.join(real(p), x))])
-        d.backup.list_backups = lambda: [("2026-11-04 1200", {}), ("2026-11-03 1200", {})]
+        d.backup.list_backups = lambda base=None: [("2026-11-04 1200", {}), ("2026-11-03 1200", {})]
         d.backup.HOME_DIR = "special://home/Kodi library backups/"
+        d.load_cache = lambda path: {"dest": "win-lib://removable/E:\\"} if str(path).endswith("last_settings.json") else {}
 
         def mk(p, n):
             os.makedirs(os.path.dirname(real(p)), exist_ok=True)
@@ -45,7 +46,8 @@ class FreeSpace(unittest.TestCase):
         self.assertEqual(got, [("Temporary: kodisorter-export-1", 5000, True),
                                ("Temporary: something-kodi-uses", 3000, False),
                                ("Old add-on install files (addons/packages)", 2000, True),
-                               ("Older library backup 2026-11-03 1200 (copies are on the drive and phone)", 1000, True)])
+                               ("Library backup 2026-11-04 1200 on the Xbox (backups now go on the drive)", 1000, True),
+                               ("Library backup 2026-11-03 1200 on the Xbox (backups now go on the drive)", 1000, True)])
 
 
 if __name__ == "__main__":

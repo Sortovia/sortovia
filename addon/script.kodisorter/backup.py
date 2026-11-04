@@ -7,10 +7,11 @@ A backup holds:
   MyVideosNNN.db    a copy of Kodi's database file, as a second safety net.
   backup-info.json  when it was made and how much was in the library.
 
-It's saved in Kodi's home folder (reachable from any Kodi file browser as
-"Home folder"), next to the library on the destination drive, and on the phone
-when xbox-share runs. The newest KEEP backups are kept on the Xbox and the
-drive; the phone keeps them all.
+It's saved on the library drive (_Kodi library backups) and on the phone when
+xbox-share runs, never on the Xbox's own small storage (older versions saved
+there too; those are cleared). The newest KEEP are kept on the drive; the phone
+keeps them all. To restore, one backup is copied to Kodi's home folder first,
+because Kodi's import browser can't see the external drive.
 """
 import json
 import re
@@ -29,12 +30,14 @@ DB_MAX = 300 * 1024 * 1024  # a bigger database isn't copied (the XML still is)
 
 RESTORE_HELP = (
     "How to put a library backup back\n\n"
-    "1. In Kodi: Settings > Media > Library, and in the Videos part choose Import library.\n"
-    "2. Choose Home folder > Kodi library backups > the date you want > OK.\n\n"
+    "1. Kodi Sorter > Kodi library > Restore a backup: pick the date. Kodi Sorter gets it ready in "
+    "Kodi's Home folder (Kodi's own import can't see the external drive).\n"
+    "2. In Kodi: Settings > Media > Library, and in the Videos part choose Import library.\n"
+    "3. Choose Home folder > Kodi library restore > the date > OK.\n\n"
     "Kodi adds back every show, episode and movie whose video file is still there, with its "
     "information, watched marks and resume points. Artwork comes from Kodi's own cache where it can.\n\n"
-    "The same backups are also on your library drive (folder _Kodi library backups) and on the "
-    "phone (Download/KodiSorterBackups).\n\n"
+    "The backups are on your library drive (folder _Kodi library backups) and on the phone "
+    "(Download/KodiSorterBackups) - not on the Xbox's own small storage.\n\n"
     "Tip: a source that covers the whole drive with a content type set (Movies or TV shows) "
     "overrides the TV and Movies folders inside it. Changing it can remove those from the "
     "library. Add only the folders themselves as sources.")
@@ -217,17 +220,34 @@ def make_backup(places, to_phone=None, rpc=_rpc, log=lambda m: None, work="speci
     return info, saved
 
 
-def list_backups():
-    """[(stamp, info)] in Kodi's home folder, newest first."""
+def list_backups(base=HOME_DIR):
+    """[(stamp, info)] in base, newest first."""
     out = []
     try:
-        dirs = xbmcvfs.listdir(HOME_DIR)[0]
+        dirs = xbmcvfs.listdir(base)[0]
     except Exception:
         return out
     for d in sorted((d for d in dirs if STAMP_RE.match(d)), reverse=True):
         try:
-            info = json.loads(_read(HOME_DIR + d + "/backup-info.json").decode("utf-8"))
+            info = json.loads(_read(base + d + "/backup-info.json").decode("utf-8"))
         except Exception:
             info = {}
         out.append((d, info))
     return out
+
+
+RESTORE_DIR = "special://home/Kodi library restore/"
+
+
+def stage_restore(base, stamp):
+    """Copy one backup's videodb.xml to Kodi's home folder, where Kodi's Import library
+    can find it (its file browser can't see the Xbox's external drive). Returns the folder."""
+    folder = RESTORE_DIR + stamp + "/"
+    try:
+        xbmcvfs.rmdir(RESTORE_DIR, True)  # only the one being restored stays
+    except Exception:
+        pass
+    xbmcvfs.mkdirs(folder)
+    if not _write(folder + "videodb.xml", _read(base + stamp + "/videodb.xml")):
+        raise IOError("couldn't copy the backup to Kodi's home folder")
+    return folder

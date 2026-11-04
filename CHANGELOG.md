@@ -2,6 +2,14 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.36 – One menu entry, backups on the drive
+- **1.36.0**
+  - **Kodi Sorter shows once in Program add-ons** again (1.34 and 1.35 showed it twice). Opening it still checks for updates and backs up the library first, at most once every 10 minutes.
+  - **Library backups are saved on the library drive** (`_Kodi library backups`) and the phone only, not on the Xbox's own storage. Old ones on the Xbox are cleared after the next backup.
+    - *Restore a backup* gets the one you pick ready in Kodi's Home folder, because Kodi's Import library can't see the external drive.
+    - *Remove old library backups* frees space, always keeping the newest.
+  - **Convert .cbr comics:** choose which ones (all are ticked to start). **Cancel stops after the comic being done**, and the menu then offers to carry on with the rest later. Turning pages also lets you choose the comics.
+
 ## 1.35 – Real-Debrid, and the Xbox's storage
 - **1.35.0**
   - **Real-Debrid:** a new menu category.

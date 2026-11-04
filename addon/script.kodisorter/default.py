@@ -1673,10 +1673,11 @@ def space_rows(stop=lambda: False):
     size = dir_size(pk, stop)
     if size:
         rows.append(("Old add-on install files (addons/packages)", size, pk, True, True))
-    stamps = [st for st, _ in backup.list_backups()]
-    for st in stamps[1:]:
+    stamps = [st for st, _ in backup.list_backups(backup.HOME_DIR)]
+    on_drive = bool(backup.drive_dir(load_cache(data_file("last_settings.json")).get("dest")))
+    for st in (stamps if on_drive else stamps[1:]):  # backups belong on the drive now
         size = dir_size(backup.HOME_DIR + st + "/", stop)
-        rows.append(("Older library backup %s (copies are on the drive and phone)" % st, size,
+        rows.append(("Library backup %s on the Xbox (backups now go on the drive)" % st, size,
                      backup.HOME_DIR + st + "/", True, True))
     return sorted(rows, key=lambda r: -r[1])
 
@@ -2108,21 +2109,54 @@ def _comic_files(root, exts):
     return out
 
 
+def comics_pending():
+    """Comics a stopped conversion still has to do: (paths that still exist, turn)."""
+    p = load_cache(data_file(COMICS_PREF))
+    todo = [x for x in p.get("pending") or [] if xbmcvfs.exists(x)]
+    return todo, p.get("pending_turn", 1)
+
+
+def _save_pending(todo, turn):
+    p = load_cache(data_file(COMICS_PREF))
+    if todo:
+        p["pending"], p["pending_turn"] = todo, turn
+    else:
+        p.pop("pending", None)
+        p.pop("pending_turn", None)
+    save_cache(data_file(COMICS_PREF), p)
+
+
 def convert_many(dlg, paths, turn):
+    """Convert one comic after another. Cancel stops after the comic being done
+    (never half way); the rest is remembered, to carry on later."""
     prog = xbmcgui.DialogProgress()
     prog.create(ADDON, "Comics")
-    lines, ok = [], 0
+    lines, ok, stopped = [], 0, False
+    _save_pending(list(paths), turn)
     for i, p in enumerate(paths):
         if prog.iscanceled():
-            lines.append("stopped by you - %d not done" % (len(paths) - i))
+            stopped = True
+            lines.append("STOPPED by you - %d comic(s) left. Carry on later: Tidy my library folders > "
+                         "Convert .cbr comics to .cbz." % (len(paths) - i))
             break
-        prog.update(int(i * 100 / max(len(paths), 1)), "Comic %d of %d\n%s" % (i + 1, len(paths), base_of(p)))
+        prog.update(int(i * 100 / max(len(paths), 1)), "Comic %d of %d\n%s\n(Cancel = stop after this comic; "
+                    "the rest can be done later)" % (i + 1, len(paths), base_of(p)))
         good, msg, new = convert_comic(p, turn)
         ok += good
         lines.append("%s  %s  (%s)" % ("OK  " if good else "FAIL", base_of(new), msg))
         log("comic: " + lines[-1])
+        _save_pending(list(paths[i + 1:]), turn)
     prog.close()
+    if not stopped:
+        _save_pending([], turn)
     dlg.textviewer("%s - comics" % ADDON, "%d of %d done\n\n%s" % (ok, len(paths), "\n".join(lines)))
+
+
+def choose_comics(dlg, root, files, heading):
+    """Tick which comics (all ticked to start). Returns the chosen paths."""
+    rel = [p[len(root):] if p.startswith(root) else base_of(p) for p in files]
+    picks = dlg.multiselect(heading, rel, preselect=list(range(len(files))))
+    return [files[i] for i in picks] if picks else []
 
 
 def tidy_comics(dlg, root):
@@ -2173,12 +2207,24 @@ def tidy_comics(dlg, root):
 
 
 def comics_convert(dlg, root):
+    todo, turn = comics_pending()
+    if todo:
+        how = dlg.select("Converting comics was stopped - %d left" % len(todo),
+                         ["Carry on with the %d left" % len(todo), "Choose comics again"])
+        if how < 0:
+            return
+        if how == 0:
+            convert_many(dlg, todo, turn)
+            return
     cbr = [p for p, _, n in _comic_files(root, (".cbr",))]
     if not cbr:
         dlg.ok(ADDON, "No .cbr comics in %s." % friendly(root))
-    elif dlg.yesno(ADDON, "Convert %d .cbr comic(s) to .cbz?\nEach takes about as long as copying it. "
-                   "The .cbr is deleted once the .cbz checks out." % len(cbr), nolabel="Cancel", yeslabel="Convert"):
-        convert_many(dlg, cbr, comics_pref()["turn"])
+        return
+    chosen = choose_comics(dlg, root, cbr, "Convert which comics to .cbz? (untick the ones to leave)")
+    if chosen and dlg.yesno(ADDON, "Convert %d comic(s) to .cbz?\nEach takes about as long as copying it, and the "
+                            ".cbr is deleted once its .cbz checks out. Cancel stops after the comic being done."
+                            % len(chosen), nolabel="Cancel", yeslabel="Convert"):
+        convert_many(dlg, chosen, comics_pref()["turn"])
 
 
 def comics_turn(dlg, root):
@@ -2189,7 +2235,7 @@ def comics_turn(dlg, root):
     save_cache(data_file(COMICS_PREF), dict(comics_pref(), turn=turn))
     every = [p for p, _, n in _comic_files(root, (".cbz", ".cbr"))]
     how = dlg.select("Turn which comics? (%d in all)" % len(every),
-                     ["Try one comic first (recommended)", "All %d comics now" % len(every),
+                     ["Try one comic first (recommended)", "Choose which comics (all ticked)",
                       "Only new ones from now on"])
     if how == 0:
         one = dlg.browse(1, "Pick a comic to try", "files", ".cbz|.cbr", False, False, root)
@@ -2198,7 +2244,9 @@ def comics_turn(dlg, root):
             dlg.ok(ADDON, "Open it under Pictures to check. If it's the wrong way round, choose the "
                           "other direction here; \"Upright\" puts it back.")
     elif how == 1 and every:
-        convert_many(dlg, every, turn)
+        chosen = choose_comics(dlg, root, every, "Turn which comics? (untick the ones to leave)")
+        if chosen:
+            convert_many(dlg, chosen, turn)
 
 
 def comics_menu(dlg):
@@ -2245,8 +2293,28 @@ BACKUP_STATE = "backup.json"  # addon_data: last backup's time and counts
 
 
 def _backup_places():
-    last = load_cache(data_file("last_settings.json"))
-    return [backup.HOME_DIR, backup.drive_dir(last.get("dest"))]
+    """The library drive only (the Xbox's own storage is small); Kodi's home folder
+    only when no drive is known yet."""
+    drive = backup.drive_dir(load_cache(data_file("last_settings.json")).get("dest"))
+    return [drive] if drive else [backup.HOME_DIR]
+
+
+def _clear_xbox_backups():
+    """Backups older versions kept on the Xbox's own storage."""
+    for stamp, _ in backup.list_backups(backup.HOME_DIR):
+        xbmcvfs.rmdir(backup.HOME_DIR + stamp + "/", True)
+
+
+def backup_bases():
+    return [b for b in (backup.drive_dir(load_cache(data_file("last_settings.json")).get("dest")), backup.HOME_DIR) if b]
+
+
+def all_backups():
+    """[(base, stamp, info)] on the drive and the Xbox, newest first."""
+    out = []
+    for base in backup_bases():
+        out += [(base, st, info) for st, info in backup.list_backups(base)]
+    return sorted(out, key=lambda r: r[1], reverse=True)
 
 
 def _backup_to_phone(stamp, files):
@@ -2276,6 +2344,11 @@ def backup_now(dlg=None):
         return False
     _close(prog)
     save_cache(data_file(BACKUP_STATE), {"time": time.time(), "made": info["made"], "counts": info["counts"]})
+    if backup.HOME_DIR not in saved:
+        try:
+            _clear_xbox_backups()
+        except Exception as e:
+            log("clearing old backups on the Xbox failed: %s" % e)
     where = ", ".join("the phone" if p == "phone" else "Kodi's home folder" if p == backup.HOME_DIR
                       else friendly(p) for p in saved)
     if dlg is not None:
@@ -2438,9 +2511,51 @@ def fix_wrong_movies(dlg):
     _clean_kodi("movies")
 
 
+def _where(base):
+    return "Xbox storage" if base == backup.HOME_DIR else friendly(base)
+
+
 def backups_list(dlg):
-    rows = ["%s   %s" % (stamp, backup.counts_line(info.get("counts") or {})) for stamp, info in backup.list_backups()]
+    rows = ["%s   %s   (%s)" % (st, backup.counts_line(info.get("counts") or {}), _where(base))
+            for base, st, info in all_backups()]
     dlg.textviewer("%s - backups" % ADDON, "\n".join(rows) or "No backups yet.")
+
+
+def restore_backup(dlg):
+    rows = all_backups()
+    if not rows:
+        dlg.ok(ADDON, "No library backups yet.")
+        return
+    pick = dlg.select("Restore which backup?", ["%s   %s" % (st, backup.counts_line(info.get("counts") or {}))
+                                                for base, st, info in rows])
+    if pick < 0:
+        return
+    base, st, info = rows[pick]
+    try:
+        backup.stage_restore(base, st)
+    except Exception as e:
+        dlg.ok(ADDON, "Couldn't get the backup ready: %s" % e)
+        return
+    dlg.textviewer("%s - restore the library" % ADDON,
+                   "The backup of %s is ready.\n\nNow in Kodi: Settings > Media > Library > (Videos) Import library > "
+                   "Home folder > Kodi library restore > %s > OK.\n\n%s" % (st, st, backup.RESTORE_HELP))
+
+
+def remove_old_backups(dlg):
+    rows = all_backups()
+    if not rows:
+        dlg.ok(ADDON, "No library backups to remove.")
+        return
+    newest = rows[0]
+    keep_auto = set(id(r) for r in [r for r in rows if r[0] != backup.HOME_DIR][:2])  # newest 2 on the drive
+    picks = dlg.multiselect("Remove which backups? (the newest is kept)",
+                            ["%s   %s   (%s)" % (st, backup.counts_line(info.get("counts") or {}), _where(base))
+                             for base, st, info in rows[1:]],
+                            preselect=[i for i, r in enumerate(rows[1:]) if id(r) not in keep_auto])
+    if not picks:
+        return
+    gone = sum(1 for i in picks if xbmcvfs.rmdir(rows[1:][i][0] + rows[1:][i][1] + "/", True))
+    dlg.ok(ADDON, "Removed %d of %d backup(s). Kept the newest, %s." % (gone, len(picks), newest[1]))
 
 
 def backup_menu(dlg):
@@ -2458,7 +2573,7 @@ def backup_menu(dlg):
             backup_now(dlg)
             state = load_cache(data_file(BACKUP_STATE))
         elif pick == 1:
-            dlg.textviewer("%s - restore the library" % ADDON, backup.RESTORE_HELP)
+            restore_backup(dlg)
         elif pick == 3:
             fix_wrong_movies(dlg)
             state = load_cache(data_file(BACKUP_STATE))
@@ -2466,8 +2581,7 @@ def backup_menu(dlg):
             clean_tv_library(dlg)
             state = load_cache(data_file(BACKUP_STATE))
         else:
-            rows = ["%s   %s" % (stamp, backup.counts_line(info.get("counts") or {})) for stamp, info in backup.list_backups()]
-            dlg.textviewer("%s - backups" % ADDON, "\n".join(rows) or "No backups yet.")
+            backups_list(dlg)
 
 
 def _close(splash):
@@ -2783,43 +2897,39 @@ def running_menu(dlg, status):
             toast("Stopping now. Open Kodi Sorter later and choose Resume.")
 
 
-def script_main():
-    """Opening Kodi Sorter: update check, welcome screen, backup check, then the menu."""
-    dlg = xbmcgui.Dialog()
-    status = home().getProperty(PROP_RUN)
-    if status:
-        running_menu(dlg, status)
-        return
-    if already_starting():
-        toast("Kodi Sorter is already opening - one moment", 3000)
-        return
+PROP_OPENED = "kodisorter.opened"  # when the start-up checks last ran (this Kodi session)
+PROP_REORG = "kodisorter.reorganize"
+STARTUP_EVERY = 600  # seconds: reopening within 10 minutes skips the checks
+
+
+def startup_due():
+    try:
+        t = float(home().getProperty(PROP_OPENED) or 0)
+    except ValueError:
+        t = 0
+    return time.time() - t > STARTUP_EVERY
+
+
+def startup_checks(dlg):
+    """Opening Kodi Sorter: update check, welcome screen, library backup check.
+    Returns True if an update was installed (the person opens it again)."""
+    home().setProperty(PROP_OPENED, str(time.time()))
     if start_up(dlg):
-        return
+        home().clearProperty(PROP_OPENED)
+        return True
     ob = onboarding_state()
     set_language()
     if ob and not ob.first_run(dlg, returning=bool(load_cache(data_file("last_settings.json")).get("src"))):
         ob.whats_new(dlg)
     set_language()  # the welcome screen may have just set it
-    spath = session_file()
     if ob and ob.pop_reorganize():
-        kind, folder = ob.last_reorganize
-        reorganize_folder(dlg, spath, kind, folder)
-        return
-
+        home().setProperty(PROP_REORG, json.dumps(list(ob.last_reorganize)))
     check_library_backup(dlg)
-    prev = load_cache(spath)
-    if prev.get("src") and prev.get("dest"):
-        where = "while moving files" if prev.get("stage") == "moving" else "while scanning"
-        if yesno_default_yes(dlg, "The last run (%s) didn't finish - it stopped %s.\nFrom: %s\nTo: %s\n"
-                             "Resume with the same folders and choices?" % (
-                                 prev.get("started", "?"), where, masked(prev["src"]), prev["dest"]),
-                             nolabel="Start over", yeslabel="Resume"):
-            remove_partial_copy(prev)
-            run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"],
-                prev.get("nfo_mode", 0), prev.get("sub_mode", 0), prev.get("empty_mode", 0))
-            return
-        clear_session(spath)
+    return False
 
+
+def script_main():
+    """Run as a script (older shortcuts): just open the menu."""
     open_menu()
 
 
@@ -4416,8 +4526,10 @@ def menu_items(name):
                   "DefaultMovies.png", action="tidy_movies"),
             _item("Tidy my Comics folder", "Each comic into its series folder; merges duplicate folders; offers to "
                   "move stray PDFs to Documents.", "DefaultAddonPicture.png", action="comics_tidy"),
-            _item("Convert .cbr comics to .cbz", "A .cbz opens much faster in Kodi.", "DefaultAddonPicture.png",
-                  action="comics_convert"),
+            _item("Convert .cbr comics to .cbz%s" % (" (%d left - carry on)" % len(comics_pending()[0])
+                                                    if comics_pending()[0] else ""),
+                  "A .cbz opens much faster in Kodi. Pick which ones; Cancel stops after the comic being done.",
+                  "DefaultAddonPicture.png", action="comics_convert"),
             _item("Turn comic pages for a monitor on its side (now: %s)" % comics.turn_label(pref["turn"]),
                   "Try one comic first. Upright undoes it.", "DefaultAddonPicture.png", action="comics_turn"),
             _item("When sorting new comics, convert .cbr to .cbz: %s" % ("yes" if pref["convert"] else "no"),
@@ -4426,10 +4538,12 @@ def menu_items(name):
         return [
             _item("Back up the library now (last: %s)" % backup_line(), "Kodi's export with watched marks, plus "
                   "its database. It also runs by itself once a day.", "DefaultAddonsUpdates.png", action="backup"),
-            _item("How to put a backup back (restore)", "Step by step, with Kodi's Import library.",
-                  "DefaultIconInfo.png", action="restore"),
-            _item("List the backups on this Xbox", "When each was made and what was in the library.",
+            _item("Restore a backup", "Pick a date; Kodi Sorter gets it ready, then Kodi's Import library "
+                  "puts it back.", "DefaultAddonsUpdates.png", action="restore"),
+            _item("List the backups", "When each was made, what was in the library, and where it is.",
                   "DefaultIconInfo.png", action="backups"),
+            _item("Remove old library backups", "Frees space. The newest is always kept; the newest two on the "
+                  "drive are kept unless you tick them.", "DefaultAddonService.png", action="remove_backups"),
             _item("Clean TV library", "Removes entries that aren't TV episodes (files in Movies, Tutorials or a "
                   "set-aside folder), then entries whose files are gone. Never deletes files.", "DefaultTVShows.png",
                   action="clean_tv"),
@@ -4543,7 +4657,8 @@ ACTIONS = {
     "comics_turn": _comics(comics_turn),
     "comics_auto": lambda dlg, spath: save_cache(data_file(COMICS_PREF), dict(comics_pref(), convert=not comics_pref()["convert"])),
     "backup": lambda dlg, spath: backup_now(dlg),
-    "restore": lambda dlg, spath: dlg.textviewer("%s - restore the library" % ADDON, backup.RESTORE_HELP),
+    "restore": lambda dlg, spath: restore_backup(dlg),
+    "remove_backups": lambda dlg, spath: remove_old_backups(dlg),
     "backups": lambda dlg, spath: backups_list(dlg),
     "wrong_movies": lambda dlg, spath: fix_wrong_movies(dlg),
     "clean_tv": lambda dlg, spath: clean_tv_library(dlg),
@@ -4556,6 +4671,7 @@ ACTIONS = {
     "logs": lambda dlg, spath: dlg.ok(ADDON, "Log: %s." % send_logs("manual", dlg)),
     "nfo": lambda dlg, spath: view_text_file(dlg),
     "free_space": lambda dlg, spath: free_space(dlg),
+    "reorganize": lambda dlg, spath: _pending_reorganize(dlg, spath),
     "rd_account": lambda dlg, spath: rd_account(dlg),
     "rd_torrents": lambda dlg, spath: rd_torrents(dlg),
     "rd_magnet": lambda dlg, spath: rd_magnet(dlg),
@@ -4566,6 +4682,14 @@ ACTIONS = {
 }
 ACTIONS.update(("yt%d" % i, _youtube(i)) for i in range(9))
 STARTS_A_RUN = ("resume", "same", "new", "tidy_tv", "tidy_movies", "yt3", "rd_sort")
+
+
+def _pending_reorganize(dlg, spath):
+    pending = home().getProperty(PROP_REORG)
+    home().clearProperty(PROP_REORG)
+    if pending:
+        kind, folder = json.loads(pending)
+        reorganize_folder(dlg, spath, kind, folder)
 
 
 def do_action(name):
@@ -4594,7 +4718,15 @@ def plugin_main(argv):
         do_action(q["action"])
         return
     handle = int(argv[1]) if len(argv) > 1 and argv[1].lstrip("-").isdigit() else -1
-    list_menu(handle, q.get("menu", "root"))
+    name = q.get("menu", "root")
+    if name == "root" and startup_due() and not home().getProperty(PROP_RUN):
+        if startup_checks(xbmcgui.Dialog()):
+            import xbmcplugin
+            xbmcplugin.endOfDirectory(handle, succeeded=False)
+            return
+    list_menu(handle, name)
+    if name == "root" and home().getProperty(PROP_REORG):
+        xbmc.executebuiltin("RunPlugin(%s?action=reorganize)" % PLUGIN)
 
 
 def main():

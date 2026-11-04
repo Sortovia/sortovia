@@ -86,9 +86,11 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
   *Sort the Real-Debrid downloads* files them.
 
 **Library extras**
-- *Back up / restore my Kodi library*: Kodi's own library export (with watched marks) plus its database file,
-  saved on the Xbox, the library drive and the phone. It runs by itself once a day, and warns you if the library
-  suddenly shrinks. To restore: Kodi → Settings → Media → Library → Import library → Home folder → Kodi library backups.
+- *Kodi library → Back up*: Kodi's own library export (with watched marks) plus its database file, saved on the
+  library drive (`_Kodi library backups`) and the phone, never on the Xbox's small storage. It runs by itself once a
+  day, and warns you if the library suddenly shrinks. *Restore a backup* gets one ready for Kodi's Import library.
+  *Remove old library backups* frees space.
+- *Clean TV library / Clean movie library*: removes entries that are in the wrong library (never files).
 - *Find missing episodes*: compares your Kodi TV library with TVmaze and lists aired episodes you don't have.
 - *Where to watch*: says per season whether a show is on your streaming services, free with ads,
   on another subscription, or available to buy or rent. This uses TMDb's watch data and needs a free TMDb key.

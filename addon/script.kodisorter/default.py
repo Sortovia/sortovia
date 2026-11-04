@@ -1463,8 +1463,9 @@ def latest_version():
 UPDATE_WAIT = 12  # seconds; with mobile data off the check would otherwise hang
 
 
-def latest_version_within(seconds):
-    """latest_version() with a time limit (no internet can mean long timeouts)."""
+def latest_version_within(seconds, tick=None):
+    """latest_version() with a time limit (no internet can mean long timeouts).
+    tick(fraction of the wait used) runs 5 times a second; True from it = stop waiting."""
     import threading
     box = {}
 
@@ -1476,10 +1477,18 @@ def latest_version_within(seconds):
     t = threading.Thread(target=work)
     t.daemon = True
     t.start()
-    t.join(seconds)
+    end = time.time() + seconds
+    while t.is_alive() and time.time() < end:
+        t.join(0.2)
+        if tick and tick(1 - (end - time.time()) / seconds):
+            raise UpdateSkipped("skipped")
     if "v" in box:
         return box["v"]
     raise box.get("e") or IOError("no reply within %d seconds - no internet?" % seconds)
+
+
+class UpdateSkipped(Exception):
+    pass
 
 
 def toast(msg, ms=4000):
@@ -1533,17 +1542,30 @@ def install_update(version, folder):
     xbmc.executebuiltin("UpdateLocalAddons")
 
 
-def check_for_update(dlg, manual=False):
+def check_for_update(dlg, manual=False, splash=None):
     """Returns True if an update was installed (caller should stop).
-    Runs on every launch; manual=True is the "Check for updates now" item."""
+    Runs on every launch; manual=True is the "Check for updates now" item.
+    splash: the start-up screen; it shows the wait, Cancel skips the check,
+    and it's closed before any question is asked."""
     del FETCH_LOG[:]
     current = "?"
+    tick = None
+    if splash is not None:
+        def tick(frac):
+            splash.update(int(min(frac, 1) * 100), "Checking for updates...\n(Cancel to skip)")
+            return splash.iscanceled()
     try:
         me = xbmcaddon.Addon()
         current = me.getAddonInfo("version")
         folder = xbmcvfs.translatePath(me.getAddonInfo("path"))
-        newest = latest_version_within(UPDATE_WAIT if not manual else 60)
+        newest = latest_version_within(UPDATE_WAIT if not manual else 60, tick)
+    except UpdateSkipped:
+        _close(splash)
+        log("update check skipped (Cancel on the start-up screen)")
+        toast("Update check skipped (%s)" % current, 3000)
+        return False
     except Exception as e:
+        _close(splash)
         log("update check failed: %s | %s" % (e, " | ".join(FETCH_LOG)))
         if manual:
             dlg.ok(ADDON, "Couldn't check for updates (you have %s).\n%s\n%s\n"
@@ -1553,6 +1575,7 @@ def check_for_update(dlg, manual=False):
             toast("No internet - skipped the update check (%s)" % current, 3000)
         return False
     log("update check: have %s, newest %s | %s" % (current, newest, " | ".join(FETCH_LOG)))
+    _close(splash)
     if _vtuple(newest) <= _vtuple(current):
         if manual:
             dlg.ok(ADDON, "You have the newest version (%s)." % current)
@@ -1570,6 +1593,61 @@ def check_for_update(dlg, manual=False):
         return False
     dlg.ok(ADDON, "Updated to %s.\nOpen Kodi Sorter again to use the new version." % newest)
     return True
+
+
+def _close(splash):
+    if splash is not None:
+        try:
+            splash.close()
+        except Exception:
+            pass
+
+
+# ---------- start-up ----------
+# Opening Kodi Sorter used to show nothing for 8-20 s while it sent the logs to
+# the phone and then checked for updates, so it got clicked twice. Now a splash
+# shows at once, both run at the same time, and a second click is ignored.
+PROP_STARTING = "kodisorter.starting"  # time.time() while the splash is up
+START_LOCK_SECS = 90  # a stale flag (a crash mid start-up) stops counting after this
+
+
+def already_starting():
+    """True if another Kodi Sorter is on its start-up screen right now."""
+    try:
+        t = float(home().getProperty(PROP_STARTING) or 0)
+    except ValueError:
+        t = 0
+    return 0 < time.time() - t < START_LOCK_SECS
+
+
+def _send_start_logs():
+    try:
+        send_logs("start")
+    except Exception as e:
+        log("sending start-up logs failed: %s" % e)
+
+
+def start_up(dlg):
+    """Splash, logs to the phone (in the background) and the update check.
+    Returns True if an update was installed (stop: the user reopens it)."""
+    home().setProperty(PROP_STARTING, str(time.time()))
+    try:
+        splash = xbmcgui.DialogProgress()
+        splash.create(ADDON, "Starting...")
+        if (load_cache(data_file("phone.json")).get("dav") or {}).get("pass"):
+            import threading
+            threading.Thread(target=_send_start_logs).start()  # finishes on its own
+        else:
+            # No password saved yet: if the phone is sharing, ask for it (once).
+            splash.update(0, "Starting...\nLooking for your phone")
+            if phone_address(None, ask=False):
+                splash.close()
+                send_logs("start", dlg)
+                splash = xbmcgui.DialogProgress()
+                splash.create(ADDON, "Starting...")
+        return check_for_update(dlg, splash=splash)
+    finally:
+        home().clearProperty(PROP_STARTING)
 
 
 def yesno_default_yes(dlg, msg, nolabel, yeslabel):
@@ -1828,8 +1906,10 @@ def main():
             home().setProperty(PROP_STOP, STOP_NOW)
             toast("Stopping now. Open Kodi Sorter later and choose Resume.")
         return
-    send_logs("start", dlg)
-    if check_for_update(dlg):
+    if already_starting():
+        toast("Kodi Sorter is already opening - one moment", 3000)
+        return
+    if start_up(dlg):
         return
     ob = onboarding_state()
     set_language()

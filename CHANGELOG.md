@@ -3,6 +3,7 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.31 – YouTube download quality
+- **1.31.3** **Opens faster, with a start-up screen.** It shows "Starting... Checking for updates" straight away instead of nothing. The logs go to the phone in the background while it checks for updates, so it's ready a few seconds sooner. **Cancel** skips the update check, and a second click while it's opening is ignored.
 - **1.31.2**
   - **Sorting YouTube downloads goes straight to your default folder.** You choose it once, and change it under "Where sorted videos go" in the YouTube menu. Before, it asked every time, because it ignored Xbox drive paths.
   - **No library rescan** when a run only moved tutorials or comics. They aren't in Kodi's library.

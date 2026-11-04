@@ -147,9 +147,23 @@ def size_of(path):
             log("size of %s: %s" % (path, e))
         return -1
     try:
-        return xbmcvfs.Stat(path).st_size()
+        n = xbmcvfs.Stat(path).st_size()
     except Exception:
-        return -1
+        n = -1
+    if n <= 0 and "://" in path and not path.startswith(("win-lib://", "special://")):
+        # Over the network (the phone) a size check that failed or timed out comes back as 0:
+        # ask again by opening the file.
+        try:
+            f = xbmcvfs.File(path)
+            try:
+                m = f.size()
+            finally:
+                f.close()
+            if m > 0:
+                return m
+        except Exception:
+            pass
+    return n
 
 
 KODI_FOLDERS = ("TV", "Movies", "Comics", "Tutorials")
@@ -934,6 +948,10 @@ def move_file(src, dst, known_size=None):
             xbmcvfs.delete(dst)
             return False, "unpack failed (%s vs %s bytes) - archive kept" % (src_size, dst_size)
         return True, "unpacked" if src_size > 0 else "unpacked (size could not be checked)"
+    if src_size <= 0 and not in_archive(src):
+        again = size_of(src)  # the first size check can fail on a busy network share
+        log("size of %s was %s before the copy, %s now" % (base_of(src), src_size, again))
+        src_size = again
     if src_size < 0 or src_size != dst_size:
         xbmcvfs.delete(dst)
         return False, "size mismatch (%s vs %s) - copy removed, original kept" % (src_size, dst_size)

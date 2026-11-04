@@ -119,6 +119,49 @@ def job_label(j):
     return "waiting %s" % t
 
 
+SHORT = 52  # characters that fit across Kodi's list without scrolling
+
+
+def _short(t, n=SHORT):
+    t = " ".join(t.split())
+    return t if len(t) <= n else t[:n - 1].rstrip(" -,.:|") + "\u2026"
+
+
+def job_lines(j):
+    """(title line, status line) for a download, both short enough not to scroll."""
+    t = _plain(j.get("title") or j.get("url") or "")
+    s = j.get("state")
+    if s == "downloading":
+        part = " (sound)" if (j.get("part") or 1) > 1 else ""
+        pct = ("%d%%" % j["pct"]) if j.get("pct") else "0%"
+        bits = [pct + part] + [x for x in ("%.0f MB" % j["mb"] if j.get("mb") else "", j.get("speed"),
+                                           j.get("eta") and "%s left" % j["eta"]) if x]
+        status = "Downloading: " + ", ".join(bits)
+    elif s == "copying":
+        status = "100% - saving into Download/YouTube"
+    elif s == "done":
+        t, status = _plain(j.get("file") or t), "Done"
+    elif s == "failed":
+        status = "FAILED: %s" % (j.get("error") or "?")
+    elif s == "cancelled":
+        status = "Stopped"
+    else:
+        status = "Waiting"
+    return _short(t), _short(status, 70)
+
+
+def select2(dlg, heading, rows, multi=False, **kw):
+    """select/multiselect with two short lines per row ([(line1, line2)]); plain one-line
+    rows on a Kodi that can't do that."""
+    try:
+        items = [xbmcgui.ListItem(a, b) for a, b in rows]
+        fn = dlg.multiselect if multi else dlg.select
+        return fn(heading, items, useDetails=True, **kw)
+    except (TypeError, AttributeError):
+        labels = ["%s  [%s]" % (a, b) if b else a for a, b in rows]
+        return (dlg.multiselect if multi else dlg.select)(heading, labels, **kw)
+
+
 def quality_info(phone):
     """(current key, [[key, label], ...]) from the phone, or (None, []) with an older helper."""
     r = phone.call("/yt/settings", {})
@@ -232,7 +275,8 @@ def search(dlg, phone, last):
     prog = xbmcgui.DialogProgress()
     prog.create(HEADING, "Searching YouTube for \"%s\" on the phone..." % q)
     try:
-        r = phone.call("/yt/search?n=25&q=" + quote(q), timeout=100)
+        # 20 = one page of YouTube results (25 needed a second, slow request)
+        r = phone.call("/yt/search?n=20&q=" + quote(q), timeout=200)
     finally:
         prog.close()
     if r.get("error"):
@@ -242,9 +286,10 @@ def search(dlg, phone, last):
     if not res:
         dlg.ok(HEADING, "Nothing found for \"%s\"." % q)
         return
-    labels = ["%s   [%s%s]" % (x["title"], _mins(x["duration"]) if x.get("duration") else "playlist/live",
-                                 ", " + x["channel"] if x.get("channel") else "") for x in res]
-    picks = dlg.multiselect("Pick the videos to download (select several, then OK)", labels)
+    rows = [(_short(_plain(x["title"])), _short("%s%s" % (_mins(x["duration"]) if x.get("duration") else "playlist/live",
+                                                          " - " + x["channel"] if x.get("channel") else ""), 70))
+            for x in res]
+    picks = select2(dlg, "Pick the videos to download (select several, then OK)", rows, multi=True)
     if picks:
         queue_videos(dlg, phone, [res[i] for i in picks])
 
@@ -261,16 +306,16 @@ def type_link(dlg, phone):
         prog = xbmcgui.DialogProgress()
         prog.create(HEADING, "Reading the playlist on the phone...")
         try:
-            r = phone.call("/yt/search?n=1&q=" + quote(url), timeout=100)
+            r = phone.call("/yt/search?n=1&q=" + quote(url), timeout=200)
         finally:
             prog.close()
         res = r.get("results") or []
         if r.get("error") or not res:
             dlg.ok(HEADING, "Couldn't read that playlist: %s" % (r.get("error") or "empty"))
             return
-        picks = dlg.multiselect("Playlist - pick the videos (all are selected)",
-                                ["%s   [%s]" % (x["title"], _mins(x["duration"])) for x in res],
-                                preselect=list(range(len(res))))
+        picks = select2(dlg, "Playlist - pick the videos (all are selected)",
+                        [(_short(_plain(x["title"])), _mins(x["duration"])) for x in res], multi=True,
+                        preselect=list(range(len(res))))
         if picks:
             queue_videos(dlg, phone, [res[i] for i in picks])
         return
@@ -280,9 +325,10 @@ def type_link(dlg, phone):
 def downloads(dlg, phone):
     while True:
         jobs = phone.call("/yt/jobs")["jobs"]
-        opts = ["Watch progress", "Refresh"] + [job_label(j) for j in jobs] + \
-               (["Clear finished and failed from this list"] if jobs else [])
-        pick = dlg.select("Downloads on the phone - %s" % queue_line(jobs), opts)
+        opts = [("Watch progress", "live view of the current download"), ("Refresh", "")] + \
+               [job_lines(j) for j in jobs] + \
+               ([("Clear finished and failed from this list", "the videos stay on the phone")] if jobs else [])
+        pick = select2(dlg, "Downloads on the phone - %s" % queue_line(jobs), opts)
         if pick < 0:
             return
         if pick == 0:
@@ -294,8 +340,11 @@ def downloads(dlg, phone):
         else:
             j = jobs[pick - 2]
             if j["state"] == "failed":
-                what = dlg.select(job_label(j)[:80], ["Try again", "Remove from the list"])
-                if what == 0:
+                what = dlg.select(_short(job_lines(j)[1], 60), ["Try again", "Remove from the list",
+                                                                "Show the whole error"])
+                if what == 2:
+                    dlg.ok(HEADING, "%s\n\n%s" % (_plain(j.get("title") or j["url"]), j.get("error")))
+                elif what == 0:
                     phone.call("/yt/cancel", {"id": j["id"]})
                     phone.call("/yt/add", {"url": j["url"], "title": j.get("title", "")})
                 elif what == 1:

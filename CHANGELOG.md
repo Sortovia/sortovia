@@ -3,6 +3,8 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.31 – YouTube download quality
+- **1.31.4** **Downloads and search results fit on screen.** Each entry has two short lines: the title, then its progress or its length and channel. Nothing scrolls, so pressing down moves to the next entry straight away. A failed download has **Show the whole error**.
+  - Search asks YouTube for 20 results instead of 25, which saves one slow request. If the phone's internet is very slow, it says so plainly instead of showing a long command.
 - **1.31.3** **Opens faster, with a start-up screen.** It shows "Starting... Checking for updates" straight away instead of nothing. The logs go to the phone in the background while it checks for updates, so it's ready a few seconds sooner. **Cancel** skips the update check, and a second click while it's opening is ignored.
 - **1.31.2**
   - **Sorting YouTube downloads goes straight to your default folder.** You choose it once, and change it under "Where sorted videos go" in the YouTube menu. Before, it asked every time, because it ignored Xbox drive paths.

@@ -163,7 +163,11 @@ def search(q, n):
     cmd = base_cmd() + ["--flat-playlist", "-J", "ytsearch%d:%s" % (n, q)]
     if re.match(r"https?://", q):
         cmd = base_cmd() + ["--flat-playlist", "-J", q]  # a link: list it (or a playlist's videos)
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("YouTube didn't answer within 3 minutes. The phone's internet is very slow right now "
+                           "(a download or Kodi's library scan may be using it). Try again in a while.")
     if p.returncode != 0:
         raise RuntimeError(explain(p.stderr))
     data = json.loads(p.stdout)

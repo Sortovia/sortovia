@@ -1244,15 +1244,33 @@ def phone_source(dlg, kind):
             saved.pop(kind, None)
             save_cache(data_file("phone.json"), saved)
         return None
-    # Optional: pick a folder inside the share (Back = the whole share).
-    try:
-        sub = dlg.browse(0, "Phone folder (Back = all of Download)",
-                         "files", "", False, False, real)
-    except Exception:
-        sub = ""
-    if sub and sub.startswith(real) and sub != real:
-        return base + sub[len(real):]
-    return base
+    # Pick a folder inside the share. Kodi's own folder browser can't open a place that
+    # isn't a Kodi source (it shows the source list instead), so the phone's folders are
+    # listed here directly. Back = the whole Download folder.
+    return base + pick_phone_folder(dlg, real, "Download" if kind == "dav" else "USB drive")
+
+
+def pick_phone_folder(dlg, real, top="Download"):
+    """Walk the phone's folders. Returns the chosen folder relative to the share root
+    ("" = the whole share: Back at the top, as before)."""
+    rel = ""
+    while True:
+        try:
+            dirs = sorted((d for d in xbmcvfs.listdir(real + rel)[0] if not d.startswith(".")), key=str.lower)
+        except Exception:
+            dirs = []
+        here = (top + "/" + rel).rstrip("/")
+        shown = shown_path(here, "")
+        opts = ["Use this folder: %s" % shown] + ["%s/" % shown_path(d, "") for d in dirs]
+        pick = dlg.select("Phone: %s" % shown, opts)
+        if pick < 0:
+            if not rel:
+                return ""  # Back at the top = all of Download (as before)
+            rel = rel.rstrip("/").rsplit("/", 1)[0] + "/" if "/" in rel.rstrip("/") else ""
+            continue
+        if pick == 0:
+            return rel
+        rel = rel + dirs[pick - 1] + "/"
 
 
 # ---------- send logs to the phone ----------

@@ -3,6 +3,7 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.37 – Your device, QR sign-in
+- **1.37.2** **Picking a folder on the phone opens the phone's Download folder.** Kodi's folder browser can't open a place that isn't a Kodi source, so it showed the Xbox's list instead. Kodi Sorter now lists the phone's folders itself: pick one to go into it, *Use this folder* to choose it, and Back to go up. This works with xbox-share and the companion app.
 - **1.37.1** **An Xbox is detected as an Xbox** (1.37.0 said Windows PC). Kodi's system info on the Xbox only says Windows, so the device model is now read from the top of Kodi's log ("Running on Microsoft Xbox One S"), with the Xbox's network name as a backup check. If you confirmed Windows PC before, it asks once more.
 - **1.37.0**
   - **Your device:** Kodi Sorter detects what Kodi runs on (Xbox, Windows, Android, Raspberry Pi/Linux, Mac, Apple TV, LG TV) and asks you to confirm it once, on the welcome screen or at the next start. Steps are fitted to it.

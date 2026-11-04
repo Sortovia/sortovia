@@ -118,9 +118,14 @@ The very first time, a welcome screen asks:
   unless you choose another, or "Kodi's language"),
 - whether you **already have folders** for them (pick each one, any name, any drive),
 
-and offers this guide. You can change all of these later under **Help** in the start menu.
+and offers this guide. You can change all of these later under **Help & settings**.
 
-Next time, the start menu offers **Same as last time** and the extra tools.
+After that, Kodi Sorter opens a folder list sorted into categories:
+- **Sort my downloads**: same as last time, choose folders and choices, the last report,
+- **YouTube**: search, links, downloads (pause, carry on, retry), quality, order, cookies,
+- **Tidy my library folders**: TV, Movies and Comics folders; .cbr to .cbz; turning comic pages,
+- **Kodi library**: backup and restore, removing wrong movie entries, missing episodes, where to watch,
+- **Help & settings**: the guide, version history, what to sort, your folders and language, updates, logs.
 
 Optional: when you first use a TMDb feature (English movie titles, Where to watch), it asks for a free TMDb API key, your
 country and your streaming services.

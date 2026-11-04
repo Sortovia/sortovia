@@ -1691,12 +1691,7 @@ def convert_comic(path, turn=1):
 
 
 def _comics_root(dlg):
-    last = load_cache(data_file("last_settings.json"))
-    root = KIND_DIRS.get("Comics") or (last.get("dest") and kind_root("Comics", last["dest"]))
-    if root and xbmcvfs.exists(ensure_slash(root)):
-        return ensure_slash(root)
-    root = dlg.browse(0, "Pick your Comics folder", "files")
-    return ensure_slash(root) if root else None
+    return library_folder("Comics", dlg)
 
 
 def _comic_files(root, exts):
@@ -1772,6 +1767,35 @@ def tidy_comics(dlg, root):
         ("\nNot moved: " + "; ".join(failed[:5])) if failed else ""))
 
 
+def comics_convert(dlg, root):
+    cbr = [p for p, _, n in _comic_files(root, (".cbr",))]
+    if not cbr:
+        dlg.ok(ADDON, "No .cbr comics in %s." % friendly(root))
+    elif dlg.yesno(ADDON, "Convert %d .cbr comic(s) to .cbz?\nEach takes about as long as copying it. "
+                   "The .cbr is deleted once the .cbz checks out." % len(cbr), nolabel="Cancel", yeslabel="Convert"):
+        convert_many(dlg, cbr, comics_pref()["turn"])
+
+
+def comics_turn(dlg, root):
+    t = dlg.select("Turn the pages", [label for _, label in comics.TURNS])
+    if t < 0:
+        return
+    turn = comics.TURNS[t][0]
+    save_cache(data_file(COMICS_PREF), dict(comics_pref(), turn=turn))
+    every = [p for p, _, n in _comic_files(root, (".cbz", ".cbr"))]
+    how = dlg.select("Turn which comics? (%d in all)" % len(every),
+                     ["Try one comic first (recommended)", "All %d comics now" % len(every),
+                      "Only new ones from now on"])
+    if how == 0:
+        one = dlg.browse(1, "Pick a comic to try", "files", ".cbz|.cbr", False, False, root)
+        if one and not one.endswith(("/", "\\")):
+            convert_many(dlg, [one], turn)
+            dlg.ok(ADDON, "Open it under Pictures to check. If it's the wrong way round, choose the "
+                          "other direction here; \"Upright\" puts it back.")
+    elif how == 1 and every:
+        convert_many(dlg, every, turn)
+
+
 def comics_menu(dlg):
     root = _comics_root(dlg)
     if not root:
@@ -1789,30 +1813,9 @@ def comics_menu(dlg):
         if pick == 0:
             tidy_comics(dlg, root)
         elif pick == 1:
-            cbr = [p for p, _, n in _comic_files(root, (".cbr",))]
-            if not cbr:
-                dlg.ok(ADDON, "No .cbr comics in %s." % friendly(root))
-            elif dlg.yesno(ADDON, "Convert %d .cbr comic(s) to .cbz?\nEach takes about as long as copying it. "
-                           "The .cbr is deleted once the .cbz checks out." % len(cbr), nolabel="Cancel", yeslabel="Convert"):
-                convert_many(dlg, cbr, pref["turn"])
+            comics_convert(dlg, root)
         elif pick == 2:
-            t = dlg.select("Turn the pages", [label for _, label in comics.TURNS])
-            if t < 0:
-                continue
-            turn = comics.TURNS[t][0]
-            save_cache(data_file(COMICS_PREF), dict(pref, turn=turn))
-            every = [p for p, _, n in _comic_files(root, (".cbz", ".cbr"))]
-            how = dlg.select("Turn which comics? (%d in all)" % len(every),
-                             ["Try one comic first (recommended)", "All %d comics now" % len(every),
-                              "Only new ones from now on"])
-            if how == 0:
-                one = dlg.browse(1, "Pick a comic to try", "files", ".cbz|.cbr", False, False, root)
-                if one and not one.endswith(("/", "\\")):
-                    convert_many(dlg, [one], turn)
-                    dlg.ok(ADDON, "Open it under Pictures to check. If it's the wrong way round, choose the "
-                                  "other direction here; \"Upright\" puts it back.")
-            elif how == 1 and every:
-                convert_many(dlg, every, turn)
+            comics_turn(dlg, root)
         elif pick == 3:
             save_cache(data_file(COMICS_PREF), dict(pref, convert=not pref["convert"]))
         else:
@@ -1923,8 +1926,7 @@ def wrong_movies(movies, episode_keys, tv_root):
 
 def fix_wrong_movies(dlg):
     import missing
-    last = load_cache(data_file("last_settings.json"))
-    tv = KIND_DIRS.get("TV") or (last.get("dest") and kind_root("TV", last["dest"]))
+    tv = library_folder("TV")
     try:
         movies = missing._rpc("VideoLibrary.GetMovies", {"properties": ["file", "year"]}).get("movies", [])
         bad = wrong_movies(movies, library_files("TV"), _lib_key(tv) if tv else "")
@@ -1953,6 +1955,11 @@ def fix_wrong_movies(dlg):
             log("couldn't remove movie %s: %s" % (m.get("label"), e))
     log("removed %d wrong movie entries" % gone)
     dlg.ok(ADDON, "Removed %d of %d wrong movie entries." % (gone, len(bad)))
+
+
+def backups_list(dlg):
+    rows = ["%s   %s" % (stamp, backup.counts_line(info.get("counts") or {})) for stamp, info in backup.list_backups()]
+    dlg.textviewer("%s - backups" % ADDON, "\n".join(rows) or "No backups yet.")
 
 
 def backup_menu(dlg):
@@ -2215,7 +2222,7 @@ def reorganize_folder(dlg, spath, okind, folder):
         REMEMBER[0] = True
 
 
-def youtube_menu(dlg, spath, last):
+def youtube_menu(dlg, spath, last, only=None):
     """Search/queue YouTube downloads on the phone; optionally sort the finished ones."""
     import youtube
 
@@ -2245,9 +2252,11 @@ def youtube_menu(dlg, spath, last):
         return d
     while True:
         what = youtube.menu(dlg, find_ip, creds, log,
-                            dest_line=lambda: tutorials_at(saved_dest()) or "not chosen yet")
+                            dest_line=lambda: tutorials_at(saved_dest()) or "not chosen yet", only=only)
         if what == "dest":
             pick_dest()
+            if only is not None:
+                return
             continue
         if what != "sort":
             return
@@ -2264,10 +2273,9 @@ def youtube_menu(dlg, spath, last):
         last.get("nfo_mode", 3), last.get("sub_mode", 0), last.get("empty_mode", 1))
 
 
-def main():
-    dlg = xbmcgui.Dialog()
-    status = home().getProperty(PROP_RUN)
-    if status:
+def running_menu(dlg, status):
+    """A move is going on in the background: keep going or stop it."""
+    if True:
         send_logs("during-run")  # so Claude can see a run that's still going
         flag = home().getProperty(PROP_STOP)
         if flag == STOP_NOW:
@@ -2288,6 +2296,14 @@ def main():
         elif pick == 2:
             home().setProperty(PROP_STOP, STOP_NOW)
             toast("Stopping now. Open Kodi Sorter later and choose Resume.")
+
+
+def script_main():
+    """Opening Kodi Sorter: update check, welcome screen, backup check, then the menu."""
+    dlg = xbmcgui.Dialog()
+    status = home().getProperty(PROP_RUN)
+    if status:
+        running_menu(dlg, status)
         return
     if already_starting():
         toast("Kodi Sorter is already opening - one moment", 3000)
@@ -2319,84 +2335,11 @@ def main():
             return
         clear_session(spath)
 
-    # Last finished run's folders and choices: offer to reuse them.
-    last = load_cache(data_file("last_settings.json"))
-    if last.get("src") and last.get("dest"):
-        pick = dlg.select("Kodi Sorter - same as last time?",
-                          ["Same as last time: %s  ->  %s" % (masked(last["src"]), last["dest"]),
-                           "Choose folders and choices again",
-                           "Check for updates now",
-                           "View the report from the last move",
-                           "Send Kodi's log to my phone now (xbox-share must be running)",
-                           "Find missing episodes in my TV library",
-                           "Where to watch a show...",
-                           "View a text / NFO file",
-                           "Search & download from YouTube (the phone downloads, then sort here)...",
-                           "Help: guide, version history, what to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
-                           "Kodi library: back up, restore, remove wrong movies (last backup: %s)" % backup_line(),
-                           "Comics: tidy folders, convert .cbr to .cbz, turn pages for a portrait monitor"])
-        if pick < 0:
-            return
-        if pick == 8:
-            youtube_menu(dlg, spath, last)
-            return
-        if pick == 10:
-            backup_menu(dlg)
-            return
-        if pick == 11:
-            comics_menu(dlg)
-            return
-        if pick == 9:
-            if ob:
-                ob.help_menu(dlg)
-                if ob.pop_reorganize():
-                    reorganize_folder(dlg, spath, *ob.last_reorganize)
-            return
-        if pick == 2:
-            check_for_update(dlg, manual=True)
-            return
-        if pick == 4:
-            dlg.ok(ADDON, "Log: %s." % send_logs("manual", dlg))
-            return
-        if pick == 5:
-            find_missing_episodes(dlg)
-            return
-        if pick == 6:
-            where_to_watch_menu(dlg)
-            return
-        if pick == 7:
-            view_text_file(dlg)
-            return
-        if pick == 3:
-            text = read_text(data_file("last_report.txt"))
-            dlg.textviewer("%s - last report" % ADDON, text or "No report saved yet.")
-            return
-        if pick == 0:
-            run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"],
-                last.get("nfo_mode", 0), last.get("sub_mode", 0), last.get("empty_mode", 0))
-            return
+    open_menu()
 
-    if not (last.get("src") and last.get("dest")):
-        # Nothing sorted yet: still offer YouTube and Help, not only a sort.
-        first = dlg.select(ADDON, ["Sort my downloads into Kodi folders",
-                                   "Search & download from YouTube (the phone downloads, then sort here)...",
-                                   "Help: guide, version history, what to sort",
-                                   "Kodi library: back up, restore, remove wrong movies (last backup: %s)" % backup_line()])
-        if first < 0:
-            return
-        if first == 1:
-            youtube_menu(dlg, spath, last)
-            return
-        if first == 3:
-            backup_menu(dlg)
-            return
-        if first == 2:
-            if ob:
-                ob.help_menu(dlg)
-                if ob.pop_reorganize():
-                    reorganize_folder(dlg, spath, *ob.last_reorganize)
-            return
 
+def new_sort(dlg, spath):
+    """Choose folders and choices, then sort."""
     where = dlg.select("Where are the downloads?",
                        ["A folder or drive on the Xbox",
                         "My phone over Wi-Fi - %s" % PHONE_KINDS["dav"]["label"],
@@ -3858,6 +3801,284 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         xbmc.executebuiltin("UpdateLibrary(video)")
     elif ok_count:
         log("no library update: only tutorials/comics/leftovers changed (they aren't in Kodi's library)")
+
+
+# ---------- the menu: categories in a Kodi folder list ----------
+# Opening Kodi Sorter runs script_main() (update check, welcome screen ...),
+# which opens this list. Folders are categories; the other entries are
+# actions, each run by do_action() in its own call.
+PLUGIN = "plugin://%s/" % ADDON_ID
+
+
+def open_menu():
+    xbmc.executebuiltin("ActivateWindow(Programs,%s,return)" % PLUGIN)
+
+
+def library_folder(kind, dlg=None):
+    """The person's TV/Movies/Comics/Tutorials folder: their own one, else the standard
+    folder on the last destination. With dlg, asks when neither is known."""
+    ob = onboarding_state()
+    key = {"TV": "TV", "Movies": "MOVIE", "Comics": "COMIC", "Tutorials": "TUTORIAL"}[kind]
+    own = ((ob.folders() if ob else {}) or {}).get(key)
+    last = load_cache(data_file("last_settings.json"))
+    folder = own or (last.get("dest") and join(resolve_dest(last["dest"])[0], FOLDER_NAMES.get(kind, kind)))
+    if folder and xbmcvfs.exists(ensure_slash(folder)):
+        return ensure_slash(folder)
+    if dlg is not None:
+        pick = dlg.browse(0, "Pick your %s folder" % kind, "files")
+        return ensure_slash(pick) if pick else None
+    return None
+
+
+def tidy_library(dlg, spath, kind):
+    folder = library_folder(kind, dlg)
+    if not folder:
+        return
+    if dlg.yesno(ADDON, "Tidy %s?\nEvery video is put into the folders Kodi expects (%s) with names Kodi can "
+                 "read. You see the full list first, nothing is replaced without asking, and subtitles and NFOs "
+                 "are left alone." % (friendly(folder), "Show\\Season 01" if kind == "TV" else "Movie (Year)"),
+                 nolabel="Cancel", yeslabel="Show me the list"):
+        reorganize_folder(dlg, spath, kind, folder)
+
+
+def _item(label, plot, icon, menu=None, action=None):
+    return {"label": label, "plot": plot, "icon": icon, "menu": menu, "action": action}
+
+
+def menu_items(name):
+    """The entries of one menu folder (pure apart from reading saved settings)."""
+    last = load_cache(data_file("last_settings.json"))
+    ob = onboarding_state()
+    if name == "root":
+        out = []
+        status = home().getProperty(PROP_RUN)
+        if status:
+            out.append(_item("Moving files now (%s) - keep going or stop" % status,
+                             "A sort is running in the background.", "DefaultIconInfo.png", action="running"))
+        prev = load_cache(session_file())
+        if prev.get("src") and prev.get("dest") and not status:
+            out.append(_item("Resume the sort that didn't finish (%s)" % prev.get("started", "?"),
+                             "From %s to %s, with the same choices." % (masked(prev["src"]), prev["dest"]),
+                             "DefaultIconInfo.png", action="resume"))
+        return out + [
+            _item("Sort my downloads", "Sort a downloads folder (on the Xbox or the phone) into TV, Movies, "
+                  "Comics and Tutorials.", "DefaultFolder.png", menu="sort"),
+            _item("YouTube", "Search YouTube on the Xbox; the phone downloads, then they're sorted into Tutorials.",
+                  "DefaultAddonVideo.png", menu="youtube"),
+            _item("Tidy my library folders", "Put what's already in your TV, Movies and Comics folders into the "
+                  "layout Kodi expects. Comics: .cbr to .cbz, turn pages.", "DefaultAddonService.png", menu="tidy"),
+            _item("Kodi library", "Back up and restore the library, remove wrong movie entries, missing episodes, "
+                  "where to watch.", "DefaultTVShows.png", menu="library"),
+            _item("Help & settings", "Guide, version history, what to sort, your folders and language, updates, "
+                  "logs.", "DefaultAddonHelper.png", menu="help")]
+    if name == "sort":
+        out = []
+        if last.get("src") and last.get("dest"):
+            out.append(_item("Same as last time: %s  ->  %s" % (masked(last["src"]), friendly(last["dest"])),
+                             "The same folders and choices as the last sort.", "DefaultAddonsUpdates.png", action="same"))
+        return out + [
+            _item("Choose folders and choices", "Pick where the downloads are and where they go, then answer a "
+                  "few questions. You see the full list before anything moves.", "DefaultFolder.png", action="new"),
+            _item("View the report from the last move", "Every file that was moved or skipped, and why.",
+                  "DefaultIconInfo.png", action="report")]
+    if name == "youtube":
+        return [
+            _item("Search YouTube", "Search, then pick the videos to download (shows length, date and views).",
+                  "DefaultAddonVideo.png", action="yt0"),
+            _item("Type a YouTube link", "A video or a playlist.", "DefaultAddonVideo.png", action="yt1"),
+            _item("Downloads", "Progress, pause and carry on, retry or remove.", "DefaultNetwork.png", action="yt2"),
+            _item("Sort the finished downloads", "Put the downloaded videos into Tutorials.", "DefaultFolder.png",
+                  action="yt3"),
+            _item("Download quality", "Up to 4K, 1080p, 720p, 480p or sound only.", "DefaultAddonService.png",
+                  action="yt6"),
+            _item("Search results order", "Best match, newest, most viewed, longest or shortest.",
+                  "DefaultAddonService.png", action="yt7"),
+            _item("Where sorted videos go", "The drive or folder YouTube downloads are sorted into.",
+                  "DefaultFolder.png", action="yt8"),
+            _item("Cookies: how to set them up", "YouTube only allows downloads from a signed-in browser.",
+                  "DefaultIconInfo.png", action="yt4"),
+            _item("Import cookies now", "Pick up a new cookies.txt from the phone's Download folder.",
+                  "DefaultAddonsUpdates.png", action="yt5")]
+    if name == "tidy":
+        pref = comics_pref()
+        return [
+            _item("Tidy my TV folder", "Every episode into Show\\Season NN with a name Kodi reads.",
+                  "DefaultTVShows.png", action="tidy_tv"),
+            _item("Tidy my Movies folder", "Every movie into Movie (Year) with a name Kodi reads.",
+                  "DefaultMovies.png", action="tidy_movies"),
+            _item("Tidy my Comics folder", "Each comic into its series folder; merges duplicate folders; offers to "
+                  "move stray PDFs to Documents.", "DefaultAddonPicture.png", action="comics_tidy"),
+            _item("Convert .cbr comics to .cbz", "A .cbz opens much faster in Kodi.", "DefaultAddonPicture.png",
+                  action="comics_convert"),
+            _item("Turn comic pages for a monitor on its side (now: %s)" % comics.turn_label(pref["turn"]),
+                  "Try one comic first. Upright undoes it.", "DefaultAddonPicture.png", action="comics_turn"),
+            _item("When sorting new comics, convert .cbr to .cbz: %s" % ("yes" if pref["convert"] else "no"),
+                  "Select to switch.", "DefaultAddonService.png", action="comics_auto")]
+    if name == "library":
+        return [
+            _item("Back up the library now (last: %s)" % backup_line(), "Kodi's export with watched marks, plus "
+                  "its database. It also runs by itself once a day.", "DefaultAddonsUpdates.png", action="backup"),
+            _item("How to put a backup back (restore)", "Step by step, with Kodi's Import library.",
+                  "DefaultIconInfo.png", action="restore"),
+            _item("List the backups on this Xbox", "When each was made and what was in the library.",
+                  "DefaultIconInfo.png", action="backups"),
+            _item("Remove wrong movie entries", "TV episodes listed as movies (e.g. after a whole drive was "
+                  "scanned as Movies). Only the entries go, never files.", "DefaultMovies.png", action="wrong_movies"),
+            _item("Find missing episodes", "Aired episodes you don't have, from seasons you have.",
+                  "DefaultTVShows.png", action="missing"),
+            _item("Where to watch a show", "Your services, free, or buy/rent (TMDb).", "DefaultTVShows.png",
+                  action="wherewatch")]
+    if name == "help":
+        return [
+            _item("Read the guide", "Features and first-time setup.", "DefaultIconInfo.png", action="guide"),
+            _item("Version history", "What each update added.", "DefaultIconInfo.png", action="history"),
+            _item("What to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
+                  "TV, Movies, Comics, Tutorials.", "DefaultAddonService.png", action="kinds"),
+            _item("My library folders (now: %s)" % (ob.folders_line() if ob else "standard"),
+                  "Use folders you already have, any name, any drive.", "DefaultFolder.png", action="folders"),
+            _item("Your language (now: %s)" % (ob.language_line() if ob else "English"),
+                  "Audio it looks for, subtitles it keeps, movie title language.", "DefaultAddonService.png",
+                  action="language"),
+            _item("Check for updates now", "Kodi Sorter also checks every time it opens.", "DefaultAddonsUpdates.png",
+                  action="update"),
+            _item("Send Kodi's log to my phone now", "xbox-share must be running on the phone.", "DefaultNetwork.png",
+                  action="logs"),
+            _item("View a text / NFO file", "Reads old DOS-style NFO art correctly.", "DefaultIconInfo.png",
+                  action="nfo"),
+            _item("Show the welcome screen again", "", "DefaultIconInfo.png", action="welcome")]
+    return []
+
+
+def list_menu(handle, name):
+    import xbmcplugin
+    for it in menu_items(name):
+        li = xbmcgui.ListItem(it["label"], it["plot"])
+        li.setArt({"icon": it["icon"], "thumb": it["icon"]})
+        try:
+            li.getVideoInfoTag().setPlot(it["plot"])
+        except Exception:
+            try:
+                li.setInfo("video", {"plot": it["plot"]})
+            except Exception:
+                pass
+        if it["action"]:
+            li.setProperty("IsPlayable", "false")
+        url = PLUGIN + ("?menu=%s" % it["menu"] if it["menu"] else "?action=%s" % it["action"])
+        xbmcplugin.addDirectoryItem(handle, url, li, isFolder=bool(it["menu"]))
+    xbmcplugin.setContent(handle, "files")
+    xbmcplugin.endOfDirectory(handle, cacheToDisc=False)
+
+
+def _resume(dlg, spath):
+    prev = load_cache(spath)
+    if prev.get("src") and prev.get("dest"):
+        remove_partial_copy(prev)
+        run(dlg, spath, prev["src"], prev["dest"], prev["mode"], prev["delete_old"], prev["lang_mode"],
+            prev.get("nfo_mode", 0), prev.get("sub_mode", 0), prev.get("empty_mode", 0))
+
+
+def _same(dlg, spath):
+    last = load_cache(data_file("last_settings.json"))
+    if last.get("src") and last.get("dest"):
+        run(dlg, spath, last["src"], last["dest"], last["mode"], last["delete_old"], last["lang_mode"],
+            last.get("nfo_mode", 0), last.get("sub_mode", 0), last.get("empty_mode", 0))
+
+
+def _report(dlg):
+    dlg.textviewer("%s - last report" % ADDON, read_text(data_file("last_report.txt")) or "No report saved yet.")
+
+
+def _ob(fn):
+    """Help actions on the welcome-screen settings; a folder change may offer a reorganize."""
+    def go(dlg, spath):
+        ob = onboarding_state()
+        if not ob:
+            return
+        fn(ob, dlg)
+        set_language()
+        if ob.pop_reorganize():
+            reorganize_folder(dlg, spath, *ob.last_reorganize)
+    return go
+
+
+def _youtube(i):
+    return lambda dlg, spath: youtube_menu(dlg, spath, load_cache(data_file("last_settings.json")), only=i)
+
+
+def _comics(fn):
+    def go(dlg, spath):
+        root = library_folder("Comics", dlg)
+        if root:
+            fn(dlg, root)
+    return go
+
+
+def _welcome(ob, dlg):
+    ob.state.pop("welcomed", None)
+    ob.first_run(dlg)
+
+
+ACTIONS = {
+    "running": lambda dlg, spath: running_menu(dlg, home().getProperty(PROP_RUN)),
+    "resume": _resume, "same": _same, "new": new_sort,
+    "report": lambda dlg, spath: _report(dlg),
+    "tidy_tv": lambda dlg, spath: tidy_library(dlg, spath, "TV"),
+    "tidy_movies": lambda dlg, spath: tidy_library(dlg, spath, "Movies"),
+    "comics_tidy": _comics(tidy_comics), "comics_convert": _comics(comics_convert),
+    "comics_turn": _comics(comics_turn),
+    "comics_auto": lambda dlg, spath: save_cache(data_file(COMICS_PREF), dict(comics_pref(), convert=not comics_pref()["convert"])),
+    "backup": lambda dlg, spath: backup_now(dlg),
+    "restore": lambda dlg, spath: dlg.textviewer("%s - restore the library" % ADDON, backup.RESTORE_HELP),
+    "backups": lambda dlg, spath: backups_list(dlg),
+    "wrong_movies": lambda dlg, spath: fix_wrong_movies(dlg),
+    "missing": lambda dlg, spath: find_missing_episodes(dlg),
+    "wherewatch": lambda dlg, spath: where_to_watch_menu(dlg),
+    "guide": _ob(lambda ob, dlg: ob.show_guide(dlg)), "history": _ob(lambda ob, dlg: ob.show_history(dlg)),
+    "kinds": _ob(lambda ob, dlg: ob.choose_kinds(dlg)), "folders": _ob(lambda ob, dlg: ob.choose_folders(dlg)),
+    "language": _ob(lambda ob, dlg: ob.choose_language(dlg)), "welcome": _ob(_welcome),
+    "update": lambda dlg, spath: check_for_update(dlg, manual=True),
+    "logs": lambda dlg, spath: dlg.ok(ADDON, "Log: %s." % send_logs("manual", dlg)),
+    "nfo": lambda dlg, spath: view_text_file(dlg),
+}
+ACTIONS.update(("yt%d" % i, _youtube(i)) for i in range(9))
+STARTS_A_RUN = ("resume", "same", "new", "tidy_tv", "tidy_movies", "yt3")
+
+
+def do_action(name):
+    dlg = xbmcgui.Dialog()
+    fn = ACTIONS.get(name)
+    if not fn:
+        return
+    status = home().getProperty(PROP_RUN)
+    if status and name in STARTS_A_RUN:
+        running_menu(dlg, status)  # one sort at a time
+        return
+    set_language()
+    try:
+        fn(dlg, session_file())
+    finally:
+        xbmc.executebuiltin("Container.Refresh")  # labels like "last backup" may have changed
+
+
+def plugin_main(argv):
+    try:
+        from urllib.parse import parse_qs
+    except ImportError:
+        from urlparse import parse_qs
+    q = dict((k, v[0]) for k, v in parse_qs((argv[2] if len(argv) > 2 else "").lstrip("?")).items())
+    if q.get("action"):
+        do_action(q["action"])
+        return
+    handle = int(argv[1]) if len(argv) > 1 and argv[1].lstrip("-").isdigit() else -1
+    list_menu(handle, q.get("menu", "root"))
+
+
+def main():
+    import sys
+    if sys.argv and sys.argv[0].startswith("plugin://"):
+        plugin_main(sys.argv)
+    else:
+        script_main()
 
 
 main()

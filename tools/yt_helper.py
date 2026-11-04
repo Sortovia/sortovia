@@ -16,6 +16,8 @@ HTTP on port 8081, same user/password as xbox-share (Basic auth):
   POST /yt/add   {"url", "title"}   queue a download
   GET  /yt/jobs              queue with progress
   POST /yt/cancel {"id"}     stop / remove one
+  POST /yt/pause  {"id"} or {"all": true}   pause (the part downloaded is kept)
+  POST /yt/resume {"id"} or {"all": true}   carry on
   POST /yt/clear             remove finished and failed
 """
 import base64
@@ -311,7 +313,7 @@ def load_jobs():
 def add_job(url, title="", quality=None):
     with LOCK:
         for j in JOBS:
-            if j["url"] == url and j["state"] in ("queued", "downloading"):
+            if j["url"] == url and j["state"] in ("queued", "downloading", "paused"):
                 return j
         job = {"id": "%d%03d" % (time.time(), len(JOBS) % 1000), "url": url, "title": title or url,
                "state": "queued", "pct": 0.0, "speed": "", "eta": "", "file": "", "error": "",
@@ -394,7 +396,7 @@ def run_job(job):
     t.join(5)
     with LOCK:
         CURRENT["proc"] = CURRENT["id"] = None
-        if job["state"] == "cancelled":
+        if job["state"] in ("cancelled", "paused"):
             pass
         elif proc.returncode == 0 and job["file"]:
             job["state"], job["eta"], job["speed"] = "copying", "", ""
@@ -408,7 +410,7 @@ def run_job(job):
             with LOCK:
                 job["state"], job["error"] = "failed", explain(str(e)) or "couldn't copy into Download/YouTube"
     with LOCK:
-        if job["state"] in ("done", "failed", "cancelled"):
+        if job["state"] in ("done", "failed", "cancelled", "paused"):
             pass
         else:
             err = "".join(err_lines)
@@ -531,6 +533,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send({"error": "that isn't a YouTube link"}, 400)
             cookies_status()
             return self._send({"job": add_job(url, b.get("title", ""), b.get("quality"))})
+        if u.path in ("/yt/pause", "/yt/resume"):
+            pause = u.path == "/yt/pause"
+            with LOCK:
+                hit = [j for j in JOBS if (b.get("all") or j["id"] == b.get("id")) and
+                       j["state"] in (("queued", "downloading") if pause else ("paused",))]
+                for j in hit:
+                    if pause and j["state"] == "downloading" and CURRENT["id"] == j["id"] and CURRENT["proc"]:
+                        CURRENT["proc"].terminate()  # yt-dlp keeps the part file and carries on from it later
+                    j["state"] = "paused" if pause else "queued"
+                    j["speed"] = j["eta"] = ""
+                save_jobs()
+            if hit:
+                log("%s %d download(s)" % ("paused" if pause else "resumed", len(hit)))
+                WAKE.set()
+            return self._send({"ok": bool(hit), "count": len(hit)})
         if u.path == "/yt/cancel":
             with LOCK:
                 job = next((j for j in JOBS if j["id"] == b.get("id")), None)
@@ -559,7 +576,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send({"cookies": st})
         if u.path == "/yt/clear":
             with LOCK:
-                JOBS[:] = [j for j in JOBS if j["state"] in ("queued", "downloading")]
+                JOBS[:] = [j for j in JOBS if j["state"] in ("queued", "downloading", "paused")]
                 save_jobs()
             return self._send({"ok": True})
         self._send({"error": "not found"}, 404)

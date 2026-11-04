@@ -145,6 +145,8 @@ def job_lines(j):
         status = "FAILED: %s" % (j.get("error") or "?")
     elif s == "cancelled":
         status = "Stopped"
+    elif s == "paused":
+        status = "Paused%s - select to carry on" % ((" at %d%%" % j["pct"]) if j.get("pct") else "")
     else:
         status = "Waiting"
     return _short(t), _short(status, 70)
@@ -208,6 +210,7 @@ def queue_line(jobs):
     now = [j for j in jobs if j["state"] in ("downloading", "copying")]
     done = sum(1 for j in jobs if j["state"] == "done")
     failed = sum(1 for j in jobs if j["state"] == "failed")
+    paused = sum(1 for j in jobs if j["state"] == "paused")
     bits = []
     if now:
         n = now[0]
@@ -219,6 +222,8 @@ def queue_line(jobs):
         bits.append("%d done" % done)
     if failed:
         bits.append("%d failed" % failed)
+    if paused:
+        bits.append("%d paused" % paused)
     return ", ".join(bits) or "nothing queued"
 
 
@@ -359,7 +364,11 @@ def type_link(dlg, phone):
 def downloads(dlg, phone):
     while True:
         jobs = phone.call("/yt/jobs")["jobs"]
-        opts = [("Watch progress", "live view of the current download"), ("Refresh", "")] + \
+        active = any(j["state"] in ("queued", "downloading") for j in jobs)
+        paused = any(j["state"] == "paused" for j in jobs)
+        both = ("Pause all downloads", "the part already downloaded is kept") if active else \
+            ("Carry on with all paused downloads", "") if paused else ("Refresh", "")
+        opts = [("Watch progress", "live view of the current download"), both] + \
                [job_lines(j) for j in jobs] + \
                ([("Clear finished and failed from this list", "the videos stay on the phone")] if jobs else [])
         pick = select2(dlg, "Downloads on the phone - %s" % queue_line(jobs), opts)
@@ -368,7 +377,10 @@ def downloads(dlg, phone):
         if pick == 0:
             watch(phone)
         elif pick == 1:
-            continue
+            if active:
+                phone.call("/yt/pause", {"all": True})
+            elif paused:
+                phone.call("/yt/resume", {"all": True})
         elif pick == len(opts) - 1 and jobs:
             phone.call("/yt/clear", {})
         else:
@@ -384,14 +396,25 @@ def downloads(dlg, phone):
                 elif what == 1:
                     phone.call("/yt/cancel", {"id": j["id"]})
             elif j["state"] in ("queued", "downloading"):
-                if dlg.yesno(HEADING, "Stop this download?\n%s" % j.get("title"), nolabel="Keep", yeslabel="Stop"):
+                what = dlg.select(_short(_plain(j.get("title") or j["url"]), 60),
+                                  ["Pause (carry on later from where it got to)", "Stop and remove it", "Keep going"])
+                if what == 0:
+                    phone.call("/yt/pause", {"id": j["id"]})
+                elif what == 1:
+                    phone.call("/yt/cancel", {"id": j["id"]})
+            elif j["state"] == "paused":
+                what = dlg.select(_short(_plain(j.get("title") or j["url"]), 60),
+                                  ["Carry on downloading", "Remove it", "Leave it paused"])
+                if what == 0:
+                    phone.call("/yt/resume", {"id": j["id"]})
+                elif what == 1:
                     phone.call("/yt/cancel", {"id": j["id"]})
             elif dlg.yesno(HEADING, "Remove from the list?\n(the video stays on the phone)\n%s" % job_label(j),
                            nolabel="Keep", yeslabel="Remove"):
                 phone.call("/yt/cancel", {"id": j["id"]})
 
 
-def menu(dlg, find_ip, creds, log, dest_line=None):
+def menu(dlg, find_ip, creds, log, dest_line=None, only=None):
     """Returns "sort" (sort the finished downloads now), "dest" (choose where they're sorted) or None."""
     c = creds()
     if not c or not c.get("pass"):
@@ -432,7 +455,7 @@ def menu(dlg, find_ip, creds, log, dest_line=None):
                 "Search results order: %s" % (dict(olist).get(ocur, ocur) if olist
                                               else "restart xbox-share on the phone to choose"),
                 "Where sorted videos go: %s (change)" % (dest_line() if dest_line else "?")]
-        pick = dlg.select("%s - %s" % (HEADING, cookie_line(st)), opts)
+        pick = dlg.select("%s - %s" % (HEADING, cookie_line(st)), opts) if only is None else only
         try:
             if pick < 0:
                 return None
@@ -446,6 +469,8 @@ def menu(dlg, find_ip, creds, log, dest_line=None):
                 busy = [j for j in jobs if j["state"] in ("queued", "downloading", "copying")]
                 if busy and not dlg.yesno(HEADING, "%d download(s) aren't finished yet - only finished videos "
                                                    "are sorted. Go ahead?" % len(busy), nolabel="Wait", yeslabel="Sort now"):
+                    if only is not None:
+                        return None
                     continue
                 return "sort"
             elif pick == 4:
@@ -460,3 +485,5 @@ def menu(dlg, find_ip, creds, log, dest_line=None):
                 return "dest"
         except RuntimeError as e:
             dlg.ok(HEADING, str(e))
+        if only is not None:
+            return None

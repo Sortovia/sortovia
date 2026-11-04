@@ -2,6 +2,11 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.34 – A tidier menu
+- **1.34.0** **The menu is now a Kodi folder list, sorted into categories**, like other add-ons: *Sort my downloads*, *YouTube*, *Tidy my library folders*, *Kodi library* and *Help & settings*. Each entry has a short description. Opening Kodi Sorter still checks for updates and backs up the library first. A sort that's running, or one to resume, shows at the top.
+  - **Pause YouTube downloads:** pause one download or all of them in *Downloads*, and carry on later from where they got to.
+  - **Tidy my TV folder / Tidy my Movies folder:** puts what's already there into the folders and names Kodi expects. You see the full list first, and nothing is replaced without asking.
+
 ## 1.33 – Comics
 - **1.33.1** **Remove wrong movie entries:** under *Kodi library* on the start menu. It finds movies that are really TV episodes, for example "Cesium Hollow" left behind after the whole drive was scanned as Movies. It shows the list and removes them all at once. Only the library entries are removed, never the files, and a library backup is made first. The start menu item is now called "Kodi library: back up, restore, remove wrong movies".
   - The Comics "tidy the folder" line no longer names Ironclad. It only ever moves what's out of place.

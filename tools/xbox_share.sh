@@ -4,6 +4,7 @@
 #   xbox-share                      share /storage/emulated/0/Download
 #   xbox-share /storage/emulated/0/Movies   share another folder
 #   xbox-share password             just show the password (e.g. to type it into the companion app)
+#   xbox-share stop                 stop a share that's running (in any Termux session)
 # Stop it with Ctrl+C (or close Termux).
 DIR="${1:-/storage/emulated/0/Download}"
 PORT=8080
@@ -16,6 +17,16 @@ fi
 PASS=$(cat "$CONF/password")
 if [ "$1" = "password" ] || [ "$1" = "pass" ]; then
   echo "xbox-share password: $PASS   (user name: kodi)"
+  exit 0
+fi
+if [ "$1" = "stop" ]; then
+  # only the share itself (anchored, so it can't match this script); the YouTube helper
+  # keeps running, so Kodi Sorter's YouTube downloads still work with the companion app
+  if pkill -f "^rclone serve webdav" 2>/dev/null; then
+    echo "xbox-share stopped. (The companion app can share now.)"
+  else
+    echo "xbox-share wasn't running."
+  fi
   exit 0
 fi
 
@@ -53,6 +64,13 @@ if [ -f "$HELPER" ] && [ "$DIR" = "/storage/emulated/0/Download" ]; then
   YT_SHARE="$DIR" python3 "$HELPER" &
   HPID=$!
   trap 'kill $HPID 2>/dev/null' EXIT INT TERM
+fi
+if (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
+  echo
+  echo " Port $PORT is already in use: xbox-share is already running (maybe in another Termux"
+  echo " session), or the Kodi Sorter companion app is sharing. Kodi can already reach the phone."
+  echo " To restart it: type  xbox-share stop  then  xbox-share"
+  exit 1
 fi
 rclone serve webdav "$DIR" --addr ":$PORT" --user kodi --pass "$PASS" \
   --dir-cache-time 5s --poll-interval 0 --log-level NOTICE

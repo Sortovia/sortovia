@@ -154,6 +154,9 @@ This lets the Xbox read the phone's Download folder, send its logs there and dow
 3. Turn on the phone's **Mobile hotspot** and connect the Xbox to it.
 4. In Termux type **`xbox-share`**. Kodi Sorter on the Xbox finds the phone by itself and asks for the password once.
 5. Keep Termux open (in the background is fine) while you use it.
+6. Handy commands: `xbox-share password` shows the password, and `xbox-share stop` stops a share that's running in
+   any Termux session (for example before using the companion app instead). If xbox-share says the port is in use,
+   it's already running.
 
 For a USB drive plugged into the phone, use the *primitive ftpd* app (F-Droid) and choose
 "USB drive on the phone" in Kodi Sorter.

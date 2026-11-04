@@ -12,6 +12,7 @@ Pages in other formats (PNG ...) stay as they are.
 """
 import re
 import struct
+import zlib
 
 from sortlib import COMICS, comic_series
 
@@ -118,3 +119,37 @@ def plan_tidy(files, folder_series=comic_series):
         elif len(parts) == 1 and parts[0] != series and folder_series(parts[0] + ".cbz").lower() == series.lower():
             moves.append((parts, name, series))
     return moves, documents
+
+
+class StoredZip(object):
+    """A .cbz writer that only ever appends (no seeking), so it can write through
+    Kodi's file functions to the external drive. Pages are stored, not compressed:
+    JPEGs don't shrink, and Kodi opens stored pages fastest."""
+    DOS_DATE = (2026 - 1980) << 9 | 1 << 5 | 1  # a fixed date: the content is what matters
+
+    def __init__(self, write):
+        self.write, self.offset, self.entries = write, 0, []
+
+    def _put(self, b):
+        self.write(b)
+        self.offset += len(b)
+
+    def add(self, name, data):
+        raw = name.replace("\\", "/").encode("utf-8")
+        flag = 0x800 if any(c > 127 for c in bytearray(raw)) else 0  # UTF-8 names
+        crc = zlib.crc32(data) & 0xFFFFFFFF
+        if self.offset + len(data) > 0xFFFFFFF0:
+            raise IOError("comic too big for a plain .cbz (over 4 GB)")
+        self.entries.append((raw, flag, crc, len(data), self.offset))
+        self._put(struct.pack("<IHHHHHIIIHH", 0x04034B50, 20, flag, 0, 0, self.DOS_DATE, crc,
+                              len(data), len(data), len(raw), 0) + raw)
+        self._put(data)
+
+    def close(self):
+        start = self.offset
+        for raw, flag, crc, size, off in self.entries:
+            self._put(struct.pack("<IHHHHHHIIIHHHHHII", 0x02014B50, 20, 20, flag, 0, 0, self.DOS_DATE, crc,
+                                  size, size, len(raw), 0, 0, 0, 0, 0, off) + raw)
+        n = len(self.entries)
+        self._put(struct.pack("<IHHHHIIH", 0x06054B50, 0, 0, n, n, self.offset - start, start, 0))
+        return self.offset

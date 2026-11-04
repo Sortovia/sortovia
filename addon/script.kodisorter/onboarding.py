@@ -214,7 +214,7 @@ class Onboarding(object):
                                            "Use the standard folder: %s" % self._std_line(kind, short=True)])
             folders = self.state.setdefault("folders", {})
             if how == 0:
-                path = dlg.browse(0, "Pick the folder that holds your %s" % names[kind].lower(), "files")
+                path = dlg.browse(0, "Your %s folder" % names[kind].lower(), "files")
                 if path:
                     folders[kind] = path
                     self.save()

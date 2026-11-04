@@ -44,6 +44,8 @@ class Convert(unittest.TestCase):
         vfs.translatePath = lambda p: temp + "/" if p.startswith("special://temp") else p
         d.log = lambda m: None
         d.step = lambda *a: None
+        self.work = os.path.join(self.tmp, "E", "_Kodi Sorter temp") + "/"
+        os.makedirs(self.work)
         self.comic = os.path.join(self.tmp, "Comics", "Ironclad") + "/Ironclad v01.cbr"
         os.makedirs(os.path.dirname(self.comic))
         open(self.comic, "wb").write(b"rar data")
@@ -59,7 +61,7 @@ class Convert(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_cbr_becomes_turned_cbz(self):
-        ok, msg, new = self.d.convert_comic(self.comic, 8)
+        ok, msg, new = self.d.convert_comic(self.comic, 8, work=self.work)
         self.assertTrue(ok, msg)
         self.assertTrue(new.endswith("Ironclad v01.cbz"))
         self.assertFalse(os.path.exists(self.comic))
@@ -67,21 +69,22 @@ class Convert(unittest.TestCase):
             self.assertEqual(z.namelist(), ["ComicInfo.xml", "Vol 1/p1.jpg", "Vol 1/p2.jpg", "Vol 1/p10.jpg"])
             self.assertEqual(self.d.comics.orientation_of(z.read("Vol 1/p1.jpg")), 8)
         self.assertIn("turned", msg)
-        self.assertEqual(os.listdir(os.path.join(self.tmp, "temp")), [])  # temp file cleaned up
+        self.assertEqual(os.listdir(self.work), [])  # work file cleaned up
+        self.assertEqual(os.listdir(os.path.join(self.tmp, "temp")), [])  # nothing on the Xbox's own storage
 
     def test_upright_leaves_pages_untouched_and_keeps_existing_cbz(self):
         open(self.comic[:-4] + ".cbz", "wb").write(b"already here")
-        ok, msg, new = self.d.convert_comic(self.comic, 1)
+        ok, msg, new = self.d.convert_comic(self.comic, 1, work=self.work)
         self.assertFalse(ok)
         self.assertTrue(os.path.exists(self.comic))  # original kept
         os.remove(self.comic[:-4] + ".cbz")
-        ok, msg, new = self.d.convert_comic(self.comic, 1)
+        ok, msg, new = self.d.convert_comic(self.comic, 1, work=self.work)
         with zipfile.ZipFile(new) as z:
             self.assertEqual(z.read("Vol 1/p1.jpg"), JPEG)
 
     def test_unreadable_archive_keeps_original(self):
         self.d.open_archive = lambda path: None
-        ok, msg, new = self.d.convert_comic(self.comic, 8)
+        ok, msg, new = self.d.convert_comic(self.comic, 8, work=self.work)
         self.assertFalse(ok)
         self.assertIn("Archive support", msg)
         self.assertTrue(os.path.exists(self.comic))

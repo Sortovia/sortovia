@@ -112,9 +112,11 @@ def _find(folder, name, depth=3):
     return None
 
 
-def export_xml(rpc=_rpc, wait=600, sleep=time.sleep):
-    """Kodi's single-file library export, as bytes."""
-    tmp = "special://temp/kodisorter-export-%d/" % int(time.time())
+def export_xml(rpc=_rpc, wait=600, sleep=time.sleep, work="special://temp/"):
+    """Kodi's single-file library export, as bytes. Kodi also writes every poster
+    and fan art into the export folder, so work should be on the big library
+    drive, not the Xbox's own small storage."""
+    tmp = "%skodisorter-export-%d/" % (work, int(time.time()))
     xbmcvfs.mkdirs(tmp)
     try:
         rpc("VideoLibrary.Export", {"options": {"path": tmp}})
@@ -174,14 +176,14 @@ def drive_dir(dest):
     return root + DRIVE_DIR + "/"
 
 
-def make_backup(places, to_phone=None, rpc=_rpc, log=lambda m: None):
+def make_backup(places, to_phone=None, rpc=_rpc, log=lambda m: None, work="special://temp/"):
     """Back up to each folder in places (each ending in a slash) and, with
     to_phone(stamp, files), to the phone. Returns (info, [where it was saved]).
     An empty library is never backed up, so a good backup isn't pushed out."""
     c = counts(rpc)
     if not (c["episodes"] or c["movies"]):
         raise IOError("Kodi's library is empty - nothing to back up (the older backups are kept)")
-    xml = export_xml(rpc)
+    xml = export_xml(rpc, work=work)
     db_name, db = newest_db()
     stamp = time.strftime("%Y-%m-%d %H%M")
     info = {"made": stamp, "counts": c, "kodi": xbmc.getInfoLabel("System.BuildVersion"),

@@ -80,6 +80,11 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
 - **Download from YouTube**: search or type a link on the Xbox. The phone downloads the video with your browser's
   sign-in cookies and saves it to `Download/YouTube`. Kodi Sorter then sorts it into `Tutorials`.
 
+**Real-Debrid** (optional, needs a premium account)
+- Sign in with a code on your phone. Pick from your Real-Debrid torrents, add a magnet link, or unlock a
+  file-host link. Files download to `Downloads\Real-Debrid` on the library drive in the background, then
+  *Sort the Real-Debrid downloads* files them.
+
 **Library extras**
 - *Back up / restore my Kodi library*: Kodi's own library export (with watched marks) plus its database file,
   saved on the Xbox, the library drive and the phone. It runs by itself once a day, and warns you if the library

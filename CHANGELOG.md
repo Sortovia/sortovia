@@ -2,6 +2,16 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.35 – Real-Debrid, and the Xbox's storage
+- **1.35.0**
+  - **Real-Debrid:** a new menu category.
+    - Sign in with a code on your phone (real-debrid.com/device), then pick from *My torrents*, add a magnet link, unlock a file-host link, or get a recent download again.
+    - Files download straight to `E:\Downloads\Real-Debrid` in the background, with progress and Stop at the top of the menu. Then *Sort the Real-Debrid downloads*.
+  - **Big temporary files go on the library drive** (`E:\_Kodi Sorter temp`), not the Xbox's own small storage. This covers building .cbz comics and the library backup's export, which also writes every poster and fan art.
+    - Turning comic pages failed with "no space left on device" because of this.
+  - **Free up space on the Xbox** (*Help & settings*) shows what's using the Xbox's storage and clears leftovers: temporary files, old add-on downloads and older backups. Kodi's artwork cache is shown but kept.
+  - Shorter folder-picker titles, so they aren't cut off.
+
 ## 1.34 – A tidier menu
 - **1.34.1** Fixes and a new clean-up:
   - **Converting .cbr to .cbz works on the Xbox.** The pages were read fine, but copying the finished .cbz onto the drive failed ("copying the .cbz failed"). It now copies through Kodi's own temp folder path.

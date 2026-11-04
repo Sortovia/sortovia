@@ -44,7 +44,7 @@ class Menu(unittest.TestCase):
     def test_every_entry_leads_somewhere(self):
         seen = set()
         self.walk("root", seen)
-        self.assertEqual({m for m in seen if not m.startswith("action:")}, {"sort", "youtube", "tidy", "library", "help"})
+        self.assertEqual({m for m in seen if not m.startswith("action:")}, {"sort", "youtube", "realdebrid", "tidy", "library", "help"})
         self.assertIn("action:same", seen)  # last settings exist
         self.assertIn("action:yt2", seen)
 

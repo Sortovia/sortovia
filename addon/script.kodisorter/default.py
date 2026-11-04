@@ -1239,7 +1239,7 @@ def phone_source(dlg, kind):
         return None
     # Optional: pick a folder inside the share (Back = the whole share).
     try:
-        sub = dlg.browse(0, "Pick the downloads folder on the phone (Back = whole share)",
+        sub = dlg.browse(0, "Phone folder (Back = all of Download)",
                          "files", "", False, False, real)
     except Exception:
         sub = ""
@@ -1624,10 +1624,415 @@ def _read_exact(url):
         f.close()
 
 
-def convert_comic(path, turn=1):
+# ---------- free up space on the Xbox ----------
+def _mb(n):
+    return "%.1f GB" % (n / 1e9) if n >= 1e9 else "%d MB" % round(n / 1e6) if n >= 1e6 else "%d KB" % max(1, round(n / 1e3))
+
+
+def dir_size(path, stop=lambda: False):
+    total = 0
+    try:
+        dirs, files = xbmcvfs.listdir(path)
+    except Exception:
+        return 0
+    for f in files:
+        try:
+            total += xbmcvfs.Stat(path + f).st_size()
+        except Exception:
+            pass
+    for d in dirs:
+        if stop():
+            break
+        total += dir_size(path + d + "/", stop)
+    return total
+
+
+def space_rows(stop=lambda: False):
+    """[(label, size, path, is_dir, preselected)] of what can be removed from the Xbox's storage."""
+    rows = []
+    temp = "special://temp/"
+    try:
+        dirs, files = xbmcvfs.listdir(temp)
+    except Exception:
+        dirs, files = [], []
+    ours = lambda n: n.lower().startswith(("kodisorter", "comic-")) or "archive" in n.lower() or "rar" in n.lower()
+    for d in dirs:
+        size = dir_size(temp + d + "/", stop)
+        if size:
+            rows.append(("Temporary: %s" % d, size, temp + d + "/", True, ours(d)))
+    for f in files:
+        if f.lower().endswith(".log"):
+            continue  # Kodi's own log
+        try:
+            size = xbmcvfs.Stat(temp + f).st_size()
+        except Exception:
+            continue
+        if size:
+            rows.append(("Temporary: %s" % f, size, temp + f, False, ours(f) or f.lower().endswith((".tmp", ".cbz", ".zip"))))
+    pk = "special://home/addons/packages/"
+    size = dir_size(pk, stop)
+    if size:
+        rows.append(("Old add-on install files (addons/packages)", size, pk, True, True))
+    stamps = [st for st, _ in backup.list_backups()]
+    for st in stamps[1:]:
+        size = dir_size(backup.HOME_DIR + st + "/", stop)
+        rows.append(("Older library backup %s (copies are on the drive and phone)" % st, size,
+                     backup.HOME_DIR + st + "/", True, True))
+    return sorted(rows, key=lambda r: -r[1])
+
+
+def free_space(dlg):
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, "Measuring what's on the Xbox's storage...")
+    try:
+        rows = space_rows(prog.iscanceled)
+        art = dir_size("special://masterprofile/Thumbnails/", prog.iscanceled)
+    finally:
+        prog.close()
+    free = xbmc.getInfoLabel("System.FreeSpace") or "?"
+    if not rows:
+        dlg.ok(ADDON, "Nothing to clear. Free: %s.\nKodi's artwork cache uses %s (not cleared here - Kodi needs "
+                      "it for posters)." % (free, _mb(art)))
+        return
+    picks = dlg.multiselect("Free: %s - tick what to delete" % free,
+                            ["%s  -  %s" % (label, _mb(size)) for label, size, _, _, _ in rows],
+                            preselect=[i for i, r in enumerate(rows) if r[4]])
+    if not picks:
+        return
+    freed = 0
+    for i in picks:
+        label, size, path, is_dir, _ = rows[i]
+        ok = False
+        try:
+            if is_dir and path.endswith("addons/packages/"):
+                for f in xbmcvfs.listdir(path)[1]:
+                    xbmcvfs.delete(path + f)
+                ok = True
+            elif is_dir:
+                ok = xbmcvfs.rmdir(path, True)
+            else:
+                ok = xbmcvfs.delete(path)
+        except Exception as e:
+            log("couldn't delete %s: %s" % (path, e))
+        if ok:
+            freed += size
+        log("free space: %s %s (%s)" % ("deleted" if ok else "couldn't delete", path, _mb(size)))
+    dlg.ok(ADDON, "Freed about %s.\nFree now: %s.\nKodi's artwork cache uses %s (kept - Kodi needs it)." %
+           (_mb(freed), xbmc.getInfoLabel("System.FreeSpace") or "?", _mb(art)))
+
+
+# ---------- Real-Debrid ----------
+PROP_RD = "kodisorter.rd"            # status text while a Real-Debrid download runs
+PROP_RD_STOP = "kodisorter.rd.stop"
+RD_FILE = "realdebrid.json"
+
+
+def rd_client():
+    import realdebrid
+    return realdebrid.RD(lambda: load_cache(data_file(RD_FILE)), lambda st: save_cache(data_file(RD_FILE), st))
+
+
+def rd_folder(dlg=None):
+    """<library drive>\\Downloads\\Real-Debrid\\ (made if needed)."""
+    root = backup.drive_dir(load_cache(data_file("last_settings.json")).get("dest") or "")
+    if root:
+        folder = root.replace(backup.DRIVE_DIR, "Downloads") + "Real-Debrid/"
+        xbmcvfs.mkdirs(folder)
+        if xbmcvfs.exists(folder):
+            return folder
+    if dlg is not None:
+        pick = dlg.browse(0, "Real-Debrid downloads go where?", "files")
+        return ensure_slash(pick) if pick else None
+    return None
+
+
+def rd_sign_in(dlg):
+    import realdebrid
+    rd = rd_client()
+    how = dlg.select("Sign in to Real-Debrid", ["With a code on my phone (easiest)",
+                                                "Type an API token (real-debrid.com/apitoken)"])
+    try:
+        if how == 1:
+            tok = dlg.input("Real-Debrid API token")
+            if tok:
+                rd.use_api_token(tok)
+        elif how == 0:
+            dev = rd.device_start()
+            prog = xbmcgui.DialogProgress()
+            prog.create(ADDON, "On your phone, open %s\nand enter the code:  %s" % (
+                dev.get("verification_url", "real-debrid.com/device"), dev["user_code"]))
+            end = time.time() + int(dev.get("expires_in", 600))
+            try:
+                while time.time() < end and not prog.iscanceled():
+                    prog.update(int(100 - (end - time.time()) * 100 / max(int(dev.get("expires_in", 600)), 1)))
+                    if rd.device_poll(dev):
+                        break
+                    xbmc.sleep(int(dev.get("interval", 5)) * 1000)
+            finally:
+                prog.close()
+        if rd.signed_in():
+            u = rd.user()
+            rd.state["username"] = u.get("username", "")
+            rd.state["premium_until"] = (u.get("expiration") or "")[:10]
+            rd.save(rd.state)
+            dlg.ok(ADDON, "Signed in to Real-Debrid as %s%s." % (
+                u.get("username", "?"), (" (premium until %s)" % rd.state["premium_until"]) if u.get("type") == "premium"
+                else " - note: downloads need a premium account"))
+    except realdebrid.RDError as e:
+        dlg.ok(ADDON, str(e))
+
+
+def _rd_ready(dlg):
+    rd = rd_client()
+    if not rd.signed_in():
+        rd_sign_in(dlg)
+        rd = rd_client()
+    return rd if rd.signed_in() else None
+
+
+def rd_download(dlg, files, group=""):
+    """Download [(url, name, size)] into the Real-Debrid folder, in the background
+    (Kodi stays usable; the top of Kodi Sorter's menu shows progress and Stop)."""
+    try:
+        from urllib.request import Request, urlopen
+    except ImportError:
+        from urllib2 import Request, urlopen
+    if home().getProperty(PROP_RD):
+        dlg.ok(ADDON, "A Real-Debrid download is already running (%s)." % home().getProperty(PROP_RD))
+        return
+    folder = rd_folder(dlg)
+    if not folder:
+        return
+    if group:
+        folder = join(folder, safe(group)) + "/"
+        xbmcvfs.mkdirs(folder)
+    total = sum(f[2] for f in files)
+    if not dlg.yesno(ADDON, "Download %d file(s), %s, to %s?\nIt uses the phone's internet (mobile data if Wi-Fi is "
+                     "off). It runs in the background - Kodi Sorter's menu shows the progress." % (
+                         len(files), _mb(total), friendly(folder)), nolabel="Cancel", yeslabel="Download"):
+        return
+    home().clearProperty(PROP_RD_STOP)
+    bar = xbmcgui.DialogProgressBG()
+    bar.create("Real-Debrid", "Starting")
+    done_bytes, ok, report = 0, 0, []
+    try:
+        for i, (url, name, size) in enumerate(files):
+            dst = folder + safe(name)
+            if xbmcvfs.exists(dst) and size and size_of(dst) == size:
+                report.append("ALREADY  %s" % name)
+                done_bytes += size
+                ok += 1
+                continue
+            got, start, last = 0, time.time(), 0
+            try:
+                resp = urlopen(Request(url, headers={"User-Agent": "KodiSorter"}), timeout=60)
+                out = _VfsWriter(dst)
+                try:
+                    while True:
+                        if home().getProperty(PROP_RD_STOP):
+                            raise CopyStopped()
+                        chunk = resp.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        got += len(chunk)
+                        if time.time() - last > 1:
+                            last = time.time()
+                            speed = got / max(time.time() - start, 1)
+                            pct = int((done_bytes + got) * 100 / max(total, 1))
+                            status = "%d of %d, %d%% - %s/s" % (i + 1, len(files), pct, _mb(speed))
+                            home().setProperty(PROP_RD, status)
+                            bar.update(pct, "Real-Debrid", "%s\n%s" % (status, name))
+                finally:
+                    out.close()
+                    resp.close()
+                if size and size_of(dst) != size:
+                    raise IOError("got %s of %s" % (_mb(size_of(dst)), _mb(size)))
+                ok += 1
+                done_bytes += size or got
+                report.append("OK   %s (%s)" % (name, _mb(got)))
+            except CopyStopped:
+                xbmcvfs.delete(dst)
+                report.append("STOPPED  %s - half download removed" % name)
+                break
+            except Exception as e:
+                xbmcvfs.delete(dst)
+                report.append("FAIL %s (%s)" % (name, e))
+            log("real-debrid: " + report[-1])
+    finally:
+        bar.close()
+        home().clearProperty(PROP_RD)
+        home().clearProperty(PROP_RD_STOP)
+    text = "%d of %d downloaded to %s\n\n%s" % (ok, len(files), friendly(folder), "\n".join(report))
+    if ok and dlg.yesno(ADDON, "Real-Debrid: %d of %d downloaded.\nSort them into your library now?" % (ok, len(files)),
+                        nolabel="Later", yeslabel="Sort now"):
+        rd_sort(dlg, session_file())
+    elif not ok:
+        dlg.textviewer("%s - Real-Debrid" % ADDON, text)
+
+
+def rd_torrents(dlg):
+    import realdebrid
+    import youtube
+    rd = _rd_ready(dlg)
+    if not rd:
+        return
+    try:
+        ts = rd.torrents()
+    except realdebrid.RDError as e:
+        dlg.ok(ADDON, str(e))
+        return
+    if not ts:
+        dlg.ok(ADDON, "Nothing in your Real-Debrid torrents yet. Add a magnet link here, or on real-debrid.com.")
+        return
+    pick = youtube.select2(dlg, "My Real-Debrid torrents", [tuple(youtube._short(x, 70) for x in
+                                                                 realdebrid.torrent_lines(t)) for t in ts])
+    if pick < 0:
+        return
+    t = ts[pick]
+    try:
+        if t.get("status") == "waiting_files_selection":
+            rd.call("/torrents/selectFiles/%s" % t["id"], {"files": "all"})
+            dlg.ok(ADDON, "Picked all its files. Real-Debrid fetches it now - come back when it says Ready.")
+            return
+        if t.get("status") != "downloaded":
+            dlg.ok(ADDON, "%s\n%s" % realdebrid.torrent_lines(t))
+            return
+        files = rd.torrent_files(t["id"])
+        if not files:
+            dlg.ok(ADDON, "Real-Debrid has no files for that one.")
+            return
+        rows = [(youtube._short(n, 60), realdebrid.size_text(b)) for n, b, _ in files]
+        chosen = youtube.select2(dlg, "Which files? (videos are ticked)", rows, multi=True,
+                                 preselect=[i for i, f in enumerate(files) if realdebrid.is_video(f[0])])
+        if not chosen:
+            return
+        prog = xbmcgui.DialogProgress()
+        prog.create(ADDON, "Unlocking the links on Real-Debrid...")
+        try:
+            todo = [rd.unrestrict(files[i][2]) for i in chosen]
+        finally:
+            prog.close()
+    except realdebrid.RDError as e:
+        dlg.ok(ADDON, str(e))
+        return
+    rd_download(dlg, todo, t.get("filename", ""))
+
+
+def rd_magnet(dlg):
+    import realdebrid
+    rd = _rd_ready(dlg)
+    if not rd:
+        return
+    m = dlg.input("Magnet link (paste it with Kore on the phone)")
+    if not m:
+        return
+    if not m.strip().startswith("magnet:"):
+        dlg.ok(ADDON, "That isn't a magnet link (it should start with magnet:).")
+        return
+    try:
+        rd.add_magnet(m)
+    except realdebrid.RDError as e:
+        dlg.ok(ADDON, str(e))
+        return
+    dlg.ok(ADDON, "Added to Real-Debrid. Popular ones are ready in seconds - open My torrents and pick it when it "
+                  "says Ready.")
+
+
+def rd_link(dlg):
+    import realdebrid
+    rd = _rd_ready(dlg)
+    if not rd:
+        return
+    link = dlg.input("File-host link (paste it with Kore on the phone)")
+    if not link:
+        return
+    try:
+        url, name, size = rd.unrestrict(link)
+    except realdebrid.RDError as e:
+        dlg.ok(ADDON, str(e))
+        return
+    rd_download(dlg, [(url, name, size)])
+
+
+def rd_history(dlg):
+    import realdebrid
+    import youtube
+    rd = _rd_ready(dlg)
+    if not rd:
+        return
+    try:
+        hs = [h for h in rd.history() if h.get("download")]
+    except realdebrid.RDError as e:
+        dlg.ok(ADDON, str(e))
+        return
+    if not hs:
+        dlg.ok(ADDON, "No recent Real-Debrid downloads.")
+        return
+    chosen = youtube.select2(dlg, "Recent Real-Debrid downloads - pick to get them again",
+                             [(youtube._short(h.get("filename", "?"), 60), "%s - %s" % (
+                                 realdebrid.size_text(h.get("filesize")), (h.get("generated") or "")[:10])) for h in hs],
+                             multi=True)
+    if chosen:
+        rd_download(dlg, [(hs[i]["download"], hs[i].get("filename", "download"), int(hs[i].get("filesize") or 0))
+                          for i in chosen])
+
+
+def rd_sort(dlg, spath):
+    folder = rd_folder(dlg)
+    last = load_cache(data_file("last_settings.json"))
+    if not folder or not last.get("dest"):
+        dlg.ok(ADDON, "Sort something once first (Sort my downloads), so Kodi Sorter knows your library drive.")
+        return
+    run(dlg, spath, folder, last["dest"], last.get("mode", ASK), last.get("delete_old", False),
+        last.get("lang_mode", 0), last.get("nfo_mode", 0), last.get("sub_mode", 0), last.get("empty_mode", 1))
+
+
+def rd_account(dlg):
+    rd = rd_client()
+    if not rd.signed_in():
+        rd_sign_in(dlg)
+        return
+    if dlg.yesno(ADDON, "Real-Debrid: signed in as %s%s." % (rd.state.get("username") or "?",
+                 (", premium until %s" % rd.state["premium_until"]) if rd.state.get("premium_until") else ""),
+                 nolabel="OK", yeslabel="Sign out"):
+        rd.sign_out()
+
+
+WORK_DIR = "_Kodi Sorter temp"
+
+
+def work_dir(near=None):
+    """A work folder on the library drive (big temporary files never go on the Xbox's
+    own small storage). near: any path on that drive; default the last destination.
+    Falls back to Kodi's temp folder when no drive is known."""
+    base = near or load_cache(data_file("last_settings.json")).get("dest")
+    root = backup.drive_dir(base) if base else None
+    if root:
+        folder = root.replace(backup.DRIVE_DIR, WORK_DIR)
+        xbmcvfs.mkdirs(folder)
+        mark_nomedia(folder)
+        if xbmcvfs.exists(folder):
+            return folder
+    return "special://temp/"
+
+
+class _VfsWriter(object):
+    def __init__(self, path):
+        self.f = xbmcvfs.File(path, "w")
+
+    def write(self, b):
+        if self.f.write(bytearray(b)) is False:
+            raise IOError("write failed (drive full?)")
+
+    def close(self):
+        self.f.close()
+
+
+def convert_comic(path, turn=1, work=None):
     """Rewrite a .cbr or .cbz as a .cbz next to it (pages stored as they are, JPEGs
-    given the orientation tag). Returns (ok, message, new path)."""
-    import zipfile
+    given the orientation tag). It's built in the work folder on the same drive, checked,
+    then copied into place; the original goes only after that. Returns (ok, message, new path)."""
     items = open_archive(path)
     if not items:
         return False, ("Kodi couldn't open it" + (" - .cbr needs Kodi's Archive support add-on"
@@ -1635,13 +2040,12 @@ def convert_comic(path, turn=1):
     urls = [u for u, _ in items]
     top = os.path.commonprefix(urls)
     top = top[:top.rfind("/") + 1]
-    # Python writes the zip through the real path; Kodi copies it through special://
-    # (on the Xbox, Kodi's own file functions read nothing from the real path).
-    tmp_vfs = "special://temp/kodisorter-comic.cbz"
-    tmp = os.path.join(xbmcvfs.translatePath("special://temp/"), "kodisorter-comic.cbz")
+    tmp = (work or work_dir(path)) + "comic-%d.cbz" % int(time.time())
     turned = other = 0
     try:
-        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
+        out = _VfsWriter(tmp)
+        try:
+            z = comics.StoredZip(out.write)
             for rel in comics.page_order([u[len(top):] for u in urls]):
                 data = _read_exact(top + rel)
                 if comics.ext_of(rel) in (".jpg", ".jpeg"):
@@ -1650,10 +2054,12 @@ def convert_comic(path, turn=1):
                     turned += 1
                 elif comics.ext_of(rel) in comics.IMAGES:
                     other += 1
-                z.writestr(rel.replace("\\", "/"), data)
-        with zipfile.ZipFile(tmp) as z:
-            if z.testzip() is not None or len(z.namelist()) != len(urls):
-                return False, "the new .cbz didn't check out - original kept", path
+                z.add(rel, data)
+            size = z.close()
+        finally:
+            out.close()
+        if size_of(tmp) != size or len(open_archive(tmp) or []) != len(urls):
+            return False, "the new .cbz didn't check out - original kept", path
         stem = split_name(base_of(path))[0]
         dst = parent_of(path) + stem + ".cbz"
         same = _norm(dst) == _norm(path)
@@ -1661,20 +2067,18 @@ def convert_comic(path, turn=1):
             return False, "a .cbz with that name is already there - left as it is", path
         if same and not xbmcvfs.delete(path):
             return False, "couldn't replace it (is it open?)", path
-        size = os.path.getsize(tmp)
         try:
-            copy_with_progress(tmp_vfs, dst, size)
+            copy_with_progress(tmp, dst, size)
         except Exception as e:
             log("comic copy failed (%s), trying Kodi's copy" % e)
             xbmcvfs.delete(dst)
-            xbmcvfs.copy(tmp_vfs, dst)
+            xbmcvfs.copy(tmp, dst)
         if size_of(dst) != size:
             xbmcvfs.delete(dst)
-            if same:  # the original is gone: keep the new one safe on the Xbox
-                rescue = "special://home/Kodi Sorter rescued/"
-                xbmcvfs.mkdirs(rescue)
-                xbmcvfs.copy(tmp_vfs, rescue + base_of(dst))
-                return False, "couldn't write it back - saved in Kodi's Home folder > Kodi Sorter rescued", path
+            if same:  # the original is gone: the checked copy stays in the work folder
+                keep = parent_of(tmp) + base_of(dst)
+                xbmcvfs.copy(tmp, keep)
+                return False, "couldn't write it back - the new copy is in %s" % friendly(keep), path
             return False, "copying the .cbz failed - original kept", path
         if not same:
             xbmcvfs.delete(path)
@@ -1687,10 +2091,8 @@ def convert_comic(path, turn=1):
         log("converting %s failed: %s" % (path, e))
         return False, "failed: %s - original kept" % e, path
     finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+        if xbmcvfs.exists(tmp):
+            xbmcvfs.delete(tmp)
 
 
 def _comics_root(dlg):
@@ -1865,7 +2267,7 @@ def backup_now(dlg=None):
         prog = xbmcgui.DialogProgress()
         prog.create(ADDON, "Backing up the Kodi library...\n(Kodi's export can take a minute)")
     try:
-        info, saved = backup.make_backup(_backup_places(), _backup_to_phone, log=log)
+        info, saved = backup.make_backup(_backup_places(), _backup_to_phone, log=log, work=work_dir())
     except Exception as e:
         log("library backup failed: %s" % e)
         _close(prog)
@@ -2326,7 +2728,7 @@ def youtube_menu(dlg, spath, last, only=None):
         return friendly(own or join(resolve_dest(d)[0], "Tutorials")) if (own or d) else ""
 
     def pick_dest():
-        d = dlg.browse(0, "Where should YouTube downloads be sorted? Pick the drive that holds your library (e.g. E:)", "files")
+        d = dlg.browse(0, "YouTube videos go to which drive? (e.g. E:)", "files")
         if d:
             y = load_cache(ypath)
             y["dest"] = d
@@ -2430,12 +2832,12 @@ def new_sort(dlg, spath):
     if where < 0:
         return
     if where == 0:
-        src = dlg.browse(0, "Kodi Sorter: pick SOURCE folder (downloads)", "files")
+        src = dlg.browse(0, "Where are the downloads?", "files")
     else:
         src = phone_source(dlg, "dav" if where == 1 else "ftp")
     if not src:
         return
-    dest = dlg.browse(0, "Pick DESTINATION: your Movies or TV folder (or the drive that holds them)", "files")
+    dest = dlg.browse(0, "Where do they go? (library drive, e.g. E:)", "files")
     if not dest:
         return
 
@@ -3938,6 +4340,10 @@ def menu_items(name):
         if status:
             out.append(_item("Moving files now (%s) - keep going or stop" % status,
                              "A sort is running in the background.", "DefaultIconInfo.png", action="running"))
+        rd_status = home().getProperty(PROP_RD)
+        if rd_status:
+            out.append(_item("Real-Debrid downloading (%s) - stop" % rd_status, "Select to stop it.",
+                             "DefaultNetwork.png", action="rd_stop"))
         prev = load_cache(session_file())
         if prev.get("src") and prev.get("dest") and not status:
             out.append(_item("Resume the sort that didn't finish (%s)" % prev.get("started", "?"),
@@ -3948,6 +4354,8 @@ def menu_items(name):
                   "Comics and Tutorials.", "DefaultFolder.png", menu="sort"),
             _item("YouTube", "Search YouTube on the Xbox; the phone downloads, then they're sorted into Tutorials.",
                   "DefaultAddonVideo.png", menu="youtube"),
+            _item("Real-Debrid", "Download what's in your Real-Debrid account straight to your library drive, "
+                  "then sort it.", "DefaultNetwork.png", menu="realdebrid"),
             _item("Tidy my library folders", "Put what's already in your TV, Movies and Comics folders into the "
                   "layout Kodi expects. Comics: .cbr to .cbz, turn pages.", "DefaultAddonService.png", menu="tidy"),
             _item("Kodi library", "Back up and restore the library, clean the TV and movie libraries, missing "
@@ -3982,6 +4390,23 @@ def menu_items(name):
                   "DefaultIconInfo.png", action="yt4"),
             _item("Import cookies now", "Pick up a new cookies.txt from the phone's Download folder.",
                   "DefaultAddonsUpdates.png", action="yt5")]
+    if name == "realdebrid":
+        st = load_cache(data_file(RD_FILE))
+        who = ("Account: %s%s" % (st.get("username") or "signed in",
+                                  (" (premium until %s)" % st["premium_until"]) if st.get("premium_until") else "")
+               if st.get("access_token") else "Sign in to Real-Debrid")
+        return [
+            _item(who, "With a code on your phone, or an API token.", "DefaultUser.png", action="rd_account"),
+            _item("My torrents", "What's in your Real-Debrid account. Pick one that's Ready, tick the files, "
+                  "and they download to the drive.", "DefaultNetwork.png", action="rd_torrents"),
+            _item("Add a magnet link", "Real-Debrid fetches it; then pick it under My torrents.",
+                  "DefaultAddonsUpdates.png", action="rd_magnet"),
+            _item("Unlock a file-host link", "A link from a file host Real-Debrid supports.",
+                  "DefaultAddonsUpdates.png", action="rd_link"),
+            _item("Recent downloads", "Files you unlocked before (on any device) - get them again.",
+                  "DefaultIconInfo.png", action="rd_history"),
+            _item("Sort the Real-Debrid downloads", "Put what's in Downloads\\Real-Debrid into your library, "
+                  "with the same choices as your last sort.", "DefaultFolder.png", action="rd_sort")]
     if name == "tidy":
         pref = comics_pref()
         return [
@@ -4032,6 +4457,9 @@ def menu_items(name):
                   action="logs"),
             _item("View a text / NFO file", "Reads old DOS-style NFO art correctly.", "DefaultIconInfo.png",
                   action="nfo"),
+            _item("Free up space on the Xbox", "See what's using the Xbox's own storage and clear leftovers "
+                  "(temporary files, old add-on downloads, older backups).", "DefaultAddonService.png",
+                  action="free_space"),
             _item("Show the welcome screen again", "", "DefaultIconInfo.png", action="welcome")]
     return []
 
@@ -4127,9 +4555,17 @@ ACTIONS = {
     "update": lambda dlg, spath: check_for_update(dlg, manual=True),
     "logs": lambda dlg, spath: dlg.ok(ADDON, "Log: %s." % send_logs("manual", dlg)),
     "nfo": lambda dlg, spath: view_text_file(dlg),
+    "free_space": lambda dlg, spath: free_space(dlg),
+    "rd_account": lambda dlg, spath: rd_account(dlg),
+    "rd_torrents": lambda dlg, spath: rd_torrents(dlg),
+    "rd_magnet": lambda dlg, spath: rd_magnet(dlg),
+    "rd_link": lambda dlg, spath: rd_link(dlg),
+    "rd_history": lambda dlg, spath: rd_history(dlg),
+    "rd_sort": rd_sort,
+    "rd_stop": lambda dlg, spath: home().setProperty(PROP_RD_STOP, "1"),
 }
 ACTIONS.update(("yt%d" % i, _youtube(i)) for i in range(9))
-STARTS_A_RUN = ("resume", "same", "new", "tidy_tv", "tidy_movies", "yt3")
+STARTS_A_RUN = ("resume", "same", "new", "tidy_tv", "tidy_movies", "yt3", "rd_sort")
 
 
 def do_action(name):

@@ -79,6 +79,9 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
   sign-in cookies and saves it to `Download/YouTube`. Kodi Sorter then sorts it into `Tutorials`.
 
 **Library extras**
+- *Back up / restore my Kodi library*: Kodi's own library export (with watched marks) plus its database file,
+  saved on the Xbox, the library drive and the phone. It runs by itself once a day, and warns you if the library
+  suddenly shrinks. To restore: Kodi → Settings → Media → Library → Import library → Home folder → Kodi library backups.
 - *Find missing episodes*: compares your Kodi TV library with TVmaze and lists aired episodes you don't have.
 - *Where to watch*: says per season whether a show is on your streaming services, free with ads,
   on another subscription, or available to buy or rent. This uses TMDb's watch data and needs a free TMDb key.
@@ -160,6 +163,7 @@ For a USB drive plugged into the phone, use the *primitive ftpd* app (F-Droid) a
    - **Search YouTube** or **Type a link** (a video or a playlist),
    - **Downloads** to watch progress,
    - **Download quality**: up to 4K, 1080p (default), 720p, 480p or sound only,
+   - **Search results order**: best match, newest, most viewed, longest or shortest. Each result shows its length, when it came out, its views and its channel,
    - **Where sorted videos go**: chosen once (for example `E:\Tutorials`); sorting then goes straight there,
    - **Sort the finished downloads** to put them into `Tutorials`.
 

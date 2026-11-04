@@ -12,7 +12,7 @@ folder into ~/.config/xbox-share/youtube-cookies.txt and uses it from there.
 
 HTTP on port 8081, same user/password as xbox-share (Basic auth):
   GET  /yt/ping              helper + cookies status
-  GET  /yt/search?q=..&n=15  search results
+  GET  /yt/search?q=..&n=15&order=best|newest|views|longest|shortest  search results
   POST /yt/add   {"url", "title"}   queue a download
   GET  /yt/jobs              queue with progress
   POST /yt/cancel {"id"}     stop / remove one
@@ -159,7 +159,103 @@ def explain(err):
 
 
 # ---------- search ----------
-def search(q, n):
+# YouTube's own search API: one request, and unlike yt-dlp's search it says when
+# each video came out ("4 years ago") and how many views it has. yt-dlp is the
+# fallback (links, playlists, or if YouTube changes this reply).
+ORDERS = [["best", "Best match"], ["newest", "Newest first"], ["views", "Most viewed"],
+          ["longest", "Longest first"], ["shortest", "Shortest first"]]
+API_SORT = {"views": "CAM="}  # YouTube sorts these itself; the rest are sorted here
+AGE_RE = re.compile(r"(\d+)\s+(second|minute|hour|day|week|month|year)", re.I)
+AGE_DAYS = {"second": 1 / 86400., "minute": 1 / 1440., "hour": 1 / 24., "day": 1, "week": 7, "month": 30.4, "year": 365.25}
+
+
+def age_days(text):
+    """'4 years ago' -> about 1461 (days); unknown -> None."""
+    m = AGE_RE.search(text or "")
+    return int(m.group(1)) * AGE_DAYS[m.group(2).lower()] if m else None
+
+
+def _text(o):
+    o = o or {}
+    return o.get("simpleText") or "".join(r.get("text", "") for r in o.get("runs", []))
+
+
+def _seconds(text):
+    secs = 0
+    for part in (text or "").split(":"):
+        if not part.strip().isdigit():
+            return 0
+        secs = secs * 60 + int(part)
+    return secs
+
+
+def _video_renderers(o, out):
+    if isinstance(o, dict):
+        if "videoRenderer" in o:
+            out.append(o["videoRenderer"])
+        for v in o.values():
+            _video_renderers(v, out)
+    elif isinstance(o, list):
+        for v in o:
+            _video_renderers(v, out)
+    return out
+
+
+def parse_api_results(data):
+    out = []
+    for v in _video_renderers(data, []):
+        vid = v.get("videoId")
+        if not vid:
+            continue
+        views = re.sub(r"[^0-9]", "", _text(v.get("viewCountText")).split(" ")[0])
+        out.append({"id": vid, "url": "https://www.youtube.com/watch?v=%s" % vid,
+                    "title": _text(v.get("title")) or vid,
+                    "channel": _text(v.get("ownerText") or v.get("longBylineText")),
+                    "duration": _seconds(_text(v.get("lengthText"))),
+                    "published": _text(v.get("publishedTimeText")),
+                    "views": int(views) if views else None})
+    return out
+
+
+def api_search(q, order):
+    from urllib.request import Request, urlopen
+    body = {"context": {"client": {"clientName": "WEB", "clientVersion": "2.20250101.00.00", "hl": "en", "gl": "US"}},
+            "query": q}
+    if API_SORT.get(order):
+        body["params"] = API_SORT[order]
+    req = Request("https://www.youtube.com/youtubei/v1/search?prettyPrint=false", data=json.dumps(body).encode(),
+                  headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"})
+    resp = urlopen(req, timeout=170)
+    try:
+        return parse_api_results(json.loads(resp.read().decode("utf-8")))
+    finally:
+        resp.close()
+
+
+def sort_results(res, order):
+    big = float("inf")
+    if order == "newest":
+        res.sort(key=lambda r: age_days(r.get("published")) if age_days(r.get("published")) is not None else big)
+    elif order == "longest":
+        res.sort(key=lambda r: -(r.get("duration") or 0))
+    elif order == "shortest":
+        res.sort(key=lambda r: r.get("duration") or big)
+    return res
+
+
+def search(q, n, order="best"):
+    if not re.match(r"https?://", q):
+        try:
+            res = api_search(q, order)
+            if res:
+                return sort_results(res[:max(n, 20)], order)
+        except Exception as e:
+            log("YouTube search API failed (%s), using yt-dlp" % e)
+        return sort_results(ytdlp_search(q, n), order)
+    return ytdlp_search(q, n)
+
+
+def ytdlp_search(q, n):
     cmd = base_cmd() + ["--flat-playlist", "-J", "ytsearch%d:%s" % (n, q)]
     if re.match(r"https?://", q):
         cmd = base_cmd() + ["--flat-playlist", "-J", q]  # a link: list it (or a playlist's videos)
@@ -413,7 +509,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/yt/search":
             cookies_status()
             try:
-                return self._send({"results": search(q.get("q", [""])[0], min(int(q.get("n", ["15"])[0]), 40))})
+                return self._send({"results": search(q.get("q", [""])[0], min(int(q.get("n", ["15"])[0]), 40),
+                                                     q.get("order", ["best"])[0]), "orders": ORDERS})
             except Exception as e:
                 return self._send({"error": str(e)}, 502)
         if u.path == "/yt/jobs":
@@ -450,7 +547,12 @@ class Handler(BaseHTTPRequestHandler):
                 s["quality"] = b["quality"]
                 save_settings(s)
                 log("download quality: %s" % QUALITIES[s["quality"]][0])
-            return self._send({"settings": s, "qualities": [[k, v[0]] for k, v in QUALITIES.items()]})
+            if b.get("order") in dict(ORDERS):
+                s["order"] = b["order"]
+                save_settings(s)
+            s.setdefault("order", "best")
+            return self._send({"settings": s, "qualities": [[k, v[0]] for k, v in QUALITIES.items()],
+                               "orders": ORDERS})
         if u.path == "/yt/cookies":
             # "Import cookies now": look in Download right away and say what happened
             st = cookies_status()

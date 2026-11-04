@@ -267,6 +267,39 @@ def queue_videos(dlg, phone, items):
         watch(phone)
 
 
+def _views(n):
+    if not n:
+        return ""
+    for div, unit in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if n >= div:
+            return ("%.1f" % (n / div)).rstrip("0").rstrip(".") + unit + " views"
+    return "%d views" % n
+
+
+def result_lines(x):
+    """(title, 'length - 4 years ago - 1.2M views - channel') for a search result."""
+    bits = [_mins(x["duration"]) if x.get("duration") else "playlist/live",
+            x.get("published") or "", _views(x.get("views")), x.get("channel") or ""]
+    return _short(_plain(x["title"])), _short(" - ".join(b for b in bits if b), 70)
+
+
+def order_info(phone):
+    """(current order key, [[key, label], ...]); ('best', []) with an older helper."""
+    r = phone.call("/yt/settings", {})
+    return (r.get("settings") or {}).get("order", "best"), r.get("orders") or []
+
+
+def choose_order(dlg, phone):
+    cur, orders = order_info(phone)
+    if not orders:
+        dlg.ok(HEADING, "The phone's YouTube helper is older than this option. On the phone: stop xbox-share "
+                        "(Ctrl+C) and start it again, then try again.")
+        return
+    pick = dlg.select("Show search results", [("%s  (now)" % v) if k == cur else v for k, v in orders])
+    if pick >= 0:
+        phone.call("/yt/settings", {"order": orders[pick][0]})
+
+
 def search(dlg, phone, last):
     q = dlg.input("Search YouTube", last.get("q", ""))
     if not q:
@@ -276,7 +309,8 @@ def search(dlg, phone, last):
     prog.create(HEADING, "Searching YouTube for \"%s\" on the phone..." % q)
     try:
         # 20 = one page of YouTube results (25 needed a second, slow request)
-        r = phone.call("/yt/search?n=20&q=" + quote(q), timeout=200)
+        order = last.get("order") or "best"
+        r = phone.call("/yt/search?n=20&order=%s&q=%s" % (order, quote(q)), timeout=200)
     finally:
         prog.close()
     if r.get("error"):
@@ -286,10 +320,10 @@ def search(dlg, phone, last):
     if not res:
         dlg.ok(HEADING, "Nothing found for \"%s\"." % q)
         return
-    rows = [(_short(_plain(x["title"])), _short("%s%s" % (_mins(x["duration"]) if x.get("duration") else "playlist/live",
-                                                          " - " + x["channel"] if x.get("channel") else ""), 70))
-            for x in res]
-    picks = select2(dlg, "Pick the videos to download (select several, then OK)", rows, multi=True)
+    rows = [result_lines(x) for x in res]
+    names = dict(r.get("orders") or [])
+    picks = select2(dlg, "Pick the videos (%s) - select several, then OK" % names.get(order, "best match").lower(),
+                    rows, multi=True)
     if picks:
         queue_videos(dlg, phone, [res[i] for i in picks])
 
@@ -382,6 +416,8 @@ def menu(dlg, find_ip, creds, log, dest_line=None):
                             "app can't download from YouTube yet (coming in its next version)." % e)
             return None
         qcur, qlist = quality_info(phone)
+        ocur, olist = order_info(phone)
+        last["order"] = ocur
         c = st.get("cookies") or {}
         if c.get("imported"):
             xbmcgui.Dialog().notification(HEADING, "Cookies imported from %s" % c["imported"], xbmcgui.NOTIFICATION_INFO, 5000)
@@ -393,6 +429,8 @@ def menu(dlg, find_ip, creds, log, dest_line=None):
                 "Import cookies now (from the phone's Download folder)",
                 "Download quality: %s" % (quality_label(qcur, qlist) if qlist
                                           else "restart xbox-share on the phone to choose"),
+                "Search results order: %s" % (dict(olist).get(ocur, ocur) if olist
+                                              else "restart xbox-share on the phone to choose"),
                 "Where sorted videos go: %s (change)" % (dest_line() if dest_line else "?")]
         pick = dlg.select("%s - %s" % (HEADING, cookie_line(st)), opts)
         try:
@@ -417,6 +455,8 @@ def menu(dlg, find_ip, creds, log, dest_line=None):
             elif pick == 6:
                 choose_quality(dlg, phone)
             elif pick == 7:
+                choose_order(dlg, phone)
+            elif pick == 8:
                 return "dest"
         except RuntimeError as e:
             dlg.ok(HEADING, str(e))

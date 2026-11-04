@@ -24,6 +24,7 @@ import xbmcgui
 import xbmcvfs
 
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
+import backup
 from sortlib import VIDEO, SUBS, AUDIO, episode_tag, sub_lang, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
 
 try:
@@ -1286,10 +1287,11 @@ def _dav_ok(ip, port, user, pw):
         return getattr(e, "code", None) in (207, 405)
 
 
-def send_logs(why, dlg=None, files=None):
+def send_logs(why, dlg=None, files=None, folder=LOG_DIR):
     """PUT kodi.log (and kodi.old.log on start-up) to the phone. Returns a short status.
     With dlg: if the phone is sharing but no password is saved yet, ask for it.
-    files: [(name, bytes)] to send instead of the logs (e.g. a report)."""
+    files: [(name, bytes)] to send instead of the logs (e.g. a report).
+    folder: where in the phone's Download folder (made if needed, e.g. "A/B")."""
     import socket
     saved = load_cache(data_file("phone.json"))
     creds = saved.get("dav") or {}
@@ -1321,7 +1323,7 @@ def send_logs(why, dlg=None, files=None):
     except ImportError:
         from urllib2 import Request, urlopen
     auth = base64.b64encode(("%s:%s" % (creds["user"], creds["pass"])).encode()).decode()
-    base = "http://%s:%d/%s/" % (ip, port, LOG_DIR)
+    base = "http://%s:%d/%s/" % (ip, port, quote(folder))
 
     def call(method, url, data=None):
         req = Request(url, data=data, headers={"Authorization": "Basic " + auth})
@@ -1333,7 +1335,9 @@ def send_logs(why, dlg=None, files=None):
             code = getattr(e, "code", None)
             return code == 405 and method == "MKCOL"  # 405 = folder already there
 
-    call("MKCOL", base)
+    parts = folder.split("/")
+    for i in range(1, len(parts) + 1):  # each level of the folder
+        call("MKCOL", "http://%s:%d/%s/" % (ip, port, quote("/".join(parts[:i]))))
     logdir = "special://logpath/"
     stamp = time.strftime("%Y%m%d-%H%M%S")
     names = [("kodi.log", "kodi-%s-%s.log" % (stamp, why))]
@@ -1593,6 +1597,94 @@ def check_for_update(dlg, manual=False, splash=None):
         return False
     dlg.ok(ADDON, "Updated to %s.\nOpen Kodi Sorter again to use the new version." % newest)
     return True
+
+
+# ---------- library backup ----------
+BACKUP_STATE = "backup.json"  # addon_data: last backup's time and counts
+
+
+def _backup_places():
+    last = load_cache(data_file("last_settings.json"))
+    return [backup.HOME_DIR, backup.drive_dir(last.get("dest"))]
+
+
+def _backup_to_phone(stamp, files):
+    if not (load_cache(data_file("phone.json")).get("dav") or {}).get("pass"):
+        return False
+    status = send_logs("backup", files=files, folder="KodiSorterBackups/" + stamp)
+    return status == "sent %d file(s) to the phone" % len(files)
+
+
+def backup_line():
+    return load_cache(data_file(BACKUP_STATE)).get("made") or "never"
+
+
+def backup_now(dlg=None):
+    """Make a library backup. With dlg: show progress and the result."""
+    prog = None
+    if dlg is not None:
+        prog = xbmcgui.DialogProgress()
+        prog.create(ADDON, "Backing up the Kodi library...\n(Kodi's export can take a minute)")
+    try:
+        info, saved = backup.make_backup(_backup_places(), _backup_to_phone, log=log)
+    except Exception as e:
+        log("library backup failed: %s" % e)
+        _close(prog)
+        if dlg is not None:
+            dlg.ok(ADDON, "Library backup failed: %s" % e)
+        return False
+    _close(prog)
+    save_cache(data_file(BACKUP_STATE), {"time": time.time(), "made": info["made"], "counts": info["counts"]})
+    where = ", ".join("the phone" if p == "phone" else "Kodi's home folder" if p == backup.HOME_DIR
+                      else friendly(p) for p in saved)
+    if dlg is not None:
+        dlg.ok(ADDON, "Library backed up: %s.\nSaved to %s." % (backup.counts_line(info["counts"]), where))
+    else:
+        toast("Library backed up (%s)" % backup.counts_line(info["counts"]), 4000)
+    return True
+
+
+def check_library_backup(dlg):
+    """Start-up: warn if the library suddenly shrank, else back it up once a day (in the background)."""
+    state = load_cache(data_file(BACKUP_STATE))
+    try:
+        now = backup.counts()
+    except Exception as e:
+        log("library count failed: %s" % e)
+        return
+    lost = backup.shrunk(now, state.get("counts") or {})
+    if lost:
+        if state.get("warned") != now:
+            state["warned"] = now
+            save_cache(data_file(BACKUP_STATE), state)
+            if dlg.yesno(ADDON, "Kodi's library suddenly got smaller since the backup of %s.\n%s.\n"
+                         "Changing a source's content type can do this. Your backup is kept - see how to put it back?"
+                         % (state.get("made", "?"), lost), nolabel="Not now", yeslabel="Show me"):
+                dlg.textviewer("%s - restore the library" % ADDON, backup.RESTORE_HELP)
+        return  # no automatic backup while it's smaller: keep the good ones
+    if not (now["episodes"] or now["movies"]) or time.time() - state.get("time", 0) < backup.EVERY:
+        return
+    import threading
+    threading.Thread(target=backup_now).start()
+
+
+def backup_menu(dlg):
+    state = load_cache(data_file(BACKUP_STATE))
+    while True:
+        pick = dlg.select("Kodi library backup - last: %s" % (state.get("made") or "never"),
+                          ["Back up the library now",
+                           "How to put a backup back (restore)",
+                           "List the backups on this Xbox"])
+        if pick < 0:
+            return
+        if pick == 0:
+            backup_now(dlg)
+            state = load_cache(data_file(BACKUP_STATE))
+        elif pick == 1:
+            dlg.textviewer("%s - restore the library" % ADDON, backup.RESTORE_HELP)
+        else:
+            rows = ["%s   %s" % (stamp, backup.counts_line(info.get("counts") or {})) for stamp, info in backup.list_backups()]
+            dlg.textviewer("%s - backups" % ADDON, "\n".join(rows) or "No backups yet.")
 
 
 def _close(splash):
@@ -1916,12 +2008,13 @@ def main():
     if ob and not ob.first_run(dlg, returning=bool(load_cache(data_file("last_settings.json")).get("src"))):
         ob.whats_new(dlg)
     set_language()  # the welcome screen may have just set it
+    spath = session_file()
     if ob and ob.pop_reorganize():
         kind, folder = ob.last_reorganize
         reorganize_folder(dlg, spath, kind, folder)
         return
 
-    spath = session_file()
+    check_library_backup(dlg)
     prev = load_cache(spath)
     if prev.get("src") and prev.get("dest"):
         where = "while moving files" if prev.get("stage") == "moving" else "while scanning"
@@ -1948,11 +2041,15 @@ def main():
                            "Where to watch a show...",
                            "View a text / NFO file",
                            "Search & download from YouTube (the phone downloads, then sort here)...",
-                           "Help: guide, version history, what to sort (now: %s)" % (ob.wanted_line() if ob else "everything")])
+                           "Help: guide, version history, what to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
+                           "Back up / restore my Kodi library (last: %s)" % backup_line()])
         if pick < 0:
             return
         if pick == 8:
             youtube_menu(dlg, spath, last)
+            return
+        if pick == 10:
+            backup_menu(dlg)
             return
         if pick == 9:
             if ob:
@@ -1988,11 +2085,15 @@ def main():
         # Nothing sorted yet: still offer YouTube and Help, not only a sort.
         first = dlg.select(ADDON, ["Sort my downloads into Kodi folders",
                                    "Search & download from YouTube (the phone downloads, then sort here)...",
-                                   "Help: guide, version history, what to sort"])
+                                   "Help: guide, version history, what to sort",
+                                   "Back up / restore my Kodi library (last: %s)" % backup_line()])
         if first < 0:
             return
         if first == 1:
             youtube_menu(dlg, spath, last)
+            return
+        if first == 3:
+            backup_menu(dlg)
             return
         if first == 2:
             if ob:

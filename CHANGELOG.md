@@ -2,6 +2,14 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.32 – Library backup
+- **1.32.0** **Back up / restore my Kodi library** on the start menu.
+  - A backup holds Kodi's own library export (shows, episodes, movies, watched marks and resume points) plus a copy of Kodi's database file.
+  - It's saved on the Xbox (Home folder → Kodi library backups), on your library drive (`_Kodi library backups`) and on the phone (`Download/KodiSorterBackups`). The newest 5 are kept on the Xbox and the drive.
+  - It **backs up by itself once a day** when Kodi Sorter opens, in the background. An empty library is never backed up, so a good backup is never pushed out.
+  - If the library **suddenly loses half its episodes or movies**, for example after changing a source's content type, it warns you and shows how to put the backup back (Kodi: Settings → Media → Library → Import library).
+  - **YouTube search** shows when each video came out and how many views it has. A new menu item, **Search results order**, sorts by best match, newest, most viewed, longest or shortest. Search is also quicker, because it asks YouTube directly.
+
 ## 1.31 – YouTube download quality
 - **1.31.4** **Downloads and search results fit on screen.** Each entry has two short lines: the title, then its progress or its length and channel. Nothing scrolls, so pressing down moves to the next entry straight away. A failed download has **Show the whole error**.
   - Search asks YouTube for 20 results instead of 25, which saves one slow request. If the phone's internet is very slow, it says so plainly instead of showing a long command.

@@ -1635,6 +1635,9 @@ def convert_comic(path, turn=1):
     urls = [u for u, _ in items]
     top = os.path.commonprefix(urls)
     top = top[:top.rfind("/") + 1]
+    # Python writes the zip through the real path; Kodi copies it through special://
+    # (on the Xbox, Kodi's own file functions read nothing from the real path).
+    tmp_vfs = "special://temp/kodisorter-comic.cbz"
     tmp = os.path.join(xbmcvfs.translatePath("special://temp/"), "kodisorter-comic.cbz")
     turned = other = 0
     try:
@@ -1660,17 +1663,17 @@ def convert_comic(path, turn=1):
             return False, "couldn't replace it (is it open?)", path
         size = os.path.getsize(tmp)
         try:
-            copy_with_progress(tmp, dst, size)
+            copy_with_progress(tmp_vfs, dst, size)
         except Exception as e:
             log("comic copy failed (%s), trying Kodi's copy" % e)
             xbmcvfs.delete(dst)
-            xbmcvfs.copy(tmp, dst)
+            xbmcvfs.copy(tmp_vfs, dst)
         if size_of(dst) != size:
             xbmcvfs.delete(dst)
             if same:  # the original is gone: keep the new one safe on the Xbox
                 rescue = "special://home/Kodi Sorter rescued/"
                 xbmcvfs.mkdirs(rescue)
-                xbmcvfs.copy(tmp, rescue + base_of(dst))
+                xbmcvfs.copy(tmp_vfs, rescue + base_of(dst))
                 return False, "couldn't write it back - saved in Kodi's Home folder > Kodi Sorter rescued", path
             return False, "copying the .cbz failed - original kept", path
         if not same:
@@ -1924,6 +1927,78 @@ def wrong_movies(movies, episode_keys, tv_root):
     return out
 
 
+PARK_KEY_RE = re.compile(r"/(?:_replaced|_unpacked|_no [a-z]+)/", re.I)
+
+
+def wrong_episodes(eps, movie_keys, roots):
+    """Episode entries that aren't TV episodes. eps: [{"episodeid", "label", "file"}];
+    roots: {"Movies": key, "Tutorials": key, "TV": key}. Returns [(episode, reason)]."""
+    out = []
+    for e in eps:
+        key = _lib_key(e.get("file"))
+        if not key:
+            continue
+        under = lambda k: bool(roots.get(k)) and key.startswith(roots[k] + "/")
+        if PARK_KEY_RE.search("/" + key + "/"):
+            why = "its file is in a set-aside folder (%s)" % PARK_KEY_RE.search("/" + key + "/").group(0).strip("/")
+        elif under("Movies"):
+            why = "its file is in your Movies folder"
+        elif under("Tutorials"):
+            why = "its file is in Tutorials"
+        elif key in movie_keys and not under("TV"):
+            why = "it's also in your Movies library"
+        else:
+            continue
+        out.append((e, why))
+    return out
+
+
+def _clean_kodi(content):
+    """Kodi's own clean-up for entries whose files are gone."""
+    import missing
+    try:
+        missing._rpc("VideoLibrary.Clean", {"showdialogs": True, "content": content})
+    except Exception as e:
+        log("Kodi's library clean (%s) failed: %s" % (content, e))
+
+
+def clean_tv_library(dlg):
+    import missing
+    roots = dict((k, _lib_key(library_folder(k) or "")) for k in ("TV", "Movies", "Tutorials"))
+    try:
+        eps = missing._rpc("VideoLibrary.GetEpisodes", {"properties": ["file", "showtitle", "season", "episode"]}
+                           ).get("episodes", [])
+        bad = wrong_episodes(eps, library_files("MOVIE"), roots)
+    except Exception as e:
+        dlg.ok(ADDON, "Couldn't read Kodi's library: %s" % e)
+        return
+    if bad:
+        dlg.textviewer("%s - not TV episodes" % ADDON, "\n".join(
+            "%s S%02dE%02d %s  -  %s\n    %s" % (e.get("showtitle", "?"), e.get("season", 0), e.get("episode", 0),
+                                              e.get("label", ""), why, shown_path(e.get("file", ""), ""))
+            for e, why in bad))
+        if not dlg.yesno(ADDON, "Remove these %d entries from the TV library?\nOnly the library entries go - no files "
+                         "are deleted. A library backup is made first." % len(bad), nolabel="Cancel", yeslabel="Remove"):
+            return
+        if not backup_now(dlg) and not dlg.yesno(ADDON, "The backup didn't work. Remove the entries anyway?",
+                                                 nolabel="Cancel", yeslabel="Remove"):
+            return
+        gone = 0
+        for e, _ in bad:
+            try:
+                missing._rpc("VideoLibrary.RemoveEpisode", {"episodeid": e["episodeid"]})
+                gone += 1
+            except Exception as ex:
+                log("couldn't remove episode %s: %s" % (e.get("label"), ex))
+        log("removed %d wrong episode entries" % gone)
+        dlg.ok(ADDON, "Removed %d of %d wrong episode entries.\nNext, Kodi removes entries whose files are gone." %
+               (gone, len(bad)))
+    elif not dlg.yesno(ADDON, "No wrong episodes: all %d are TV episodes in the right place.\nAlso let Kodi remove "
+                       "entries whose files are gone?" % len(eps), nolabel="No", yeslabel="Yes"):
+        return
+    _clean_kodi("tvshows")
+
+
 def fix_wrong_movies(dlg):
     import missing
     tv = library_folder("TV")
@@ -1934,7 +2009,9 @@ def fix_wrong_movies(dlg):
         dlg.ok(ADDON, "Couldn't read Kodi's library: %s" % e)
         return
     if not bad:
-        dlg.ok(ADDON, "No wrong movie entries: none of your %d movies is a TV episode." % len(movies))
+        if dlg.yesno(ADDON, "No wrong movie entries: none of your %d movies is a TV episode.\nAlso let Kodi remove "
+                     "entries whose files are gone?" % len(movies), nolabel="No", yeslabel="Yes"):
+            _clean_kodi("movies")
         return
     dlg.textviewer("%s - TV episodes listed as movies" % ADDON, "\n".join(
         "%s (%s)  -  %s\n    %s" % (m.get("label"), m.get("year") or "?", why, shown_path(m.get("file", ""), ""))
@@ -1954,7 +2031,9 @@ def fix_wrong_movies(dlg):
         except Exception as e:
             log("couldn't remove movie %s: %s" % (m.get("label"), e))
     log("removed %d wrong movie entries" % gone)
-    dlg.ok(ADDON, "Removed %d of %d wrong movie entries." % (gone, len(bad)))
+    dlg.ok(ADDON, "Removed %d of %d wrong movie entries.\nNext, Kodi removes entries whose files are gone." %
+           (gone, len(bad)))
+    _clean_kodi("movies")
 
 
 def backups_list(dlg):
@@ -1969,7 +2048,8 @@ def backup_menu(dlg):
                           ["Back up the library now",
                            "How to put a backup back (restore)",
                            "List the backups on this Xbox",
-                           "Remove wrong movie entries (TV episodes listed as movies)"])
+                           "Clean movie library (TV episodes listed as movies)",
+                           "Clean TV library (entries that aren't TV episodes)"])
         if pick < 0:
             return
         if pick == 0:
@@ -1979,6 +2059,9 @@ def backup_menu(dlg):
             dlg.textviewer("%s - restore the library" % ADDON, backup.RESTORE_HELP)
         elif pick == 3:
             fix_wrong_movies(dlg)
+            state = load_cache(data_file(BACKUP_STATE))
+        elif pick == 4:
+            clean_tv_library(dlg)
             state = load_cache(data_file(BACKUP_STATE))
         else:
             rows = ["%s   %s" % (stamp, backup.counts_line(info.get("counts") or {})) for stamp, info in backup.list_backups()]
@@ -3867,8 +3950,8 @@ def menu_items(name):
                   "DefaultAddonVideo.png", menu="youtube"),
             _item("Tidy my library folders", "Put what's already in your TV, Movies and Comics folders into the "
                   "layout Kodi expects. Comics: .cbr to .cbz, turn pages.", "DefaultAddonService.png", menu="tidy"),
-            _item("Kodi library", "Back up and restore the library, remove wrong movie entries, missing episodes, "
-                  "where to watch.", "DefaultTVShows.png", menu="library"),
+            _item("Kodi library", "Back up and restore the library, clean the TV and movie libraries, missing "
+                  "episodes, where to watch.", "DefaultTVShows.png", menu="library"),
             _item("Help & settings", "Guide, version history, what to sort, your folders and language, updates, "
                   "logs.", "DefaultAddonHelper.png", menu="help")]
     if name == "sort":
@@ -3922,8 +4005,12 @@ def menu_items(name):
                   "DefaultIconInfo.png", action="restore"),
             _item("List the backups on this Xbox", "When each was made and what was in the library.",
                   "DefaultIconInfo.png", action="backups"),
-            _item("Remove wrong movie entries", "TV episodes listed as movies (e.g. after a whole drive was "
-                  "scanned as Movies). Only the entries go, never files.", "DefaultMovies.png", action="wrong_movies"),
+            _item("Clean TV library", "Removes entries that aren't TV episodes (files in Movies, Tutorials or a "
+                  "set-aside folder), then entries whose files are gone. Never deletes files.", "DefaultTVShows.png",
+                  action="clean_tv"),
+            _item("Clean movie library", "Removes TV episodes listed as movies (e.g. after a whole drive was scanned "
+                  "as Movies), then entries whose files are gone. Never deletes files.", "DefaultMovies.png",
+                  action="wrong_movies"),
             _item("Find missing episodes", "Aired episodes you don't have, from seasons you have.",
                   "DefaultTVShows.png", action="missing"),
             _item("Where to watch a show", "Your services, free, or buy/rent (TMDb).", "DefaultTVShows.png",
@@ -4031,6 +4118,7 @@ ACTIONS = {
     "restore": lambda dlg, spath: dlg.textviewer("%s - restore the library" % ADDON, backup.RESTORE_HELP),
     "backups": lambda dlg, spath: backups_list(dlg),
     "wrong_movies": lambda dlg, spath: fix_wrong_movies(dlg),
+    "clean_tv": lambda dlg, spath: clean_tv_library(dlg),
     "missing": lambda dlg, spath: find_missing_episodes(dlg),
     "wherewatch": lambda dlg, spath: where_to_watch_menu(dlg),
     "guide": _ob(lambda ob, dlg: ob.show_guide(dlg)), "history": _ob(lambda ob, dlg: ob.show_history(dlg)),

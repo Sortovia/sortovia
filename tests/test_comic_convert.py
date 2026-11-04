@@ -18,8 +18,15 @@ class Convert(unittest.TestCase):
         d = self.d = load_default(os.path.join(self.tmp, "data"))
         vfs = sys.modules["xbmcvfs"]
 
+        temp = os.path.join(self.tmp, "temp")
+
         class File:
             def __init__(self, p, mode="r"):
+                # Like the Xbox: Kodi's file functions read nothing from the real temp path,
+                # only through special://temp/.
+                if p.startswith(temp):
+                    raise IOError("Kodi can't open the real temp path on the Xbox")
+                p = p.replace("special://temp/", temp + "/")
                 self.f = open(p, "wb" if mode == "w" else "rb")
             def size(self): return os.fstat(self.f.fileno()).st_size
             def readBytes(self, n=-1): return self.f.read(n)
@@ -27,8 +34,12 @@ class Convert(unittest.TestCase):
             def close(self): self.f.close()
         vfs.File = File
         vfs.delete = lambda p: (os.remove(p), True)[1] if os.path.exists(p) else False
-        vfs.copy = lambda a, b: shutil.copy(a, b) or True
-        temp = os.path.join(self.tmp, "temp")
+        def copy(a, b):
+            if a.startswith(temp):
+                return False  # like the Xbox
+            shutil.copy(a.replace("special://temp/", temp + "/"), b)
+            return True
+        vfs.copy = copy
         os.makedirs(temp)
         vfs.translatePath = lambda p: temp + "/" if p.startswith("special://temp") else p
         d.log = lambda m: None

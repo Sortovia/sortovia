@@ -3,6 +3,10 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.34 – A tidier menu
+- **1.34.1** Fixes and a new clean-up:
+  - **Converting .cbr to .cbz works on the Xbox.** The pages were read fine, but copying the finished .cbz onto the drive failed ("copying the .cbz failed"). It now copies through Kodi's own temp folder path.
+  - **Clean TV library** (in *Kodi library*) removes episode entries that aren't TV episodes: files in Movies, Tutorials or a set-aside folder (`_Replaced`, `_Unpacked`, `_No English`), or ones also listed as movies. Then Kodi removes entries whose files are gone. Files are never deleted, and a backup is made first.
+  - "Remove wrong movie entries" is now **Clean movie library**, and it also lets Kodi remove entries whose files are gone.
 - **1.34.0** **The menu is now a Kodi folder list, sorted into categories**, like other add-ons: *Sort my downloads*, *YouTube*, *Tidy my library folders*, *Kodi library* and *Help & settings*. Each entry has a short description. Opening Kodi Sorter still checks for updates and backs up the library first. A sort that's running, or one to resume, shows at the top.
   - **Pause YouTube downloads:** pause one download or all of them in *Downloads*, and carry on later from where they got to.
   - **Tidy my TV folder / Tidy my Movies folder:** puts what's already there into the folders and names Kodi expects. You see the full list first, and nothing is replaced without asking.

@@ -16,11 +16,23 @@ DEVICES = [
 NAMES = dict(DEVICES)
 
 
-def detect(cond, info):
+def detect(cond, info, log_head="", hostname=""):
     """Best guess from Kodi's own system info. cond = xbmc.getCondVisibility,
-    info = xbmc.getInfoLabel. Android can't tell a TV box from a phone: 'android_tv'."""
+    info = xbmc.getInfoLabel. Android can't tell a TV box from a phone: 'android_tv'.
+    On an Xbox, Kodi's system info just says Windows; the device model is only in
+    the top of Kodi's log ("Running on Microsoft Xbox One S with WINDOWS ..."), so
+    log_head (the log's first lines) and the hostname ("XBOXONE") are checked too."""
+    import re
+    model = re.search(r"Running on (.*?) with ", log_head or "")
     os_info = (info("System.OSVersionInfo") or "").lower()
-    if "xbox" in os_info:
+    if "xbox" in os_info or (model and "xbox" in model.group(1).lower()):
+        return "xbox"
+    uwp = False
+    try:
+        uwp = bool(cond("System.Platform.UWP"))
+    except Exception:
+        pass
+    if uwp and "xbox" in (hostname or "").lower():
         return "xbox"
     checks = [("System.Platform.Windows", "windows"), ("System.Platform.UWP", "windows"),
               ("System.Platform.Android", "android_tv"), ("System.Platform.TVOS", "apple"),

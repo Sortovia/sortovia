@@ -140,6 +140,12 @@ class Devices(unittest.TestCase):
         xbox = lambda k: "Microsoft Xbox One S with WINDOWS 10.0.26100" if k == "System.OSVersionInfo" else ""
         self.assertEqual(devices.detect(lambda c: c == "System.Platform.UWP", xbox), "xbox")
         self.assertEqual(devices.detect(lambda c: c == "System.Platform.UWP", lambda k: "Windows 11"), "windows")
+        win = lambda k: "WINDOWS 10.0.26100.9445" if k == "System.OSVersionInfo" else ""
+        head = "Starting Kodi (21.2)\nRunning on Microsoft Xbox One S with WINDOWS 10.0.26100.9445, kernel: x\n"
+        self.assertEqual(devices.detect(lambda c: c == "System.Platform.UWP", win, head), "xbox")  # what this Xbox reports
+        self.assertEqual(devices.detect(lambda c: c == "System.Platform.UWP", win, "", "XBOXONE"), "xbox")
+        self.assertEqual(devices.detect(lambda c: c == "System.Platform.Windows", win,
+                                        "Running on Dell Inc. XPS 15 with Windows 11", "LAPTOP"), "windows")
         self.assertEqual(devices.detect(lambda c: c == "System.Platform.Android", lambda k: ""), "android_tv")
         self.assertEqual(devices.detect(lambda c: False, lambda k: ""), "other")
         self.assertFalse(devices.can_rename("xbox"))

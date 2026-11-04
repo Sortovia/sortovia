@@ -3,6 +3,7 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.37 – Your device, QR sign-in
+- **1.37.1** **An Xbox is detected as an Xbox** (1.37.0 said Windows PC). Kodi's system info on the Xbox only says Windows, so the device model is now read from the top of Kodi's log ("Running on Microsoft Xbox One S"), with the Xbox's network name as a backup check. If you confirmed Windows PC before, it asks once more.
 - **1.37.0**
   - **Your device:** Kodi Sorter detects what Kodi runs on (Xbox, Windows, Android, Raspberry Pi/Linux, Mac, Apple TV, LG TV) and asks you to confirm it once, on the welcome screen or at the next start. Steps are fitted to it.
     - New in *Help & settings*: **How to add your folders to Kodi** (on the Xbox, typing the `win-lib://` path; elsewhere, Browse) and **Your device**.

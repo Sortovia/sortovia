@@ -2752,8 +2752,22 @@ def standard_folder(okind):
 
 def device_guess():
     import devices
+    import socket
+    head = ""
+    try:  # the first lines of Kodi's log name the device model
+        f = xbmcvfs.File("special://logpath/kodi.log")
+        try:
+            head = bytes(f.readBytes(16384)).decode("utf-8", "ignore")
+        finally:
+            f.close()
+    except Exception:
+        pass
     try:
-        return devices.detect(xbmc.getCondVisibility, xbmc.getInfoLabel)
+        host = socket.gethostname()
+    except Exception:
+        host = ""
+    try:
+        return devices.detect(xbmc.getCondVisibility, xbmc.getInfoLabel, head, host)
     except Exception:
         return "other"
 
@@ -3016,6 +3030,11 @@ def startup_checks(dlg):
         ob.whats_new(dlg)
         if not ob.state.get("device"):
             ob.choose_device(dlg)  # new question for people who saw the welcome screen before
+        elif ob.state["device"] != ob.device_guess and not ob.state.get("device_rechecked"):
+            ob.state["device_rechecked"] = True  # 1.37.0 took an Xbox for a Windows PC: ask once more
+            ob.save()
+            ob.state.pop("device")
+            ob.choose_device(dlg)
     set_language()  # the welcome screen may have just set it
     if ob and ob.pop_reorganize():
         home().setProperty(PROP_REORG, json.dumps(list(ob.last_reorganize)))

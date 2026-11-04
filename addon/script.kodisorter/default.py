@@ -25,6 +25,7 @@ import xbmcvfs
 
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
 import backup
+import comics
 from sortlib import VIDEO, SUBS, AUDIO, episode_tag, sub_lang, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
 
 try:
@@ -392,9 +393,9 @@ def open_archive(path):
     enc = quote(path, safe="")
     bases = ["archive://%s/" % enc]
     low = path.lower()
-    if low.endswith(".rar"):
+    if low.endswith((".rar", ".cbr")):
         bases.append("rar://%s/" % enc)
-    if low.endswith(".zip"):
+    if low.endswith((".zip", ".cbz")):
         bases.append("zip://%s/" % enc)
     for base in bases:
         try:
@@ -1599,6 +1600,238 @@ def check_for_update(dlg, manual=False, splash=None):
     return True
 
 
+# ---------- comics: tidy, .cbr -> .cbz, turned pages ----------
+COMICS_PREF = "comics.json"  # addon_data: {"convert": bool, "turn": 1|6|8}
+
+
+def comics_pref():
+    p = load_cache(data_file(COMICS_PREF))
+    return {"convert": p.get("convert", True), "turn": p.get("turn", 1)}
+
+
+def _read_exact(url):
+    f = xbmcvfs.File(url)
+    try:
+        size, chunks, done = f.size(), [], 0
+        while size <= 0 or done < size:  # stop at the size: the read past the end can hang on the Xbox
+            b = f.readBytes(1024 * 1024 if size <= 0 else min(1024 * 1024, size - done))
+            if not b:
+                break
+            chunks.append(bytes(b))
+            done += len(b)
+        return b"".join(chunks)
+    finally:
+        f.close()
+
+
+def convert_comic(path, turn=1):
+    """Rewrite a .cbr or .cbz as a .cbz next to it (pages stored as they are, JPEGs
+    given the orientation tag). Returns (ok, message, new path)."""
+    import zipfile
+    items = open_archive(path)
+    if not items:
+        return False, ("Kodi couldn't open it" + (" - .cbr needs Kodi's Archive support add-on"
+                                                  if path.lower().endswith(".cbr") else "")), path
+    urls = [u for u, _ in items]
+    top = os.path.commonprefix(urls)
+    top = top[:top.rfind("/") + 1]
+    tmp = os.path.join(xbmcvfs.translatePath("special://temp/"), "kodisorter-comic.cbz")
+    turned = other = 0
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as z:
+            for rel in comics.page_order([u[len(top):] for u in urls]):
+                data = _read_exact(top + rel)
+                if comics.ext_of(rel) in (".jpg", ".jpeg"):
+                    if turn != 1 or comics.orientation_of(data) != 1:  # upright: only undo a turn
+                        data = comics.set_orientation(data, turn)
+                    turned += 1
+                elif comics.ext_of(rel) in comics.IMAGES:
+                    other += 1
+                z.writestr(rel.replace("\\", "/"), data)
+        with zipfile.ZipFile(tmp) as z:
+            if z.testzip() is not None or len(z.namelist()) != len(urls):
+                return False, "the new .cbz didn't check out - original kept", path
+        stem = split_name(base_of(path))[0]
+        dst = parent_of(path) + stem + ".cbz"
+        same = _norm(dst) == _norm(path)
+        if not same and xbmcvfs.exists(dst):
+            return False, "a .cbz with that name is already there - left as it is", path
+        if same and not xbmcvfs.delete(path):
+            return False, "couldn't replace it (is it open?)", path
+        size = os.path.getsize(tmp)
+        try:
+            copy_with_progress(tmp, dst, size)
+        except Exception as e:
+            log("comic copy failed (%s), trying Kodi's copy" % e)
+            xbmcvfs.delete(dst)
+            xbmcvfs.copy(tmp, dst)
+        if size_of(dst) != size:
+            xbmcvfs.delete(dst)
+            if same:  # the original is gone: keep the new one safe on the Xbox
+                rescue = "special://home/Kodi Sorter rescued/"
+                xbmcvfs.mkdirs(rescue)
+                xbmcvfs.copy(tmp, rescue + base_of(dst))
+                return False, "couldn't write it back - saved in Kodi's Home folder > Kodi Sorter rescued", path
+            return False, "copying the .cbz failed - original kept", path
+        if not same:
+            xbmcvfs.delete(path)
+        notes = []
+        if turn != 1 and other:
+            notes.append("%d non-JPEG pages can't be turned" % other)
+        return True, "%d pages%s%s" % (len(urls), ", turned %s" % comics.turn_label(turn) if turn != 1 and turned else "",
+                                      (" (%s)" % "; ".join(notes)) if notes else ""), dst
+    except Exception as e:
+        log("converting %s failed: %s" % (path, e))
+        return False, "failed: %s - original kept" % e, path
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _comics_root(dlg):
+    last = load_cache(data_file("last_settings.json"))
+    root = KIND_DIRS.get("Comics") or (last.get("dest") and kind_root("Comics", last["dest"]))
+    if root and xbmcvfs.exists(ensure_slash(root)):
+        return ensure_slash(root)
+    root = dlg.browse(0, "Pick your Comics folder", "files")
+    return ensure_slash(root) if root else None
+
+
+def _comic_files(root, exts):
+    out = []
+    for path, name in walk(root):
+        if comics.ext_of(name) in exts:
+            parts = [p for p in re.split(r"[\\/]", path[len(root):]) if p][:-1]
+            out.append((path, parts, name))
+    return out
+
+
+def convert_many(dlg, paths, turn):
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, "Comics")
+    lines, ok = [], 0
+    for i, p in enumerate(paths):
+        if prog.iscanceled():
+            lines.append("stopped by you - %d not done" % (len(paths) - i))
+            break
+        prog.update(int(i * 100 / max(len(paths), 1)), "Comic %d of %d\n%s" % (i + 1, len(paths), base_of(p)))
+        good, msg, new = convert_comic(p, turn)
+        ok += good
+        lines.append("%s  %s  (%s)" % ("OK  " if good else "FAIL", base_of(new), msg))
+        log("comic: " + lines[-1])
+    prog.close()
+    dlg.textviewer("%s - comics" % ADDON, "%d of %d done\n\n%s" % (ok, len(paths), "\n".join(lines)))
+
+
+def tidy_comics(dlg, root):
+    files = _comic_files(root, comics.COMICS_ALL)
+    moves, docs = comics.plan_tidy([(parts, name) for _, parts, name in files])
+    by_key = dict(((tuple(parts), name), path) for path, parts, name in files)
+    if not moves and not docs:
+        dlg.ok(ADDON, "The Comics folder is already tidy: every comic is in its series folder.")
+        return
+    lines = ["%s  ->  %s/%s" % ("/".join(parts + [name]), series, name) for parts, name, series in moves]
+    if docs:
+        lines += ["", "Not comics (PDFs an old version filed here) - you choose next:"] + ["  " + n for _, n in docs]
+    dlg.textviewer("%s - tidy the Comics folder" % ADDON, "\n".join(lines))
+    done, failed, left = 0, [], set()
+    if moves and dlg.yesno(ADDON, "Move %d comic(s) into their series folders?" % len(moves),
+                           nolabel="Cancel", yeslabel="Move"):
+        prog = xbmcgui.DialogProgress()
+        prog.create(ADDON, "Tidying comics")
+        for i, (parts, name, series) in enumerate(moves):
+            prog.update(int(i * 100 / len(moves)), name)
+            src = by_key[(tuple(parts), name)]
+            ok, how = move_file(src, join(root, series, name))
+            done += ok
+            if ok and parts:
+                left.add(join(root, *parts))
+            elif not ok:
+                failed.append("%s (%s)" % (name, how))
+        prog.close()
+        for d in left:  # "Ironclad (2)" once it's empty
+            try:
+                ds, fs = xbmcvfs.listdir(ensure_slash(d))
+                if not ds and not [f for f in fs if f.lower() != ".nomedia"]:
+                    for f in fs:
+                        xbmcvfs.delete(join(d, f))
+                    xbmcvfs.rmdir(ensure_slash(d)) or xbmcvfs.rmdir(d)
+            except Exception:
+                pass
+    moved_docs = 0
+    if docs:
+        target = (backup.drive_dir(root) or root).replace(backup.DRIVE_DIR, "Documents")
+        if dlg.yesno(ADDON, "%d PDF/EPUB file(s) loose in Comics look like documents (bills, manuals).\n"
+                     "Move them to %s?" % (len(docs), friendly(target)), nolabel="Leave them", yeslabel="Move"):
+            for parts, name in docs:
+                moved_docs += move_file(by_key[(tuple(parts), name)], target + name)[0]
+    dlg.ok(ADDON, "Moved %d comic(s) into series folders%s.%s" % (
+        done, (" and %d document(s) to Documents" % moved_docs) if moved_docs else "",
+        ("\nNot moved: " + "; ".join(failed[:5])) if failed else ""))
+
+
+def comics_menu(dlg):
+    root = _comics_root(dlg)
+    if not root:
+        return
+    while True:
+        pref = comics_pref()
+        pick = dlg.select("Comics - %s" % friendly(root),
+                          ["Tidy the folder (series folders; merge \"Ironclad (2)\" into \"Ironclad\")",
+                           "Convert .cbr comics to .cbz (they open much faster)",
+                           "Turn pages for a monitor on its side - now: %s (change)" % comics.turn_label(pref["turn"]),
+                           "When sorting new comics, convert .cbr to .cbz: %s (change)" % ("yes" if pref["convert"] else "no"),
+                           "Why .cbz, and how turning works"])
+        if pick < 0:
+            return
+        if pick == 0:
+            tidy_comics(dlg, root)
+        elif pick == 1:
+            cbr = [p for p, _, n in _comic_files(root, (".cbr",))]
+            if not cbr:
+                dlg.ok(ADDON, "No .cbr comics in %s." % friendly(root))
+            elif dlg.yesno(ADDON, "Convert %d .cbr comic(s) to .cbz?\nEach takes about as long as copying it. "
+                           "The .cbr is deleted once the .cbz checks out." % len(cbr), nolabel="Cancel", yeslabel="Convert"):
+                convert_many(dlg, cbr, pref["turn"])
+        elif pick == 2:
+            t = dlg.select("Turn the pages", [label for _, label in comics.TURNS])
+            if t < 0:
+                continue
+            turn = comics.TURNS[t][0]
+            save_cache(data_file(COMICS_PREF), dict(pref, turn=turn))
+            every = [p for p, _, n in _comic_files(root, (".cbz", ".cbr"))]
+            how = dlg.select("Turn which comics? (%d in all)" % len(every),
+                             ["Try one comic first (recommended)", "All %d comics now" % len(every),
+                              "Only new ones from now on"])
+            if how == 0:
+                one = dlg.browse(1, "Pick a comic to try", "files", ".cbz|.cbr", False, False, root)
+                if one and not one.endswith(("/", "\\")):
+                    convert_many(dlg, [one], turn)
+                    dlg.ok(ADDON, "Open it under Pictures to check. If it's the wrong way round, choose the "
+                                  "other direction here; \"Upright\" puts it back.")
+            elif how == 1 and every:
+                convert_many(dlg, every, turn)
+        elif pick == 3:
+            save_cache(data_file(COMICS_PREF), dict(pref, convert=not pref["convert"]))
+        else:
+            dlg.textviewer("%s - comics" % ADDON, comics.__doc__.strip())
+
+
+def convert_new_comics(moved_ok, prog, report):
+    """After a sort: new .cbr comics become .cbz (and get the chosen page turn)."""
+    pref = comics_pref()
+    new = [it["target"] for it in moved_ok if it.get("target", "").lower().endswith(".cbr")]
+    if not (pref["convert"] and new):
+        return
+    for i, p in enumerate(new):
+        prog.update(int(i * 100 / len(new)), "Converting comics to .cbz: %d of %d\n%s" % (i + 1, len(new), base_of(p)))
+        ok, msg, out = convert_comic(p, pref["turn"])
+        report.append("%s  %s -> .cbz  (%s)" % ("OK  " if ok else "NOTE", base_of(p), msg))
+        log(report[-1])
+
+
 # ---------- library backup ----------
 BACKUP_STATE = "backup.json"  # addon_data: last backup's time and counts
 
@@ -2042,7 +2275,8 @@ def main():
                            "View a text / NFO file",
                            "Search & download from YouTube (the phone downloads, then sort here)...",
                            "Help: guide, version history, what to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
-                           "Back up / restore my Kodi library (last: %s)" % backup_line()])
+                           "Back up / restore my Kodi library (last: %s)" % backup_line(),
+                           "Comics: tidy folders, convert .cbr to .cbz, turn pages for a portrait monitor"])
         if pick < 0:
             return
         if pick == 8:
@@ -2050,6 +2284,9 @@ def main():
             return
         if pick == 10:
             backup_menu(dlg)
+            return
+        if pick == 11:
+            comics_menu(dlg)
             return
         if pick == 9:
             if ob:
@@ -3524,6 +3761,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                 prog.update(100, "Writing quality tags for movies")
                 make_quality_nfos(moved_ok, src, dest, report)
             tidy_after_sort(src, dest, moved_ok, leftovers, video_paths, nfo_mode, report, sub_dirs)
+            convert_new_comics(moved_ok, prog, report)
             if empties:
                 gone = 0
                 for n, f in enumerate(empties):

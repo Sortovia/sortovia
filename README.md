@@ -38,6 +38,8 @@ to `_Replaced`, and leftovers from releases go to `_Unpacked`, so you can delete
   language gets its English title, including Russian titles written in Latin letters.
 - OVAs, specials, and opening/ending credits clips go to Season 00, which is Kodi's Specials.
 - Comics (`.cbz/.cbr/.cb7/.cbt`, plus PDFs/EPUBs inside a "Comics" or "Manga" folder) go to `Comics\Series\`.
+  `.cbr` comics become `.cbz`, which Kodi opens much faster. The Comics menu also tidies an existing Comics folder and
+  can turn pages for a monitor stood on its side (portrait).
 - **Tutorials** go to `Tutorials\<program>\` and keep their original names. A video counts as a tutorial when:
   - its name says so ("tutorial", "full course", "for beginners" and similar), or
   - it sits in a `Tutorials\<program>` folder, or

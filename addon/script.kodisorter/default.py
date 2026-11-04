@@ -822,6 +822,7 @@ def copy_with_progress(src, dst, total):
     return done
 
 
+NO_RENAME = [None]  # True on a device whose drives can't rename (Xbox)
 RENAME_FAILS = set()  # (source drive, destination drive) pairs where rename failed
 MADE_DIRS = set()
 # Folders Kodi Sorter parks things in. A ".nomedia" file inside makes Kodi's
@@ -894,7 +895,13 @@ def move_file(src, dst, known_size=None):
         MADE_DIRS.add(_norm(folder))
         mark_nomedia(folder)
     pair = (_drive(src), _drive(dst))
-    if pair not in RENAME_FAILS:
+    if NO_RENAME[0] is None:
+        try:
+            import devices
+            NO_RENAME[0] = not devices.can_rename(my_device())
+        except Exception:
+            NO_RENAME[0] = False
+    if pair not in RENAME_FAILS and not NO_RENAME[0]:
         if xbmcvfs.rename(src, dst) and xbmcvfs.exists(dst):
             return True, "moved"
         RENAME_FAILS.add(pair)
@@ -1647,6 +1654,23 @@ def dir_size(path, stop=lambda: False):
     return total
 
 
+# Folders Kodi itself keeps in its temp folder, said plainly.
+SAFE_TEMP = {"addons": "Kodi's leftovers from installing add-ons (safe to delete)",
+             "scrapers": "The library scraper's cache of show and movie info (safe - fetched again when needed)",
+             "archive_cache": "Pages Kodi unpacked from .cbr/.rar files to show them (safe)"}
+
+
+def temp_label(name):
+    low = name.lower()
+    if low.startswith("kodisorter-export"):
+        return "Kodi Sorter's leftover backup export %s (safe)" % name[len("kodisorter-export-"):]
+    if low.startswith(("kodisorter", "comic-")):
+        return "Kodi Sorter leftover: %s (safe)" % name
+    if low in SAFE_TEMP:
+        return SAFE_TEMP[low]
+    return "Kodi's temporary folder \"%s\" (delete only if you know what it is)" % name
+
+
 def space_rows(stop=lambda: False):
     """[(label, size, path, is_dir, preselected)] of what can be removed from the Xbox's storage."""
     rows = []
@@ -1659,7 +1683,7 @@ def space_rows(stop=lambda: False):
     for d in dirs:
         size = dir_size(temp + d + "/", stop)
         if size:
-            rows.append(("Temporary: %s" % d, size, temp + d + "/", True, ours(d)))
+            rows.append((temp_label(d), size, temp + d + "/", True, ours(d) or d.lower() in SAFE_TEMP))
     for f in files:
         if f.lower().endswith(".log"):
             continue  # Kodi's own log
@@ -1677,14 +1701,14 @@ def space_rows(stop=lambda: False):
     on_drive = bool(backup.drive_dir(load_cache(data_file("last_settings.json")).get("dest")))
     for st in (stamps if on_drive else stamps[1:]):  # backups belong on the drive now
         size = dir_size(backup.HOME_DIR + st + "/", stop)
-        rows.append(("Library backup %s on the Xbox (backups now go on the drive)" % st, size,
+        rows.append(("Library backup %s on this device (backups now go on the drive)" % st, size,
                      backup.HOME_DIR + st + "/", True, True))
     return sorted(rows, key=lambda r: -r[1])
 
 
 def free_space(dlg):
     prog = xbmcgui.DialogProgress()
-    prog.create(ADDON, "Measuring what's on the Xbox's storage...")
+    prog.create(ADDON, "Measuring what's on this device's storage...")
     try:
         rows = space_rows(prog.iscanceled)
         art = dir_size("special://masterprofile/Thumbnails/", prog.iscanceled)
@@ -1695,7 +1719,9 @@ def free_space(dlg):
         dlg.ok(ADDON, "Nothing to clear. Free: %s.\nKodi's artwork cache uses %s (not cleared here - Kodi needs "
                       "it for posters)." % (free, _mb(art)))
         return
-    picks = dlg.multiselect("Free: %s - tick what to delete" % free,
+    newest = all_backups()
+    kept = ("newest backup %s kept" % newest[0][1]) if newest else "no backups yet"
+    picks = dlg.multiselect("Free: %s - %s - tick what to delete" % (free, kept),
                             ["%s  -  %s" % (label, _mb(size)) for label, size, _, _, _ in rows],
                             preselect=[i for i, r in enumerate(rows) if r[4]])
     if not picks:
@@ -1759,18 +1785,11 @@ def rd_sign_in(dlg):
                 rd.use_api_token(tok)
         elif how == 0:
             dev = rd.device_start()
-            prog = xbmcgui.DialogProgress()
-            prog.create(ADDON, "On your phone, open %s\nand enter the code:  %s" % (
-                dev.get("verification_url", "real-debrid.com/device"), dev["user_code"]))
-            end = time.time() + int(dev.get("expires_in", 600))
             try:
-                while time.time() < end and not prog.iscanceled():
-                    prog.update(int(100 - (end - time.time()) * 100 / max(int(dev.get("expires_in", 600)), 1)))
-                    if rd.device_poll(dev):
-                        break
-                    xbmc.sleep(int(dev.get("interval", 5)) * 1000)
-            finally:
-                prog.close()
+                _rd_qr_wait(rd, dev)
+            except Exception as e:  # no QR window on this Kodi: the plain code screen
+                log("Real-Debrid QR screen failed (%s), showing the code only" % e)
+                _rd_code_wait(rd, dev)
         if rd.signed_in():
             u = rd.user()
             rd.state["username"] = u.get("username", "")
@@ -1781,6 +1800,67 @@ def rd_sign_in(dlg):
                 else " - note: downloads need a premium account"))
     except realdebrid.RDError as e:
         dlg.ok(ADDON, str(e))
+
+
+def _rd_code_wait(rd, dev):
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, "On your phone, open %s\nand enter the code:  %s" % (
+        dev.get("verification_url", "real-debrid.com/device"), dev["user_code"]))
+    end = time.time() + int(dev.get("expires_in", 600))
+    try:
+        while time.time() < end and not prog.iscanceled():
+            prog.update(int(100 - (end - time.time()) * 100 / max(int(dev.get("expires_in", 600)), 1)))
+            if rd.device_poll(dev):
+                break
+            xbmc.sleep(int(dev.get("interval", 5)) * 1000)
+    finally:
+        prog.close()
+
+
+def _rd_qr_wait(rd, dev):
+    """Sign-in screen: a QR code that opens Real-Debrid's approve page for this code
+    (scan it with the phone's camera), and the code to type at real-debrid.com/device."""
+    import qrpng
+    link = dev.get("direct_verification_url") or dev.get("verification_url") or "https://real-debrid.com/device"
+    qr = "special://temp/kodisorter-rd-%s.png" % dev["user_code"]  # new name per code: Kodi caches images by name
+    bg = "special://temp/kodisorter-rd-bg.png"
+    for path, data in ((qr, qrpng.qr_png(link)), (bg, qrpng.solid_png(20))):
+        out = _VfsWriter(path)
+        try:
+            out.write(data)
+        finally:
+            out.close()
+
+    class CodeWindow(xbmcgui.WindowDialog):
+        closed = False
+
+        def onAction(self, action):
+            if action.getId() in (9, 10, 13, 92):  # back / previous menu / stop
+                self.closed = True
+                self.close()
+
+    win = CodeWindow()
+    win.addControl(xbmcgui.ControlImage(0, 0, 1280, 720, bg))
+    win.addControl(xbmcgui.ControlImage(90, 130, 460, 460, qr))
+    box = xbmcgui.ControlTextBox(600, 130, 620, 460, font="font13", textColor="FFFFFFFF")
+    win.addControl(box)
+    end = time.time() + int(dev.get("expires_in", 600))
+    text = ("[B]Sign in to Real-Debrid[/B]\n\n"
+            "Scan the code with your phone's camera. It opens Real-Debrid for this sign-in - tap Allow.\n\n"
+            "Or open [B]real-debrid.com/device[/B] and type:\n\n[B]%s[/B]\n\n" % dev["user_code"])
+    mon = xbmc.Monitor()
+    win.show()
+    try:
+        while not win.closed and time.time() < end and not mon.abortRequested():
+            box.setText(text + "Waiting... %d min left. Back = cancel." % max(1, int((end - time.time()) / 60)))
+            if rd.device_poll(dev):
+                break
+            if mon.waitForAbort(int(dev.get("interval", 5))):
+                break
+    finally:
+        win.close()
+        for path in (qr, bg):
+            xbmcvfs.delete(path)
 
 
 def _rd_ready(dlg):
@@ -2512,7 +2592,7 @@ def fix_wrong_movies(dlg):
 
 
 def _where(base):
-    return "Xbox storage" if base == backup.HOME_DIR else friendly(base)
+    return "this device" if base == backup.HOME_DIR else friendly(base)
 
 
 def backups_list(dlg):
@@ -2670,6 +2750,19 @@ def standard_folder(okind):
     return friendly(join(root, names.get(kind, kind))) if kind else None
 
 
+def device_guess():
+    import devices
+    try:
+        return devices.detect(xbmc.getCondVisibility, xbmc.getInfoLabel)
+    except Exception:
+        return "other"
+
+
+def my_device():
+    ob = onboarding_state()
+    return ob.device() if ob else device_guess()
+
+
 def onboarding_state():
     """Welcome screen / what to sort / guide (onboarding.py). None if it can't load."""
     try:
@@ -2678,7 +2771,7 @@ def onboarding_state():
         return onboarding.Onboarding(xbmcvfs.translatePath(me.getAddonInfo("path")),
                                      data_file("onboarding.json"), me.getAddonInfo("version"), ADDON,
                                      checker=check_library_folder, std_folder=standard_folder,
-                                     kodi_lang=_kodi_lang())
+                                     kodi_lang=_kodi_lang(), device_guess=device_guess())
     except Exception as e:
         log("onboarding not available: %s" % e)
         return None
@@ -2921,6 +3014,8 @@ def startup_checks(dlg):
     set_language()
     if ob and not ob.first_run(dlg, returning=bool(load_cache(data_file("last_settings.json")).get("src"))):
         ob.whats_new(dlg)
+        if not ob.state.get("device"):
+            ob.choose_device(dlg)  # new question for people who saw the welcome screen before
     set_language()  # the welcome screen may have just set it
     if ob and ob.pop_reorganize():
         home().setProperty(PROP_REORG, json.dumps(list(ob.last_reorganize)))
@@ -4565,14 +4660,18 @@ def menu_items(name):
             _item("Your language (now: %s)" % (ob.language_line() if ob else "English"),
                   "Audio it looks for, subtitles it keeps, movie title language.", "DefaultAddonService.png",
                   action="language"),
+            _item("Your device (now: %s)" % (ob.device_line() if ob else "?"), "Kodi Sorter fits its steps to it.",
+                  "DefaultAddonService.png", action="device"),
+            _item("How to add your folders to Kodi", "TV, Movies and Tutorials as sources, Comics under Pictures - "
+                  "the steps for your device.", "DefaultIconInfo.png", action="sources_help"),
             _item("Check for updates now", "Kodi Sorter also checks every time it opens.", "DefaultAddonsUpdates.png",
                   action="update"),
             _item("Send Kodi's log to my phone now", "xbox-share must be running on the phone.", "DefaultNetwork.png",
                   action="logs"),
             _item("View a text / NFO file", "Reads old DOS-style NFO art correctly.", "DefaultIconInfo.png",
                   action="nfo"),
-            _item("Free up space on the Xbox", "See what's using the Xbox's own storage and clear leftovers "
-                  "(temporary files, old add-on downloads, older backups).", "DefaultAddonService.png",
+            _item("Free up space", "See what's using this device's storage and clear leftovers "
+                  "(temporary files, old add-on downloads, backups that belong on the drive).", "DefaultAddonService.png",
                   action="free_space"),
             _item("Show the welcome screen again", "", "DefaultIconInfo.png", action="welcome")]
     return []
@@ -4671,6 +4770,8 @@ ACTIONS = {
     "logs": lambda dlg, spath: dlg.ok(ADDON, "Log: %s." % send_logs("manual", dlg)),
     "nfo": lambda dlg, spath: view_text_file(dlg),
     "free_space": lambda dlg, spath: free_space(dlg),
+    "device": _ob(lambda ob, dlg: ob.choose_device(dlg)),
+    "sources_help": lambda dlg, spath: dlg.textviewer("%s - adding your folders" % ADDON, sources_help()),
     "reorganize": lambda dlg, spath: _pending_reorganize(dlg, spath),
     "rd_account": lambda dlg, spath: rd_account(dlg),
     "rd_torrents": lambda dlg, spath: rd_torrents(dlg),
@@ -4690,6 +4791,13 @@ def _pending_reorganize(dlg, spath):
     if pending:
         kind, folder = json.loads(pending)
         reorganize_folder(dlg, spath, kind, folder)
+
+
+def sources_help():
+    import devices
+    tut = library_folder("Tutorials")
+    shown = friendly(tut).rstrip("\\/") if tut else "E:\\Tutorials"
+    return devices.add_source_help(my_device(), shown)
 
 
 def do_action(name):

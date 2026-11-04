@@ -2,6 +2,16 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.37 – Your device, QR sign-in
+- **1.37.0**
+  - **Your device:** Kodi Sorter detects what Kodi runs on (Xbox, Windows, Android, Raspberry Pi/Linux, Mac, Apple TV, LG TV) and asks you to confirm it once, on the welcome screen or at the next start. Steps are fitted to it.
+    - New in *Help & settings*: **How to add your folders to Kodi** (on the Xbox, typing the `win-lib://` path; elsewhere, Browse) and **Your device**.
+    - On an Xbox, moves don't try to rename first, which never works there.
+  - **Real-Debrid sign-in shows a QR code.** Scan it with your phone's camera, and Real-Debrid opens for this sign-in, so you just tap Allow. The code to type at real-debrid.com/device is still shown. The QR code is drawn on the device itself, and nothing is sent to a website.
+  - **Free up space** (was "on the Xbox") works on any device.
+    - Kodi's own temporary folders are explained: add-on install leftovers, the scraper's cache.
+    - The list title says which backup is the newest, and that it's kept.
+
 ## 1.36 – One menu entry, backups on the drive
 - **1.36.0**
   - **Kodi Sorter shows once in Program add-ons** again (1.34 and 1.35 showed it twice). Opening it still checks for updates and backs up the library first, at most once every 10 minutes.

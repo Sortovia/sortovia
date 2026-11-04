@@ -75,9 +75,10 @@ class FirstRun(unittest.TestCase):
     def test_welcome_once_then_kinds_kept(self):
         with tempfile.TemporaryDirectory() as d:
             o = self.make(d)
-            dlg = Dlg([[1, 3], 3, False, True])  # Movies + Tutorials, 3rd language in the list, no own folders, guide
+            dlg = Dlg([0, [1, 3], 3, False, True])  # Movies + Tutorials, 3rd language in the list, no own folders, guide
             self.assertTrue(o.first_run(dlg))
             self.assertEqual(o.wanted(), ["MOVIE", "TUTORIAL"])
+            self.assertEqual((o.device(), o.device_line()), ("xbox", "Xbox"))
             self.assertTrue(any(isinstance(x, tuple) and x[0] == "text" for x in dlg.seen))
             o2 = ob.Onboarding(str(Path(d) / "addon"), os.path.join(d, "onboarding.json"), "1.26.0", "Kodi Sorter")
             self.assertFalse(o2.first_run(Dlg([])))  # not shown again
@@ -87,7 +88,7 @@ class FirstRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             o = self.make(d)
             # kinds: all; yes I have folders; pick row 0 (TV) -> existing -> browse; Done (row 4); no guide
-            o.first_run(Dlg([[0, 1, 2, 3], -1, True, 0, 0, "win-lib://removable/D:\\My Shows/", 4, False]))
+            o.first_run(Dlg([0, [0, 1, 2, 3], -1, True, 0, 0, "win-lib://removable/D:\\My Shows/", 4, False]))
             self.assertEqual(o.folders(), {"TV": "win-lib://removable/D:\\My Shows/"})
             self.assertEqual(o.folders_line(), "TV episodes -> D:\\My Shows")
             # Help > My library folders > TV > use the standard folder again
@@ -117,7 +118,7 @@ class FirstRun(unittest.TestCase):
     def test_back_on_first_run_keeps_everything(self):
         with tempfile.TemporaryDirectory() as d:
             o = self.make(d)
-            o.first_run(Dlg([None, -1, False, False]))
+            o.first_run(Dlg([-1, None, -1, False, False]))
             self.assertEqual(o.wanted(), ob.ALL_KINDS)
             self.assertEqual(o.wanted_line(), "everything")
 
@@ -131,6 +132,19 @@ class FirstRun(unittest.TestCase):
             dlg2 = Dlg([])
             o.whats_new(dlg2)  # only once per version
             self.assertEqual(dlg2.seen, [])
+
+
+class Devices(unittest.TestCase):
+    def test_detect(self):
+        import devices
+        xbox = lambda k: "Microsoft Xbox One S with WINDOWS 10.0.26100" if k == "System.OSVersionInfo" else ""
+        self.assertEqual(devices.detect(lambda c: c == "System.Platform.UWP", xbox), "xbox")
+        self.assertEqual(devices.detect(lambda c: c == "System.Platform.UWP", lambda k: "Windows 11"), "windows")
+        self.assertEqual(devices.detect(lambda c: c == "System.Platform.Android", lambda k: ""), "android_tv")
+        self.assertEqual(devices.detect(lambda c: False, lambda k: ""), "other")
+        self.assertFalse(devices.can_rename("xbox"))
+        self.assertIn("win-lib://removable/E:\\Tutorials\\", devices.add_source_help("xbox", "E:\\Tutorials"))
+        self.assertIn("Browse", devices.add_source_help("android_tv"))
 
 
 if __name__ == "__main__":

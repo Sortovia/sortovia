@@ -200,3 +200,8 @@ Only download videos you're allowed to keep: your own, or ones the creator permi
 ## Version history
 
 See [CHANGELOG.md](CHANGELOG.md) for what each update added. In Kodi: Kodi Sorter → **Help** → Version history.
+
+## Credits
+
+QR codes are drawn with [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) by
+Project Nayuki (MIT licence), included as `qrcodegen.py`.

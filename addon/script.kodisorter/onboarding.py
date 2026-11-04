@@ -125,8 +125,10 @@ def _save(path, data):
 
 
 class Onboarding(object):
-    def __init__(self, addon_path, data_path, version, heading, checker=None, std_folder=None, kodi_lang="en"):
+    def __init__(self, addon_path, data_path, version, heading, checker=None, std_folder=None, kodi_lang="en",
+                 device_guess="other"):
         self.kodi_lang = kodi_lang
+        self.device_guess = device_guess
         # std_folder(kind) -> "E:\\Movies": where a kind goes by default (None = not known yet)
         self.std_folder = std_folder
         # checker(dlg, kind, folder) -> True when the person wants that folder reorganized
@@ -137,6 +139,28 @@ class Onboarding(object):
         self.version = version
         self.heading = heading
         self.state = _load(data_path) if data_path else {}
+
+    def device(self):
+        return self.state.get("device") or self.device_guess
+
+    def device_line(self):
+        import devices
+        return devices.NAMES.get(self.device(), "?")
+
+    def choose_device(self, dlg):
+        """Which device this is: detected, then confirmed from the list."""
+        import devices
+        guess = self.device()
+        keys = [k for k, _ in devices.DEVICES]
+        labels = [("%s  (detected)" % n) if k == guess else n for k, n in devices.DEVICES]
+        heading = "What is Kodi running on? (so the steps fit your device)"
+        try:
+            pick = dlg.select(heading, labels, preselect=keys.index(guess) if guess in keys else 0)
+        except TypeError:  # older Kodi
+            pick = dlg.select(heading, labels)
+        if pick >= 0:
+            self.state["device"] = keys[pick]
+            self.save()
 
     def wanted(self):
         """Kinds to sort (default: all)."""
@@ -273,6 +297,7 @@ class Onboarding(object):
         if returning:
             hello = "New in this version: a welcome screen, a guide you can read on the TV, and a choice of what to sort.\n" + hello
         dlg.ok("Welcome to %s" % self.heading, hello)
+        self.choose_device(dlg)
         self.choose_kinds(dlg, first=True)
         self.choose_language(dlg)
         self.choose_folders(dlg, first=True)

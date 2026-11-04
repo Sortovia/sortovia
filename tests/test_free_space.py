@@ -43,11 +43,11 @@ class FreeSpace(unittest.TestCase):
     def test_rows(self):
         rows = self.d.space_rows()
         got = [(label, size, pre) for label, size, _, _, pre in rows]
-        self.assertEqual(got, [("Temporary: kodisorter-export-1", 5000, True),
-                               ("Temporary: something-kodi-uses", 3000, False),
+        self.assertEqual(got, [("Kodi Sorter's leftover backup export 1 (safe)", 5000, True),
+                               ('Kodi\'s temporary folder "something-kodi-uses" (delete only if you know what it is)', 3000, False),
                                ("Old add-on install files (addons/packages)", 2000, True),
-                               ("Library backup 2026-11-04 1200 on the Xbox (backups now go on the drive)", 1000, True),
-                               ("Library backup 2026-11-03 1200 on the Xbox (backups now go on the drive)", 1000, True)])
+                               ("Library backup 2026-11-04 1200 on this device (backups now go on the drive)", 1000, True),
+                               ("Library backup 2026-11-03 1200 on this device (backups now go on the drive)", 1000, True)])
 
 
 if __name__ == "__main__":

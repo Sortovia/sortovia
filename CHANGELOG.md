@@ -3,6 +3,8 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.33 – Comics
+- **1.33.1** **Remove wrong movie entries:** under *Kodi library* on the start menu. It finds movies that are really TV episodes, for example "Cesium Hollow" left behind after the whole drive was scanned as Movies. It shows the list and removes them all at once. Only the library entries are removed, never the files, and a library backup is made first. The start menu item is now called "Kodi library: back up, restore, remove wrong movies".
+  - The Comics "tidy the folder" line no longer names Ironclad. It only ever moves what's out of place.
 - **1.33.0** New start menu item: **Comics: tidy folders, convert .cbr to .cbz, turn pages**.
   - **Tidy the folder:** loose comics go into their series folder, and near-duplicate folders like "Ironclad (2)" are merged into "Ironclad". PDFs that an old version filed in Comics (bills, manuals) can be moved to a Documents folder. You see the list first.
   - **Convert .cbr to .cbz:** Kodi opens a .cbz by itself, page by page. A .cbr needs the Archive support add-on to unpack it first, which is slow and sometimes fails. The .cbr is deleted only after the new .cbz checks out. New .cbr comics are converted while sorting (you can turn this off).

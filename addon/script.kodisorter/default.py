@@ -1779,7 +1779,7 @@ def comics_menu(dlg):
     while True:
         pref = comics_pref()
         pick = dlg.select("Comics - %s" % friendly(root),
-                          ["Tidy the folder (series folders; merge \"Ironclad (2)\" into \"Ironclad\")",
+                          ["Tidy the folder (each comic into its series folder; merges duplicate folders)",
                            "Convert .cbr comics to .cbz (they open much faster)",
                            "Turn pages for a monitor on its side - now: %s (change)" % comics.turn_label(pref["turn"]),
                            "When sorting new comics, convert .cbr to .cbz: %s (change)" % ("yes" if pref["convert"] else "no"),
@@ -1901,13 +1901,68 @@ def check_library_backup(dlg):
     threading.Thread(target=backup_now).start()
 
 
+def wrong_movies(movies, episode_keys, tv_root):
+    """Movie entries that are really TV episodes (left by a scan of a whole drive set to
+    Movies). movies: [{"movieid", "label", "file"}]. Returns [(movie, reason)]."""
+    out = []
+    for m in movies:
+        key = _lib_key(m.get("file"))
+        if not key:
+            continue
+        if key in episode_keys:
+            why = "also in your TV library as an episode"
+        elif tv_root and key.startswith(tv_root + "/"):
+            why = "its file is in your TV folder"
+        elif EP_TAG_RE.search(key.rsplit("/", 1)[-1]):
+            why = "its file is named like an episode"
+        else:
+            continue
+        out.append((m, why))
+    return out
+
+
+def fix_wrong_movies(dlg):
+    import missing
+    last = load_cache(data_file("last_settings.json"))
+    tv = KIND_DIRS.get("TV") or (last.get("dest") and kind_root("TV", last["dest"]))
+    try:
+        movies = missing._rpc("VideoLibrary.GetMovies", {"properties": ["file", "year"]}).get("movies", [])
+        bad = wrong_movies(movies, library_files("TV"), _lib_key(tv) if tv else "")
+    except Exception as e:
+        dlg.ok(ADDON, "Couldn't read Kodi's library: %s" % e)
+        return
+    if not bad:
+        dlg.ok(ADDON, "No wrong movie entries: none of your %d movies is a TV episode." % len(movies))
+        return
+    dlg.textviewer("%s - TV episodes listed as movies" % ADDON, "\n".join(
+        "%s (%s)  -  %s\n    %s" % (m.get("label"), m.get("year") or "?", why, shown_path(m.get("file", ""), ""))
+        for m, why in bad))
+    if not dlg.yesno(ADDON, "Remove these %d entries from the Movies library?\nOnly the library entries go - "
+                     "no files are deleted, and the episodes stay under TV shows. A library backup is made first."
+                     % len(bad), nolabel="Cancel", yeslabel="Remove"):
+        return
+    if not backup_now(dlg) and not dlg.yesno(ADDON, "The backup didn't work. Remove the entries anyway?",
+                                             nolabel="Cancel", yeslabel="Remove"):
+        return
+    gone = 0
+    for m, _ in bad:
+        try:
+            missing._rpc("VideoLibrary.RemoveMovie", {"movieid": m["movieid"]})
+            gone += 1
+        except Exception as e:
+            log("couldn't remove movie %s: %s" % (m.get("label"), e))
+    log("removed %d wrong movie entries" % gone)
+    dlg.ok(ADDON, "Removed %d of %d wrong movie entries." % (gone, len(bad)))
+
+
 def backup_menu(dlg):
     state = load_cache(data_file(BACKUP_STATE))
     while True:
         pick = dlg.select("Kodi library backup - last: %s" % (state.get("made") or "never"),
                           ["Back up the library now",
                            "How to put a backup back (restore)",
-                           "List the backups on this Xbox"])
+                           "List the backups on this Xbox",
+                           "Remove wrong movie entries (TV episodes listed as movies)"])
         if pick < 0:
             return
         if pick == 0:
@@ -1915,6 +1970,9 @@ def backup_menu(dlg):
             state = load_cache(data_file(BACKUP_STATE))
         elif pick == 1:
             dlg.textviewer("%s - restore the library" % ADDON, backup.RESTORE_HELP)
+        elif pick == 3:
+            fix_wrong_movies(dlg)
+            state = load_cache(data_file(BACKUP_STATE))
         else:
             rows = ["%s   %s" % (stamp, backup.counts_line(info.get("counts") or {})) for stamp, info in backup.list_backups()]
             dlg.textviewer("%s - backups" % ADDON, "\n".join(rows) or "No backups yet.")
@@ -2275,7 +2333,7 @@ def main():
                            "View a text / NFO file",
                            "Search & download from YouTube (the phone downloads, then sort here)...",
                            "Help: guide, version history, what to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
-                           "Back up / restore my Kodi library (last: %s)" % backup_line(),
+                           "Kodi library: back up, restore, remove wrong movies (last backup: %s)" % backup_line(),
                            "Comics: tidy folders, convert .cbr to .cbz, turn pages for a portrait monitor"])
         if pick < 0:
             return
@@ -2323,7 +2381,7 @@ def main():
         first = dlg.select(ADDON, ["Sort my downloads into Kodi folders",
                                    "Search & download from YouTube (the phone downloads, then sort here)...",
                                    "Help: guide, version history, what to sort",
-                                   "Back up / restore my Kodi library (last: %s)" % backup_line()])
+                                   "Kodi library: back up, restore, remove wrong movies (last backup: %s)" % backup_line()])
         if first < 0:
             return
         if first == 1:

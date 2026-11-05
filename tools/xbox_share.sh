@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# xbox-share: let Kodi Sorter on the Xbox read the phone's downloads over the
+# xbox-share: let Kodi Sorter read the phone's downloads over the
 # hotspot Wi-Fi (no mobile data used). Runs a password-protected WebDAV server.
 #   xbox-share                      share /storage/emulated/0/Download
 #   xbox-share /storage/emulated/0/Movies   share another folder
@@ -41,7 +41,7 @@ fi
 IPS=$(ifconfig 2>/dev/null | awk '/^[a-z]/{i=$1} /inet /{print i, $2}' \
       | grep -Ev '^(lo|rmnet|tun|dummy|ccmni|ppp)' | awk '{print $2}')
 
-echo "================ XBOX SHARE ================"
+echo "=========== KODI SORTER PHONE SHARE ========"
 echo " Sharing : $DIR"
 echo " User    : kodi"
 echo " Password: $PASS"
@@ -52,7 +52,7 @@ else
   echo "           (Kodi Sorter finds the phone by itself anyway)"
 fi
 echo
-echo " On the Xbox: Kodi Sorter > Choose folders again >"
+echo " In Kodi: Kodi Sorter > Sort my downloads > Choose folders >"
 echo "   My phone over Wi-Fi - phone storage"
 echo " Keep Termux open while files copy. Ctrl+C stops sharing."
 echo " YouTube downloads: Kodi Sorter > Download from YouTube (port 8081)."

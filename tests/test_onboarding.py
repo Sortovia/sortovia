@@ -20,7 +20,7 @@ class MarkdownForKodi(unittest.TestCase):
 
     def test_real_readme_has_no_markdown_left(self):
         t = ob.md_to_kodi((ROOT / "README.md").read_text(encoding="utf-8"))
-        self.assertIn("FIRST-TIME SETUP", t)
+        self.assertIn("INSTALL IT", t)
         for junk in ("**", "```", "](", "|---"):
             self.assertNotIn(junk, t)
 
@@ -34,7 +34,7 @@ class MarkdownForKodi(unittest.TestCase):
 
     def test_real_readme_sentences_not_split(self):
         t = ob.md_to_kodi((ROOT / "README.md").read_text(encoding="utf-8"))
-        self.assertIn("a movie named in another language gets its English title", t)
+        self.assertIn("a movie named in another language gets a title in your language", t)
 
 
 class WhatsNew(unittest.TestCase):

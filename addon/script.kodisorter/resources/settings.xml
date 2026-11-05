@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<settings>
+  <category label="32000">
+    <setting id="check_updates" type="bool" label="32001" default="true"/>
+    <setting id="auto_backup" type="bool" label="32002" default="true"/>
+  </category>
+  <category label="32010">
+    <setting id="use_phone" type="bool" label="32011" default="true"/>
+    <setting id="send_logs" type="bool" label="32012" default="true" enable="eq(-1,true)"/>
+  </category>
+  <category label="32020">
+    <setting type="action" label="32021" action="RunPlugin(plugin://script.kodisorter/?action=tmdb_settings)" option="close"/>
+  </category>
+</settings>

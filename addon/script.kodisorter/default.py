@@ -32,6 +32,17 @@ try:
     ADDON = "Kodi Sorter " + xbmcaddon.Addon().getAddonInfo("version")
 except Exception:
     ADDON = "Kodi Sorter"
+
+
+def setting_on(name):
+    """A switch on the add-on's settings page (resources/settings.xml). Only an explicit
+    "false" turns it off, so a copy without the setting behaves as it always did."""
+    try:
+        return xbmcaddon.Addon().getSetting(name) != "false"
+    except Exception:
+        return True
+
+
 RES_RE = re.compile(r"(?<![0-9])(2160|1440|1080|720|576|480|360)[pi](?![a-z0-9])", re.I)
 
 ASK, ALWAYS, NEVER = 0, 1, 2
@@ -1102,7 +1113,7 @@ def cache_key(path, size):
 # PHONE and it's swapped for the current address when a run starts.
 PHONE = "PHONE"
 PHONE_KINDS = {
-    "dav": {"label": "phone storage (xbox-share on the phone)", "port": "8080", "user": "kodi"},
+    "dav": {"label": "phone storage (companion app or xbox-share)", "port": "8080", "user": "kodi"},
     "ftp": {"label": "USB drive on the phone (primitive ftpd app)", "port": "12345", "user": "user"},
 }
 
@@ -1253,9 +1264,9 @@ def phone_source(dlg, kind):
     real = resolve_src(base, dlg)
     if PHONE in real.split("@", 1)[-1].split("/")[0] or not phone_reachable(real):
         msg = ("Can't reach the phone (%s).\n" % masked(real) +
-               ("Start xbox-share in Termux on the phone" if kind == "dav" else
-                "Start primitive ftpd on the phone") +
-               " and make sure the Xbox is on the phone's hotspot.")
+               ("On the phone, tap Start sharing in the companion app, or start xbox-share in Termux,"
+                if kind == "dav" else "Start primitive ftpd on the phone") +
+               " and keep this device on the phone's hotspot or the same Wi-Fi.")
         if dlg.yesno(ADDON, msg + "\nWrong password? Forget it and ask again next time.",
                      nolabel="OK", yeslabel="Forget password"):
             saved = load_cache(data_file("phone.json"))
@@ -1294,7 +1305,7 @@ def pick_phone_folder(dlg, real, top="Download"):
 # ---------- send logs to the phone ----------
 # When xbox-share runs on the phone, Kodi's logs are copied to
 # Download/KodiSorterLogs on the phone over the hotspot (no mobile data), so
-# Claude can read them there. Quiet and quick: skipped if the phone isn't sharing.
+# they can be read there. Quiet and quick: skipped if the phone isn't sharing.
 LOG_DIR = "KodiSorterLogs"
 LOG_MAX = 3 * 1024 * 1024  # last 3 MB of each log is plenty
 
@@ -1337,19 +1348,26 @@ def send_logs(why, dlg=None, files=None, folder=LOG_DIR):
     files: [(name, bytes)] to send instead of the logs (e.g. a report).
     folder: where in the phone's Download folder (made if needed, e.g. "A/B")."""
     import socket
+    if not setting_on("use_phone"):
+        return "the phone helper is off in Kodi Sorter's settings"
+    if why in ("start", "during-run", "end") and not setting_on("send_logs"):
+        return "sending logs is off in Kodi Sorter's settings"
     saved = load_cache(data_file("phone.json"))
     creds = saved.get("dav") or {}
+    if not creds.get("pass") and why != "manual":
+        # Nobody has set up a phone: don't search their network for one.
+        return "phone share not set up"
     port = int(creds.get("port", 8080))
     ip = phone_address(dlg if why == "manual" else None, ask=(why == "manual"), port=port)
     if not ip:
-        return "phone not found - is xbox-share running and the Xbox on the phone's hotspot?"
+        return "phone not found - is the phone sharing, and on the same Wi-Fi or hotspot as this device?"
     if not _port_open(ip, port, 2):
         return "phone not sharing"
     if not creds.get("pass"):
         if dlg is None:
             return "phone share not set up"
         while True:
-            pw = dlg.input("xbox-share is running on your phone - type the Password it shows (once)")
+            pw = dlg.input("Your phone is sharing - type the password it shows (once)")
             if not pw:
                 return "no password typed"
             if _dav_ok(ip, port, "kodi", pw.strip()):
@@ -2494,6 +2512,8 @@ def check_library_backup(dlg):
         return  # no automatic backup while it's smaller: keep the good ones
     if not (now["episodes"] or now["movies"]) or time.time() - state.get("time", 0) < backup.EVERY:
         return
+    if not setting_on("auto_backup"):
+        return
     import threading
     threading.Thread(target=backup_now).start()
 
@@ -2680,7 +2700,7 @@ def backup_menu(dlg):
         pick = dlg.select("Kodi library backup - last: %s" % (state.get("made") or "never"),
                           ["Back up the library now",
                            "How to put a backup back (restore)",
-                           "List the backups on this Xbox",
+                           "List the backups on this device",
                            "Clean movie library (TV episodes listed as movies)",
                            "Clean TV library (entries that aren't TV episodes)"])
         if pick < 0:
@@ -2742,14 +2762,9 @@ def start_up(dlg):
         if (load_cache(data_file("phone.json")).get("dav") or {}).get("pass"):
             import threading
             threading.Thread(target=_send_start_logs).start()  # finishes on its own
-        else:
-            # No password saved yet: if the phone is sharing, ask for it (once).
-            splash.update(0, "Starting...\nLooking for your phone")
-            if phone_address(None, ask=False):
-                splash.close()
-                send_logs("start", dlg)
-                splash = xbmcgui.DialogProgress()
-                splash.create(ADDON, "Starting...")
+        if not setting_on("check_updates"):
+            _close(splash)
+            return False
         return check_for_update(dlg, splash=splash)
     finally:
         home().clearProperty(PROP_STARTING)
@@ -2821,7 +2836,8 @@ def onboarding_state():
         return onboarding.Onboarding(xbmcvfs.translatePath(me.getAddonInfo("path")),
                                      data_file("onboarding.json"), me.getAddonInfo("version"), ADDON,
                                      checker=check_library_folder, std_folder=standard_folder,
-                                     kodi_lang=_kodi_lang(), device_guess=device_guess())
+                                     kodi_lang=_kodi_lang(), device_guess=device_guess(),
+                                     set_phone=lambda on: me.setSetting("use_phone", "true" if on else "false"))
     except Exception as e:
         log("onboarding not available: %s" % e)
         return None
@@ -2946,7 +2962,7 @@ def check_library_folder(dlg, okind, folder):
         "\n\nKodi Sorter can reorganize this folder into Kodi-style folders (Show\\Season 01\\Show S01E02.mkv, "
         "Movie (Year)\\Movie (Year).mkv), inside the same folder. That would move or rename %d files (%.1f GB)%s. "
         "You see the full list before anything moves; files Kodi Sorter can't place stay where they are." % (
-            rep["moves"], gb, ", which takes about %.1f hours on the Xbox" % hours if hours >= 0.5 else "")
+            rep["moves"], gb, ", which can take about %.1f hours" % hours if hours >= 0.5 else "")
         if rep["moves"] else ""))
     if not rep["moves"]:
         return False
@@ -3018,7 +3034,7 @@ def youtube_menu(dlg, spath, last, only=None):
 def running_menu(dlg, status):
     """A move is going on in the background: keep going or stop it."""
     if True:
-        send_logs("during-run")  # so Claude can see a run that's still going
+        send_logs("during-run")  # so a run that's still going can be followed
         flag = home().getProperty(PROP_STOP)
         if flag == STOP_NOW:
             dlg.ok(ADDON, "Already stopping (%s) - give it a few seconds." % status)
@@ -3085,10 +3101,12 @@ def script_main():
 
 def new_sort(dlg, spath):
     """Choose folders and choices, then sort."""
-    where = dlg.select("Where are the downloads?",
-                       ["A folder or drive on the Xbox",
-                        "My phone over Wi-Fi - %s" % PHONE_KINDS["dav"]["label"],
-                        "My phone over Wi-Fi - %s" % PHONE_KINDS["ftp"]["label"]])
+    where = 0
+    if setting_on("use_phone"):
+        where = dlg.select("Where are the downloads?",
+                           ["A folder or drive on this device",
+                            "My phone over Wi-Fi - %s" % PHONE_KINDS["dav"]["label"],
+                            "My phone over Wi-Fi - %s" % PHONE_KINDS["ftp"]["label"]])
     if where < 0:
         return
     if where == 0:
@@ -3948,7 +3966,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode
         import traceback
         log_block("ERROR", traceback.format_exc())
         dlg.ok(ADDON, "Something went wrong - nothing more was moved.\n"
-               "Details are in Kodi's log: use the Kodi Logfile Uploader add-on.")
+               "Details are in Kodi's log (Settings > System > Logging, or the Kodi Logfile Uploader add-on).")
     finally:
         COPY_HOOK[0] = STEP_HOOK[0] = None
         home().clearProperty(PROP_RUN)
@@ -3985,8 +4003,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         friendly(kind_root(k, dest)) for k in ("Movies", "TV", "Comics", "Tutorials"))
     log(where_to)
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
-        dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start xbox-share (Termux) or primitive ftpd, "
-               "and keep the Xbox on the phone's hotspot. Then open Kodi Sorter and choose Resume."
+        dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start sharing (companion app, xbox-share or primitive ftpd), "
+               "and keep this device on the phone's hotspot or the same Wi-Fi. Then open Kodi Sorter and choose Resume."
                % masked(src))
         return
 
@@ -4609,13 +4627,15 @@ def menu_items(name):
             out.append(_item("Resume the sort that didn't finish (%s)" % prev.get("started", "?"),
                              "From %s to %s, with the same choices." % (masked(prev["src"]), prev["dest"]),
                              "DefaultIconInfo.png", action="resume"))
+        out.append(_item("Sort my downloads", "Sort a downloads folder into TV, Movies, Comics and Tutorials.",
+                         "DefaultFolder.png", menu="sort"))
+        if setting_on("use_phone"):
+            out.append(_item("YouTube", "Search YouTube here; your Android phone downloads, then they're sorted "
+                             "into Tutorials. Needs the Termux setup in the guide.",
+                             "DefaultAddonVideo.png", menu="youtube"))
         return out + [
-            _item("Sort my downloads", "Sort a downloads folder (on the Xbox or the phone) into TV, Movies, "
-                  "Comics and Tutorials.", "DefaultFolder.png", menu="sort"),
-            _item("YouTube", "Search YouTube on the Xbox; the phone downloads, then they're sorted into Tutorials.",
-                  "DefaultAddonVideo.png", menu="youtube"),
-            _item("Real-Debrid", "Download what's in your Real-Debrid account straight to your library drive, "
-                  "then sort it.", "DefaultNetwork.png", menu="realdebrid"),
+            _item("Real-Debrid", "Optional, needs a premium account. Download what's in your account straight to "
+                  "your library drive, then sort it.", "DefaultNetwork.png", menu="realdebrid"),
             _item("Tidy my library folders", "Put what's already in your TV, Movies and Comics folders into the "
                   "layout Kodi expects. Comics: .cbr to .cbz, turn pages.", "DefaultAddonService.png", menu="tidy"),
             _item("Kodi library", "Back up and restore the library, clean the TV and movie libraries, missing "
@@ -4705,8 +4725,10 @@ def menu_items(name):
             _item("Where to watch a show", "Your services, free, or buy/rent (TMDb).", "DefaultTVShows.png",
                   action="wherewatch")]
     if name == "help":
-        return [
+        return [i for i in [
             _item("Read the guide", "Features and first-time setup.", "DefaultIconInfo.png", action="guide"),
+            _item("Settings", "Update checks, automatic backups, the phone helper, your TMDb key.",
+                  "DefaultAddonService.png", action="settings"),
             _item("Version history", "What each update added.", "DefaultIconInfo.png", action="history"),
             _item("What to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
                   "TV, Movies, Comics, Tutorials.", "DefaultAddonService.png", action="kinds"),
@@ -4721,7 +4743,7 @@ def menu_items(name):
                   "the steps for your device.", "DefaultIconInfo.png", action="sources_help"),
             _item("Check for updates now", "Kodi Sorter also checks every time it opens.", "DefaultAddonsUpdates.png",
                   action="update"),
-            _item("Send Kodi's log to my phone now", "xbox-share must be running on the phone.", "DefaultNetwork.png",
+            _item("Send Kodi's log to my phone now", "The phone must be sharing (companion app or xbox-share).", "DefaultNetwork.png",
                   action="logs"),
             _item("View a text / NFO file", "Reads old DOS-style NFO art correctly.", "DefaultIconInfo.png",
                   action="nfo"),
@@ -4729,6 +4751,7 @@ def menu_items(name):
                   "(temporary files, old add-on downloads, backups that belong on the drive).", "DefaultAddonService.png",
                   action="free_space"),
             _item("Show the welcome screen again", "", "DefaultIconInfo.png", action="welcome")]
+            if i["action"] != "logs" or setting_on("use_phone")]
     return []
 
 
@@ -4802,6 +4825,8 @@ def _welcome(ob, dlg):
 
 
 ACTIONS = {
+    "settings": lambda dlg, spath: xbmcaddon.Addon().openSettings(),
+    "tmdb_settings": lambda dlg, spath: watch_settings(dlg, change=True),
     "running": lambda dlg, spath: running_menu(dlg, home().getProperty(PROP_RUN)),
     "resume": _resume, "same": _same, "new": new_sort,
     "report": lambda dlg, spath: _report(dlg),

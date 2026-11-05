@@ -126,8 +126,10 @@ def _save(path, data):
 
 class Onboarding(object):
     def __init__(self, addon_path, data_path, version, heading, checker=None, std_folder=None, kodi_lang="en",
-                 device_guess="other"):
+                 device_guess="other", set_phone=None):
         self.kodi_lang = kodi_lang
+        # set_phone(bool): turns the phone helper on or off on the settings page
+        self.set_phone = set_phone
         self.device_guess = device_guess
         # std_folder(kind) -> "E:\\Movies": where a kind goes by default (None = not known yet)
         self.std_folder = std_folder
@@ -266,7 +268,7 @@ class Onboarding(object):
     def show_guide(self, dlg):
         md = _read(os.path.join(self.res, "README.md"))
         dlg.textviewer("%s - guide" % self.heading, md_to_kodi(md) if md else
-                       "The guide isn't included in this copy. It's on GitHub: akaguyver/kodi-sorter, README.md")
+                       "The guide isn't included in this copy. It's at akaguyver.github.io/kodi-repo")
 
     def show_history(self, dlg):
         md = _read(os.path.join(self.res, "CHANGELOG.md"))
@@ -301,6 +303,16 @@ class Onboarding(object):
         self.choose_kinds(dlg, first=True)
         self.choose_language(dlg)
         self.choose_folders(dlg, first=True)
+        if self.set_phone:
+            phone = dlg.yesno(self.heading,
+                              "Do you want to use an Android phone as a helper? It's optional: Kodi Sorter can read "
+                              "downloads from the phone over Wi-Fi and search YouTube through it.\n"
+                              "Choosing No hides those options. You can change this in Help & settings > Settings.",
+                              nolabel="No", yeslabel="Yes")
+            self.set_phone(bool(phone))
+            if phone:
+                dlg.ok(self.heading, "Set the phone up when you're ready. The steps are in the guide, section 3, "
+                                     "and at akaguyver.github.io/kodi-repo")
         if dlg.yesno(self.heading, "Read the guide now? (features and how to get started)\n"
                                    "You can open it any time from the menu: Help.",
                      nolabel="Later", yeslabel="Read it"):

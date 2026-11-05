@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kodi Sorter</title>
+<meta name="description" content="A free Kodi add-on that sorts your downloads into the folders Kodi understands.">
+<style>
+:root { --bg:#f7f8fa; --card:#fff; --text:#1b2530; --muted:#55636f; --line:#dfe4e9; --accent:#17528a; --code:#eef1f4; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#12171d; --card:#1b222a; --text:#e8edf2; --muted:#a4b0bb; --line:#303a44; --accent:#8cc3f5; --code:#262f38; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+main { max-width:720px; margin:0 auto; padding:32px 16px 56px; }
+header { display:flex; gap:16px; align-items:center; margin-bottom:12px; }
+header img { width:72px; height:72px; flex:none; }
+h1 { font-size:2rem; line-height:1.15; margin:0; }
+.lead { font-size:1.1rem; color:var(--muted); margin:0 0 24px; }
+h2 { font-size:1.25rem; margin:0 0 12px; }
+section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; }
+ol, ul { padding-left:1.4em; margin:0; }
+li { margin-bottom:10px; }
+li:last-child { margin-bottom:0; }
+p { margin:0 0 12px; }
+section > p:last-child { margin-bottom:0; }
+a { color:var(--accent); }
+code, pre { background:var(--code); border-radius:6px; font:15px/1.5 ui-monospace,Menlo,Consolas,monospace; }
+code { padding:2px 5px; overflow-wrap:anywhere; }
+pre { padding:12px; margin:0 0 16px; overflow-x:auto; }
+pre code { padding:0; background:none; overflow-wrap:normal; }
+.note { color:var(--muted); font-size:.95rem; }
+</style>
+</head>
+<body>
+<main>
+<header>
+<img src="script.kodisorter/icon.png" alt="">
+<h1>Kodi Sorter</h1>
+</header>
+<p class="lead">A free Kodi add-on that turns a pile of downloads into the folders Kodi understands. You see the whole plan first, and nothing moves until you say so.</p>
+<pre><code>E:\
+├── TV\Show Name (Year)\Season 01\Show Name (Year) S01E02.mkv
+├── Movies\Movie Name (Year)\Movie Name (Year).mkv
+├── Comics\Series\&lt;original file&gt;.cbz
+└── Tutorials\AutoCAD\&lt;original file&gt;.mp4</code></pre>
+
+<section>
+<h2>Install it in Kodi</h2>
+<ol>
+<li>Go to <b>Settings → System → Add-ons</b> and turn on <b>Unknown sources</b>. Choose <b>Yes</b> at the warning.</li>
+<li>Go to <b>Settings → File manager → Add source</b>. Select the box that says <code>&lt;None&gt;</code>, type <code>https://akaguyver.github.io/kodi-repo/</code>, and name it <code>kodirepo</code>.</li>
+<li>Go to <b>Settings → Add-ons → Install from zip file → kodirepo</b> and pick <code>{{ZIP}}</code>.</li>
+<li>Recommended, for <code>.rar</code> and <code>.7z</code> files: <b>Install from repository → Kodi Add-on repository → VFS add-ons → Archive support</b>.</li>
+<li>Open <b>Kodi Sorter</b> from <b>Add-ons → Program add-ons</b> and follow the welcome screen.</li>
+</ol>
+</section>
+
+<section>
+<h2>What you need</h2>
+<ul>
+<li>Kodi 19 or newer, and your files on a drive Kodi can see.</li>
+<li>Nothing else. An Android phone, a free TMDb key and Real-Debrid are optional extras.</li>
+</ul>
+</section>
+
+<section>
+<h2>More</h2>
+<ul>
+<li><a href="https://github.com/akaguyver/kodi-repo#readme">Read the full guide</a>: your first sort, adding folders to Kodi, and fixing common problems.</li>
+<li><a href="app/">Get the Android companion app</a> to read downloads from your phone.</li>
+<li><a href="https://github.com/akaguyver/kodi-repo/blob/main/CHANGELOG.md">See what's changed</a> in each version.</li>
+</ul>
+</section>
+
+<section>
+<p class="note">Built and tested on Kodi 21 on an Xbox One S. Other devices should work but haven't been tested yet, so try it on a few files first. Kodi Sorter moves and deletes files when you approve it, so keep a backup of anything you can't replace. Free software under the <a href="https://github.com/akaguyver/kodi-repo/blob/main/LICENSE.txt">MIT licence</a>, with no warranty. Not affiliated with Kodi or the XBMC Foundation.</p>
+</section>
+
+<!-- Kodi's "Install from zip file" reads the link below. Keep it on one line, with the file name as its text. -->
+<p class="note">Direct download:<br>
+<a href="{{ZIP}}">{{ZIP}}</a><br>
+</p>
+</main>
+</body>
+</html>

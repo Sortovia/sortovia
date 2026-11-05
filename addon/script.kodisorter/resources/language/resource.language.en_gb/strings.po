@@ -1,0 +1,37 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en_GB\n"
+
+msgctxt "#32000"
+msgid "General"
+msgstr ""
+
+msgctxt "#32001"
+msgid "Check for updates when Kodi Sorter opens"
+msgstr ""
+
+msgctxt "#32002"
+msgid "Back up the Kodi library automatically once a day"
+msgstr ""
+
+msgctxt "#32010"
+msgid "Phone"
+msgstr ""
+
+msgctxt "#32011"
+msgid "Use an Android phone as a helper (phone downloads, YouTube)"
+msgstr ""
+
+msgctxt "#32012"
+msgid "Copy Kodi's logs to the phone when Kodi Sorter runs"
+msgstr ""
+
+msgctxt "#32020"
+msgid "Movie data (TMDb)"
+msgstr ""
+
+msgctxt "#32021"
+msgid "Set your free TMDb key, country and streaming services"
+msgstr ""
+

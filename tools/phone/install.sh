@@ -43,7 +43,7 @@ done
 chmod +x "$DIR/xbox_share.sh"
 cat > "$PREFIX/bin/xbox-share" <<EOF
 #!$PREFIX/bin/bash
-# Kodi Sorter: share the phone's Download folder with Kodi on the Xbox, plus YouTube downloads.
+# Kodi Sorter: share the phone's Download folder with Kodi, plus YouTube downloads.
 command -v termux-wake-lock >/dev/null && termux-wake-lock
 exec bash "$DIR/xbox_share.sh" "\$@"
 EOF
@@ -76,9 +76,9 @@ cat <<EOF
 
 =====================================================
  Done. To use it:
-   1. Turn on the phone's Mobile Hotspot and connect the Xbox to it.
+   1. Connect Kodi's device to the phone's Mobile Hotspot, or put both on the same Wi-Fi.
    2. In Termux type:   xbox-share
-   3. In Kodi on the Xbox open Kodi Sorter. The first time it asks for
+   3. In Kodi open Kodi Sorter and choose your phone. It asks once for
       the password xbox-share shows:  $(cat "$CONF/password")
  Keep Termux open (it can be in the background) while you use it.
  YouTube downloads also need your sign-in cookies once - see

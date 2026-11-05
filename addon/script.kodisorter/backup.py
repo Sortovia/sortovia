@@ -37,7 +37,7 @@ RESTORE_HELP = (
     "Kodi adds back every show, episode and movie whose video file is still there, with its "
     "information, watched marks and resume points. Artwork comes from Kodi's own cache where it can.\n\n"
     "The backups are on your library drive (folder _Kodi library backups) and on the phone "
-    "(Download/KodiSorterBackups) - not on the Xbox's own small storage.\n\n"
+    "(Download/KodiSorterBackups) - not on this device's own storage.\n\n"
     "Tip: a source that covers the whole drive with a content type set (Movies or TV shows) "
     "overrides the TV and Movies folders inside it. Changing it can remove those from the "
     "library. Add only the folders themselves as sources.")

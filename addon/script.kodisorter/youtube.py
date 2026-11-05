@@ -43,7 +43,7 @@ Firefox menu > Extensions > the cookie extension > Settings > turn on "Run in pr
 - Close the private tab - don't sign out, or the cookies stop working. (Cookies from a normal tab get replaced by YouTube within a day or so; private-tab cookies last much longer.)
 
 [B]4. That's all[/B]
-The phone's helper finds the file, moves it out of the shared Download folder (so the Xbox share can't see your sign-in) and uses it for every download. This menu then says "cookies from today".
+The phone's helper finds the file, moves it out of the shared Download folder (so the share can't see your sign-in) and uses it for every download. This menu then says "cookies from today".
 
 When downloads start failing with "export a new cookies.txt", repeat step 3.
 
@@ -418,13 +418,13 @@ def menu(dlg, find_ip, creds, log, dest_line=None, only=None):
     """Returns "sort" (sort the finished downloads now), "dest" (choose where they're sorted) or None."""
     c = creds()
     if not c or not c.get("pass"):
-        dlg.ok(HEADING, "First set up the phone share: start xbox-share on the phone, then in Kodi Sorter "
-                        "choose \"Send Kodi's log to my phone now\" and type the password it shows.")
+        dlg.ok(HEADING, "First set up the phone: start xbox-share in Termux (the guide has the steps), then in Kodi Sorter "
+                        "choose Help & settings > \"Send Kodi's log to my phone now\" and type the password it shows.")
         return None
     ip = find_ip()
     if not ip:
-        dlg.ok(HEADING, "Can't find the phone. Start xbox-share in Termux on the phone and keep the "
-                        "Xbox on the phone's hotspot.")
+        dlg.ok(HEADING, "Can't find the phone. Start xbox-share in Termux on the phone and keep this "
+                        "device on the phone's hotspot or the same Wi-Fi.")
         return None
     phone = Phone(ip, c.get("user", "kodi"), c["pass"])
     last = {}

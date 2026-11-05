@@ -2,6 +2,14 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.38 – Ready for everyone
+- **1.38.0**
+  - **A settings page.** Open it from *Help & settings → Settings* or Kodi's *Configure* button. You can turn update checks, the daily library backup, the phone helper and log copying on or off, and set your TMDb key.
+  - **The phone is now optional.** The welcome screen asks whether you want to use one, and answering No hides the phone and YouTube options.
+  - **No more network searches for a phone you haven't set up.** Kodi Sorter used to look for a phone every time it opened. Now it only looks after you've set one up or when you ask it to.
+  - **Messages fit any device**, not just an Xbox, and mention the companion app.
+  - **A new guide and web page**, with install steps, a troubleshooting section and a list of what Kodi Sorter connects to. The add-on also has an icon and an MIT licence file.
+
 ## 1.37 – Your device, QR sign-in
 - **1.37.3** **Copies from the phone are no longer thrown away as "size mismatch (0 vs …)".** When the phone's share was busy, the check of the original's size failed and came back as 0, so a good copy was deleted (the originals were always kept). The size is now asked again after the copy. The companion app's own cause is fixed in app 0.1.5.
 - **1.37.2** **Picking a folder on the phone opens the phone's Download folder.** Kodi's folder browser can't open a place that isn't a Kodi source, so it showed the Xbox's list instead. Kodi Sorter now lists the phone's folders itself: pick one to go into it, *Use this folder* to choose it, and Back to go up. This works with xbox-share and the companion app.

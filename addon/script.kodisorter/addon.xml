@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.kodisorter" name="Kodi Sorter" version="1.37.3" provider-name="akaguyver">
+<addon id="script.kodisorter" name="Kodi Sorter" version="1.38.0" provider-name="akaguyver">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>
@@ -7,9 +7,14 @@
     <provides>executable</provides>
   </extension>
   <extension point="xbmc.addon.metadata">
-    <summary lang="en_GB">Sort and rename downloads into Kodi TV/Movies/Comics folders</summary>
-    <description lang="en_GB">Pick a source folder and a destination drive. Shows a preview of every move, then moves or copies (with size check) and renames files to Kodi naming.</description>
+    <summary lang="en_GB">Sort and rename downloads into the folders Kodi understands</summary>
+    <description lang="en_GB">Turns a pile of downloads into tidy TV, Movies, Comics and Tutorials folders that Kodi's library can read. You pick a source and a destination, see every move first, and nothing moves until you say so. An Android phone can help, but you don't need one.</description>
+    <disclaimer lang="en_GB">Kodi Sorter moves and deletes files when you approve it. Keep a backup of anything you can't replace. Not affiliated with Kodi or the XBMC Foundation.</disclaimer>
     <platform>all</platform>
     <license>MIT</license>
+    <website>https://akaguyver.github.io/kodi-repo/</website>
+    <assets>
+      <icon>icon.png</icon>
+    </assets>
   </extension>
 </addon>

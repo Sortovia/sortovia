@@ -8,7 +8,9 @@ Writes into the target folder (a clone of github.com/akaguyver/kodi-repo):
   <id>/<id>-<version>.zip         - one zip per add-on version
   <id>-<version>.zip              - top-level copy of each newest zip, so
                                     Install from zip file can use the web source
-  index.html                      - link list so Kodi's file browser sees the zip
+  index.html                      - the public landing page; its zip link is what
+                                    Kodi's file browser sees
+  README.md, CHANGELOG.md, LICENSE.txt - the guide and licence, for the GitHub page
 
 After building: commit and push the target repo. Kodi picks up new versions
 on its next update check. Bump the version in addon.xml for every release.
@@ -43,6 +45,7 @@ def build(out: Path):
                 # The guide and version history shown inside the add-on (welcome screen, Help).
                 for doc in ("README.md", "CHANGELOG.md"):
                     z.write(ROOT.parent / doc, f"{addon.name}/resources/{doc}")
+                z.write(ROOT.parent / "LICENSE.txt", f"{addon.name}/LICENSE.txt")
         entries.append(re.sub(r"^<\?xml[^>]*\?>\s*", "", xml).strip())
         (zpath.parent / (zpath.name + ".md5")).write_text(
             hashlib.md5(zpath.read_bytes()).hexdigest())
@@ -52,7 +55,12 @@ def build(out: Path):
             old.unlink()
         top = out / zpath.name
         top.write_bytes(zpath.read_bytes())
-        links.append(top.name)
+        if addon.name == "script.kodisorter":
+            # Only the add-on itself: on the Xbox the repository add-on can't connect,
+            # so it isn't offered to people as something to install.
+            links.append(top.name)
+            icon = addon / "icon.png"
+            (zpath.parent / "icon.png").write_bytes(icon.read_bytes())
         print(f"built {zpath.relative_to(out)}")
 
     # Phone helper for other people: one-step Termux installer + the scripts it fetches.
@@ -68,10 +76,10 @@ def build(out: Path):
     (out / "addons.xml").write_text(addons_xml, encoding="utf-8")
     (out / "addons.xml.md5").write_text(hashlib.md5(addons_xml.encode("utf-8")).hexdigest())
     (out / ".nojekyll").write_text("")
-    (out / "index.html").write_text(
-        "<!DOCTYPE html>\n<html><body>\n"
-        + "".join(f'<a href="{n}">{n}</a><br>\n' for n in links)
-        + "</body></html>\n")
+    page = (ROOT.parent / "tools" / "site_index.html").read_text(encoding="utf-8")
+    (out / "index.html").write_text(page.replace("{{ZIP}}", links[0]), encoding="utf-8")
+    for doc in ("README.md", "CHANGELOG.md", "LICENSE.txt"):
+        (out / doc).write_bytes((ROOT.parent / doc).read_bytes())
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 # Sortovia
 
 Sortovia (formerly Kodi Sorter) is a free add-on for Kodi that turns a pile of downloads into the folders Kodi understands, so its
-library recognises everything:
+library recognises everything. It began as a tool for Kodi on an Xbox, with a phone as the hotspot, and it's now capable of much more.
+
 
 ```
 E:\
@@ -21,7 +22,7 @@ You need:
 - **Kodi 19 or newer**, with an internet connection for the install.
 - **Your files on a drive Kodi can see**, and enough free space on the drive they're going to.
 
-That's all. An Android phone, a TMDb key and Real-Debrid are optional extras, and you can ignore them to begin with.
+That's all. A phone, a TMDb key and Real-Debrid are optional extras, and you can ignore them to begin with.
 
 Sortovia is built and tested on **Kodi 21 on an Xbox One S**. It uses Kodi's own file functions, so it should work on
 other devices, but they haven't been tested yet. Try it on a few files first.
@@ -92,9 +93,12 @@ Open **Help & settings → Settings**.
 | Setting | What it does | Starts as |
 |---|---|---|
 | Check for updates | Looks for a new version each time Sortovia opens | On |
-| Daily library backup | Saves Kodi's library to your library drive once a day, if it has changed | On |
-| Use an Android phone | Shows the phone and YouTube options, and lets it look for your phone | Your welcome-screen answer |
-| Copy logs to the phone | Saves Kodi's logs to the phone's `Download/KodiSorterLogs` folder | On, once a phone is set up |
+| Daily library backup | Saves Kodi's library to your library drive once a day, only if the library has changed | On |
+| Skip videos under 50 MB | Treats short videos as samples. Turn it off to sort short films and clips too | On |
+| Rename movie titles to your language | Renames a movie named in another language. Needs a TMDb key | On |
+| Use a phone as a download source | Shows the options for importing from your phone, and YouTube | Your welcome-screen answer |
+| Copy logs to the phone | Saves Kodi's logs to the phone's `Download/SortoviaLogs` folder for your own records | On, once a phone is set up |
+| Protect with a passcode | Encrypts your saved passwords and keys | Off |
 | TMDb | Your free key, country and streaming services | Not set |
 
 ---
@@ -115,68 +119,110 @@ anything moves.
 
 ---
 
-## Optional: use an Android phone
+## Optional: use a phone as a download source
 
-A phone lets Sortovia read downloads from the phone over Wi-Fi and save Kodi's logs there. It can also download from
-YouTube. Kodi's device and the phone must be on the same Wi-Fi, or Kodi's device must be on the phone's hotspot.
+Sortovia can import files directly from your phone over a Wi-Fi connection, and copy Kodi's logs to it. Your Kodi device and the phone
+must be on the same Wi-Fi, or your Kodi device must be on the phone's hotspot. Sortovia finds the phone by itself and asks for its
+password once.
 
-| | Companion app | Termux |
-|---|---|---|
-| Read the phone's Download folder | Yes | Yes |
-| Copy logs to the phone | Yes | Yes |
-| Download from YouTube | No | Yes |
-| Setup | Install one app | Paste one command |
+| | Android app | Android Termux | iPhone |
+|---|---|---|---|
+| Import files from the phone | Yes | Yes | Experimental |
+| Copy logs to the phone | Yes | Yes | Experimental |
+| Download from YouTube | No | Yes | No |
+| Setup | Install one app | Paste one command | Terminal app |
 
-### Easiest: the companion app
+### Android: the companion app (easiest)
 
-1. On the phone, open https://akaguyver.github.io/kodi-repo/app/ and follow the steps to install it.
-2. Allow the **Phone settings** it asks for, then tap **Start sharing**.
-3. In Sortovia, choose **My phone over Wi-Fi** and type the password the app shows.
+The Sortovia companion app sets up Kodi Share for you, with no commands to type.
 
-### For YouTube too: Termux
+1. On the phone, open **akaguyver.github.io/kodi-repo/app** and follow the steps to install it.
+2. Open it and allow the **Phone settings** it asks for.
+3. Tap **Start sharing**. That's all it takes to start the share, and the app shows the password.
+4. In Sortovia, choose **Sort my downloads → Choose folders and choices → My phone over Wi-Fi**, and type the password.
 
-1. Install **Termux** from **F-Droid** (https://f-droid.org/packages/com.termux/) or from Termux's GitHub page.
-   The Play Store version is outdated and doesn't work.
-2. Open Termux and paste this line. Tap **Allow** when Android asks about storage.
+### Android: Termux (also gives you YouTube downloads)
+
+1. Install **Termux** from **F-Droid** (f-droid.org/packages/com.termux). The Play Store version is outdated and doesn't work.
+2. Open Termux and type this line, then tap **Allow** when Android asks about storage:
 
    ```
    pkg install -y curl && curl -fsSL https://akaguyver.github.io/kodi-repo/phone/install.sh | bash
    ```
 
-   It takes a few minutes the first time and ends by showing your password. Run the same line again any time to update.
-3. Type **`xbox-share`** in Termux. Despite the name, it works with Kodi on any device. Sortovia finds the phone by itself and asks for the
-   password once. Keep Termux open in the background while you use it.
+   It takes a few minutes the first time. Run the same line again any time to update.
+3. **To start Kodi Share,** open Termux and type:
 
-Handy commands: `xbox-share password` shows the password, and `xbox-share stop` stops the share. Use only one share at a
-time: stop `xbox-share` before using the companion app.
+   ```
+   kodi-share
+   ```
 
-For a USB drive plugged into the phone, use the *primitive ftpd* app (F-Droid) and choose "USB drive on the phone" in Kodi
-Sorter.
+   It shows your password, then keeps running. Leave Termux open in the background while you use it.
+4. In Sortovia, choose **My phone over Wi-Fi** and type the password.
+
+To stop it, type `kodi-share stop` in Termux. To see the password again, type `kodi-share password`. Use only one share at a time:
+stop `kodi-share` before using the companion app.
+
+For a USB drive plugged into an Android phone, use the *primitive ftpd* app from F-Droid, and choose "USB drive on the phone" in Sortovia.
+
+### iPhone: use a terminal app until there's an iOS app (experimental)
+
+There's no iPhone app yet. These steps run the same kind of share in the free iSH terminal app. **They haven't been tested yet**,
+and iSH is slow. iOS can also pause apps in the background, so keep iSH open on screen, with the screen on, while files copy.
+
+1. Install **iSH Shell** from the App Store and open it.
+2. Type these lines one at a time. The second line lets you pick a folder from the Files app, so choose the one holding your downloads:
+
+   ```
+   apk add rclone
+   mount -t ios . /mnt
+   ```
+
+3. **To start Kodi Share,** type this, replacing `yourpassword` with a password you choose (letters and numbers are easiest to type on a TV):
+
+   ```
+   rclone serve webdav /mnt --addr :8080 --user kodi --pass yourpassword
+   ```
+
+4. Turn on **Personal Hotspot** and connect your Kodi device to it, or put both on the same Wi-Fi.
+5. In Sortovia, choose **My phone over Wi-Fi** and type your password. Press Ctrl+C in iSH to stop.
+
+If it doesn't work, please send a problem report so it can be fixed.
 
 ### Download from YouTube
 
-Only download videos you're allowed to keep: your own, or ones the creator permits. YouTube only allows downloads from a
-signed-in browser, so this needs your browser's cookies.
+For now, YouTube downloads need the Android Termux setup above. Only download videos you're allowed to keep: your own, or ones the
+creator permits. YouTube only allows downloads from a signed-in browser, so this needs your browser's cookies.
 
 > **Your cookies file works like a password for your Google account.** Consider using a spare account. Automated downloading
 > may be against YouTube's terms, and using it is at your own risk.
 
-1. Complete the Termux setup above.
-2. In Firefox on the phone, open addons.mozilla.org, search for **cookies.txt** (the one called just that; it works on Android) and tap **Add to Firefox**.
-3. **If Add to Firefox is greyed out** (for example *Get cookies.txt LOCALLY*, which isn't marked for Android), install it from its file:
-   - Firefox → Settings → About Firefox, and tap the Firefox logo **5 times** to turn on the debug menu.
-   - Back in Settings, choose **Install extension from file** and pick the `.xpi` file from Download. Only signed files from addons.mozilla.org install.
-4. Allow the extension in private tabs: Extensions → the extension → Settings → *Run in private browsing*.
-5. Open a **private tab**, sign in to youtube.com, and export the cookies for that site (Netscape format) into **Download**. Then close the tab without signing out.
-6. Start `xbox-share`. The helper moves the file out of the shared folder and uses it from there. Repeat these steps if downloads start failing.
-7. In Sortovia, open **YouTube**. You can search or type a link, follow **Downloads**, choose the quality and result order, then **Sort the finished downloads**.
+**Get the cookie extension.** The version known to install on Firefox for Android is **Get cookies.txt LOCALLY 0.7.2**:
+
+1. In Firefox on the phone, open **akaguyver.github.io/kodi-repo/phone**.
+2. **Press and hold** the file link and choose **Download link**. Tapping it normally may be blocked.
+3. In Firefox, go to **Settings → About Firefox** and tap the Firefox logo **5 times** to turn on the debug menu.
+4. Go back to **Settings**, choose **Install extension from file**, and pick `get-cookies-txt-locally.xpi` from your Download folder.
+5. Go to **Extensions → Get cookies.txt LOCALLY → Settings** and turn on *Run in private browsing*.
+
+**Export your cookies.**
+
+1. Open a **private tab**, sign in to youtube.com, and use the extension to export the cookies for that site, in Netscape format, into **Download**.
+2. Close the tab without signing out.
+3. In Termux, start Kodi Share by typing `kodi-share`. If it's already running, type `kodi-share stop` first. It finds the cookies file and
+   moves it out of the shared folder to keep it private.
+
+Repeat this export if downloads start failing.
+
+**Download.** In Sortovia, open **YouTube**. You can search or type a link, follow **Downloads**, choose the quality and result order, then choose
+**Sort the finished downloads**.
 
 ---
 
 ## If something goes wrong
 
-**"Couldn't connect" when adding the address, or the zip isn't listed.** Check the address is typed exactly, including the
-`https://` and the last `/`, and that Kodi's device is online.
+**"Couldn't connect" when adding the install address, or the zip isn't listed.** Check you typed `https://akaguyver.github.io/kodi-repo/`
+exactly, including the `https://` and the last `/`, and that your Kodi device is online.
 
 **The drive doesn't appear in the Add source browser (Xbox).** Type the `win-lib://removable/...` path shown above instead
 of browsing.
@@ -190,11 +236,15 @@ TV episodes wrongly listed as movies. Sortovia never deletes your video files fo
 **Sortovia can't find the phone.** Check the share is running on the phone and that both devices are on the same Wi-Fi or
 hotspot. A VPN on the phone can get in the way. If it still can't find it, type the phone's address when asked.
 
-**A file was skipped.** The preview says why. Common reasons: it's under 50 MB (treated as a sample), it has no audio in your
-language, or a better copy already exists.
+**A file was skipped.** The preview says why. Common reasons: it's under 50 MB (treated as a sample; you can turn that off in Settings),
+it has no audio in your language, or a better copy already exists.
 
-**Something else.** The last sort's report is under **Sort my downloads**, and Kodi's log has more detail in lines containing
-`Sortovia`.
+**The Firefox extension won't install.** Use the exact steps under *Download from YouTube*, including **Download link** and
+**Install extension from file**.
+
+**Something else.** Use **Help & settings → Send a problem report to the developer**. Sortovia removes passwords, keys and addresses from
+Kodi's log, shows you exactly what's in it, and only sends it if you agree. It goes on paste.kodi.tv, Kodi's public log site, and can include
+file and folder names. Then scan the QR code with your phone to send the developer the link, which needs a free GitHub account.
 
 ---
 
@@ -206,14 +256,18 @@ Sortovia has no accounts of its own, no ads and no analytics. It connects only t
 |---|---|---|
 | GitHub | Update checks and updates | A normal web request |
 | TVmaze | *Find missing episodes* | Show names |
-| TMDb | English titles, *Where to watch*, if you add a key | Titles and your key |
+| TMDb | Movie titles, *Where to watch*, if you add a key | Titles and your key |
+| paste.kodi.tv | Only when you send a problem report | The cleaned log, after you've agreed |
 | Real-Debrid | Only if you sign in | Your links and sign-in token |
 | Sites whose feeds you add | When you open *My releases* | A normal web request to the address you added |
 | Your phone | Only if you set one up | Files and logs, on your own network |
 | YouTube | Only from the phone, if you use YouTube downloads | Your searches, links and cookies |
 
-When the phone is set up, Sortovia looks for it by briefly checking the addresses on your local network. Passwords and keys
-are stored unencrypted in Kodi's add-on data on your device.
+When the phone is set up, Sortovia looks for it by briefly checking the addresses on your local network.
+
+**Your passwords and keys** stay on your own device, in Kodi's add-on data. To encrypt them, turn on **Help & settings → Settings → Protect saved
+passwords and keys with a passcode**. You type the passcode once each time Kodi starts. It can't be recovered: if you forget it, you erase those
+saved details and enter them again, and your files aren't affected. Without a passcode, they're stored as plain text.
 
 ---
 
@@ -222,7 +276,7 @@ are stored unencrypted in Kodi's add-on data on your device.
 **Sorting and naming**
 - TV episodes (`S01E02`, `1x02`, fansub `Show - 07`, double episodes) go to `TV\Show\Season NN\`.
 - Movies (a title plus a year) go to `Movies\Title (Year)\`. With a TMDb key, a movie named in another
-  language gets a title in your language, including Russian titles written in Latin letters.
+  language can be renamed to your language, including Russian titles written in Latin letters. You can turn this off in Settings.
 - OVAs, specials, and opening/ending credits clips go to Season 00, which is Kodi's Specials.
 - Comics (`.cbz/.cbr/.cb7/.cbt`, plus PDFs/EPUBs inside a "Comics" or "Manga" folder) go to `Comics\Series\`.
   `.cbr` comics become `.cbz`, which Kodi opens much faster. The Comics menu also tidies an existing Comics folder and
@@ -231,14 +285,14 @@ are stored unencrypted in Kodi's add-on data on your device.
   ("tutorial", "full course", "for beginners" and similar), when it sits in a `Tutorials\<program>` folder, or when it comes
   from a YouTube download folder and names a known program. Anything else goes to `Other`.
 - Subtitles go to `Subs\` next to their video, with a language tag. You can keep only the languages you choose.
-- Separate audio tracks (`.mka/.ac3/.eac3/.dts`) are placed next to their video when the video has no English audio of its own.
+- Separate audio tracks (`.mka/.ac3/.eac3/.dts`) are placed next to their video when the video has no audio in your language.
 - Download-site prefixes, release tags and junk words are stripped. Names are made safe for NTFS and exFAT.
 
 **Choosing between copies**
-- Duplicates: keeps the better copy. English audio wins first, then the higher resolution, then the bigger file.
+- Duplicates: keeps the better copy. Audio in your language wins first, then the higher resolution, then the bigger file.
   You choose whether it asks you, always replaces, or never replaces.
-- Audio language check: videos with no audio in your language can be skipped, moved to a `_No English` style folder, or deleted.
-- Samples (videos under 50 MB, or named "sample") are left alone. Tutorials are exempt from the size limit.
+- Audio language check: videos with no audio in your language can be skipped, moved to a `_No <language>` folder, or deleted.
+- Samples (videos named "sample", and videos under 50 MB unless you turn that off) are left alone. Tutorials are exempt from the size limit.
 
 **Archives and leftovers**
 - Videos inside `.zip`, `.rar` and `.7z` archives are unpacked.
@@ -263,7 +317,7 @@ are stored unencrypted in Kodi's add-on data on your device.
 
 **Library extras**
 - *Kodi library → Back up*: Kodi's library export (with watched marks) plus its database file, saved on the library drive
-  (`_Kodi library backups`) and the phone if you use one. The daily backup is skipped when nothing in the library has changed. It warns you if the library suddenly shrinks. *Restore a backup* gets one
+  (`_Kodi library backups`) and your phone if you use one. Sortovia only backs up the library when changes have been made to it. It warns you if the library suddenly shrinks. *Restore a backup* gets one
   ready for Kodi's Import library.
 - *Clean TV library / Clean movie library*: removes entries that are in the wrong library, never files.
 - *Find missing episodes*: compares your TV library with TVmaze and lists aired episodes you don't have.
@@ -276,7 +330,7 @@ are stored unencrypted in Kodi's add-on data on your device.
 
 ## Version history
 
-See [CHANGELOG.md](CHANGELOG.md), or in Kodi: **Help & settings → Version history**.
+In Sortovia: **Help & settings → Version history**.
 
 ## Licence and credits
 

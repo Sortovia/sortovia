@@ -8,7 +8,7 @@ A backup holds:
   backup-info.json  when it was made and how much was in the library.
 
 It's saved on the library drive (_Kodi library backups) and on the phone when
-xbox-share runs, never on the Xbox's own small storage (older versions saved
+kodi-share runs, never on the Xbox's own small storage (older versions saved
 there too; those are cleared). The newest KEEP are kept on the drive; the phone
 keeps them all. To restore, one backup is copied to Kodi's home folder first,
 because Kodi's import browser can't see the external drive.
@@ -37,7 +37,7 @@ RESTORE_HELP = (
     "Kodi adds back every show, episode and movie whose video file is still there, with its "
     "information, watched marks and resume points. Artwork comes from Kodi's own cache where it can.\n\n"
     "The backups are on your library drive (folder _Kodi library backups) and on the phone "
-    "(Download/KodiSorterBackups) - not on this device's own storage.\n\n"
+    "(Download/SortoviaBackups) - not on this device's own storage.\n\n"
     "Tip: a source that covers the whole drive with a content type set (Movies or TV shows) "
     "overrides the TV and Movies folders inside it. Changing it can remove those from the "
     "library. Add only the folders themselves as sources.")

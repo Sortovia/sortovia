@@ -15,12 +15,20 @@ msgctxt "#32002"
 msgid "Back up the Kodi library automatically once a day"
 msgstr ""
 
+msgctxt "#32003"
+msgid "Skip videos under 50 MB as samples"
+msgstr ""
+
+msgctxt "#32004"
+msgid "Rename movie titles to your language"
+msgstr ""
+
 msgctxt "#32010"
 msgid "Phone"
 msgstr ""
 
 msgctxt "#32011"
-msgid "Use an Android phone as a helper (phone downloads, YouTube)"
+msgid "Use a phone as a download source"
 msgstr ""
 
 msgctxt "#32012"

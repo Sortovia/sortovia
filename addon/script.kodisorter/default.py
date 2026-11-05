@@ -4,7 +4,7 @@
 #   Comics: <dest>/Comics/<original name>
 #   Tutorials: <dest>/Tutorials/<AutoCAD, Revit ...>/<original name>
 # Duplicates: keeps the better copy (higher resolution, else bigger file).
-# Can check audio tracks and keep only files with audio in your language (English unless you choose another).
+# Can check audio tracks and keep only files with audio in your language.
 # Nothing is overwritten without your OK; replaced copies go to <dest>/_Replaced
 # unless you choose to delete them.
 import hashlib
@@ -26,6 +26,8 @@ import xbmcvfs
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
 import backup
 import comics
+import screens
+import vault
 from sortlib import VIDEO, SUBS, AUDIO, episode_tag, sub_lang, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
 
 try:
@@ -46,8 +48,11 @@ def setting_on(name):
 # The switches, shown in Sortovia's own Settings menu.
 SWITCHES = [("check_updates", "Check for updates when Sortovia opens", "It always asks before installing."),
             ("auto_backup", "Back up the Kodi library once a day", "Saved on your library drive. Skipped if nothing changed."),
-            ("use_phone", "Use an Android phone as a helper", "Shows the phone and YouTube options."),
-            ("send_logs", "Copy Kodi's logs to the phone", "Only once a phone is set up.")]
+            ("use_phone", "Use a phone as a download source", "Import files from your phone over Wi-Fi."),
+            ("send_logs", "Copy Kodi's logs to the phone", "Only once a phone is set up."),
+            ("skip_small", "Skip videos under 50 MB as samples", "Tutorials are never skipped. Turn off to sort short "
+             "films and clips too. Files named \"sample\" are always left alone."),
+            ("rename_foreign", "Rename movie titles to your language", "Uses TMDb, and needs a free key.")]
 
 
 def toggle_setting(name):
@@ -727,7 +732,7 @@ ENG_RANK = {True: 2, None: 1, False: 0}
 
 
 def is_better(new_res, new_size, old_res, old_size, new_eng=None, old_eng=None):
-    """English audio wins first, then higher resolution (when both known), then bigger file."""
+    """Audio in your language wins first, then higher resolution (when both known), then bigger file."""
     if ENG_RANK[new_eng] != ENG_RANK[old_eng]:
         return ENG_RANK[new_eng] > ENG_RANK[old_eng]
     if new_res and old_res and new_res != old_res:
@@ -754,7 +759,8 @@ def plan_for(path, filename, dest):
     if parts is None and kind.startswith("YouTube"):
         return None, kind, ""  # say why, not "too small" (a short YouTube video isn't a sample)
     # Short tutorial videos are real lessons, not samples: only other videos need the minimum size.
-    if kind != "tutorial" and split_name(filename)[1] in VIDEO and 0 <= size_of(path) < MIN_VIDEO_BYTES:
+    if (kind != "tutorial" and setting_on("skip_small") and split_name(filename)[1] in VIDEO
+            and 0 <= size_of(path) < MIN_VIDEO_BYTES):
         return None, "sample/too small", ""
     if parts is None:
         return None, kind, ""
@@ -1082,15 +1088,35 @@ def remove_partial_copy(prev):
         log("removed half-copied %s (%d of %d bytes)" % (dst, dst_size, src_size))
 
 
+VAULT_FILE = "vault.json"   # how to recognise the passcode (the passcode itself isn't kept)
+PROP_VAULT = "kodisorter.vault"
+SECRET_FILES = ("phone.json", "realdebrid.json", "watch.json", "feeds.json")
+
+
+def _is_secret(path):
+    return os.path.basename(path.replace("\\", "/")) in SECRET_FILES
+
+
+def _vault_key():
+    try:
+        return home().getProperty(PROP_VAULT)
+    except Exception:
+        return ""
+
+
 def load_cache(path):
     if not path or not xbmcvfs.exists(path):
         return {}
     try:
         f = xbmcvfs.File(path)
         try:
-            return json.loads(f.read() or "{}")
+            data = json.loads(f.read() or "{}")
         finally:
             f.close()
+        if vault.is_sealed(data):
+            key = _vault_key()
+            return vault.unseal_json(key, data) if key else {}
+        return data
     except Exception as e:
         log("cache unreadable, starting fresh: %s" % e)
         return {}
@@ -1101,9 +1127,16 @@ def save_cache(path, cache, verify=True):
     if not path:
         return False
     try:
+        stored = cache
+        if _is_secret(path) and load_cache(data_file(VAULT_FILE)).get("salt"):
+            key = _vault_key()
+            if not key:
+                log("not saving %s: locked" % base_of(path))
+                return False  # never write a secret in the clear while protection is on
+            stored = vault.seal_json(key, cache)
         f = xbmcvfs.File(path, "w")
         try:
-            f.write(json.dumps(cache))
+            f.write(json.dumps(stored))
         finally:
             f.close()
         return load_cache(path) == json.loads(json.dumps(cache)) if verify else True
@@ -1112,19 +1145,91 @@ def save_cache(path, cache, verify=True):
         return False
 
 
+def _vault_rewrite(old_key, new_key):
+    """Re-save every secret file for a new key ("" = not protected)."""
+    for name in SECRET_FILES:
+        path = data_file(name)
+        if not path or not xbmcvfs.exists(path):
+            continue
+        f = xbmcvfs.File(path)
+        try:
+            data = json.loads(f.read() or "{}")
+        finally:
+            f.close()
+        if vault.is_sealed(data):
+            data = vault.unseal_json(old_key, data)
+        f = xbmcvfs.File(path, "w")
+        try:
+            f.write(json.dumps(vault.seal_json(new_key, data) if new_key else data))
+        finally:
+            f.close()
+
+
+def vault_menu(dlg):
+    """Turn passcode protection on or off."""
+    state = load_cache(data_file(VAULT_FILE))
+    if state.get("salt"):
+        if not vault_unlock(dlg):
+            return
+        if dlg.yesno(ADDON, "Turn off the passcode? Saved passwords and keys go back to being stored as plain text "
+                     "on this device.", nolabel="Keep it on", yeslabel="Turn off"):
+            _vault_rewrite(_vault_key(), "")
+            save_cache(data_file(VAULT_FILE), {})
+            home().clearProperty(PROP_VAULT)
+            toast("Passcode off")
+        return
+    dlg.ok(ADDON, "A passcode encrypts your saved phone password, Real-Debrid sign-in, TMDb key and feed addresses on this "
+           "device.\n\nYou type it once each time Kodi starts. Until you do, anything that needs them waits.\n\n"
+           "It can't be recovered. If you forget it, you erase those saved details and enter them again. Your files "
+           "and library aren't affected.")
+    first = dlg.input("Choose a passcode", option=xbmcgui.ALPHANUM_HIDE_INPUT)
+    if not first:
+        return
+    if dlg.input("Type it again", option=xbmcgui.ALPHANUM_HIDE_INPUT) != first:
+        dlg.ok(ADDON, "Those didn't match, so nothing changed.")
+        return
+    state, key = vault.setup(first)
+    _vault_rewrite("", key)
+    save_cache(data_file(VAULT_FILE), state)
+    home().setProperty(PROP_VAULT, key)
+    toast("Passcode on")
+
+
+def vault_unlock(dlg):
+    """Ask for the passcode if protection is on and it isn't unlocked. True when usable."""
+    state = load_cache(data_file(VAULT_FILE))
+    if not state.get("salt") or _vault_key():
+        return True
+    while True:
+        typed = dlg.input("Sortovia passcode", option=xbmcgui.ALPHANUM_HIDE_INPUT)
+        if not typed:
+            return False
+        key = vault.unlock(state, typed)
+        if key:
+            home().setProperty(PROP_VAULT, key)
+            return True
+        if dlg.yesno(ADDON, "That passcode isn't right. If you've forgotten it, you can erase the saved passwords and "
+                     "keys and enter them again.", nolabel="Try again", yeslabel="Erase them"):
+            for name in SECRET_FILES:
+                if data_file(name) and xbmcvfs.exists(data_file(name)):
+                    xbmcvfs.delete(data_file(name))
+            save_cache(data_file(VAULT_FILE), {})
+            return True
+
+
 def cache_key(path, size):
     return "%s|%d" % (stable_path(path), size)
 
 
 # ---------- phone over Wi-Fi ----------
-# The phone runs a file server (xbox-share = WebDAV for phone storage, or the
+# The phone runs a file server (kodi-share = WebDAV for phone storage, or the
 # primitive ftpd app = FTP for a USB drive on the phone). The Xbox is on the
 # phone's hotspot, so the phone is the Xbox's gateway. Android can change the
 # hotspot address each time it's switched on, so saved paths hold the word
 # PHONE and it's swapped for the current address when a run starts.
 PHONE = "PHONE"
 PHONE_KINDS = {
-    "dav": {"label": "phone storage (companion app or xbox-share)", "port": "8080", "user": "kodi"},
+    "dav": {"label": "phone storage (companion app or kodi-share)", "port": "8080", "user": "kodi"},
     "ftp": {"label": "USB drive on the phone (primitive ftpd app)", "port": "12345", "user": "user"},
 }
 
@@ -1152,7 +1257,7 @@ def _port_open(ip, port, wait=1.0):
 
 
 def _is_share(ip, port, wait=1.5):
-    """Is the phone's share listening here? For xbox-share (WebDAV) the reply
+    """Is the phone's share listening here? For kodi-share (WebDAV) the reply
     must come from rclone: Kodi's own web server (the Kore remote) also uses
     port 8080, on the Xbox and maybe other devices. FTP: an open port is enough."""
     if not _port_open(ip, port, wait):
@@ -1172,7 +1277,7 @@ def _is_share(ip, port, wait=1.5):
     except Exception as e:
         headers = getattr(e, "headers", None) or getattr(e, "hdrs", None)
     realm = (headers.get("WWW-Authenticate", "") if headers is not None else "") or ""
-    # rclone = xbox-share in Termux; kodisorter = the Android companion app
+    # rclone = kodi-share in Termux; kodisorter = the Android companion app
     return "rclone" in realm.lower() or "kodisorter" in realm.lower()
 
 
@@ -1235,7 +1340,7 @@ def phone_address(dlg, ask=True, port=8080):
             return _remember_ip(saved, ip)
     if not ask or dlg is None:
         return ""
-    ip = dlg.input("Phone's address (xbox-share shows it as Address)", saved.get("ip", ""))
+    ip = dlg.input("Phone's address (kodi-share shows it as Address)", saved.get("ip", ""))
     return _remember_ip(saved, ip.strip()) if ip and ip.strip() else ""
 
 
@@ -1275,7 +1380,7 @@ def phone_source(dlg, kind):
     real = resolve_src(base, dlg)
     if PHONE in real.split("@", 1)[-1].split("/")[0] or not phone_reachable(real):
         msg = ("Can't reach the phone (%s).\n" % masked(real) +
-               ("On the phone, tap Start sharing in the companion app, or start xbox-share in Termux,"
+               ("On the phone, tap Start sharing in the companion app, or start kodi-share in Termux,"
                 if kind == "dav" else "Start primitive ftpd on the phone") +
                " and keep this device on the phone's hotspot or the same Wi-Fi.")
         if dlg.yesno(ADDON, msg + "\nWrong password? Forget it and ask again next time.",
@@ -1314,10 +1419,10 @@ def pick_phone_folder(dlg, real, top="Download"):
 
 
 # ---------- send logs to the phone ----------
-# When xbox-share runs on the phone, Kodi's logs are copied to
+# When kodi-share runs on the phone, Kodi's logs are copied to
 # Download/KodiSorterLogs on the phone over the hotspot (no mobile data), so
 # they can be read there. Quiet and quick: skipped if the phone isn't sharing.
-LOG_DIR = "KodiSorterLogs"
+LOG_DIR = "SortoviaLogs"
 LOG_MAX = 3 * 1024 * 1024  # last 3 MB of each log is plenty
 
 
@@ -1360,7 +1465,7 @@ def send_logs(why, dlg=None, files=None, folder=LOG_DIR):
     folder: where in the phone's Download folder (made if needed, e.g. "A/B")."""
     import socket
     if not setting_on("use_phone"):
-        return "the phone helper is off in Sortovia's settings"
+        return "using a phone is off in Sortovia's settings"
     if why in ("start", "during-run", "end") and not setting_on("send_logs"):
         return "sending logs is off in Sortovia's settings"
     saved = load_cache(data_file("phone.json"))
@@ -1467,7 +1572,7 @@ def _fetch_python(url, headers=None):
         from urllib.request import urlopen, Request
     except ImportError:
         from urllib2 import urlopen, Request
-    h = {"User-Agent": "KodiSorter", "Cache-Control": "no-cache"}
+    h = {"User-Agent": "Sortovia", "Cache-Control": "no-cache"}
     h.update(headers or {})
     req = Request(url, headers=h)
     resp = urlopen(req, timeout=20)
@@ -1509,7 +1614,7 @@ def _fetch_api():
     hdr = {"Accept": "application/vnd.github.raw"}
     try:
         data = _fetch_kodi(UPDATE_API + "|" + "&".join("%s=%s" % (k, quote(v)) for k, v in
-                                                        dict(hdr, **{"User-Agent": "KodiSorter"}).items()))
+                                                        dict(hdr, **{"User-Agent": "Sortovia"}).items()))
         if data and b"<addons" in data:
             FETCH_LOG.append("GitHub API (Kodi): OK")
             return data
@@ -1978,7 +2083,7 @@ def rd_download(dlg, files, group="", folder=None, auto=False):
                 continue
             got, start, last = 0, time.time(), 0
             try:
-                resp = urlopen(Request(url, headers={"User-Agent": "KodiSorter"}), timeout=60)
+                resp = urlopen(Request(url, headers={"User-Agent": "Sortovia"}), timeout=60)
                 out = _VfsWriter(dst)
                 try:
                     while True:
@@ -2309,6 +2414,97 @@ def rd_history(dlg):
                           for i in chosen])
 
 
+PASTE_SITE = "https://paste.kodi.tv/"
+ISSUES = "https://github.com/sortovia/sortovia/issues/new"
+
+
+def _upload_report(text):
+    """Puts the cleaned log on Kodi's paste site. Returns its code."""
+    from urllib.request import Request, urlopen
+    req = Request(PASTE_SITE + "documents", data=text.encode("utf-8"),
+                  headers={"User-Agent": "Sortovia", "Content-Type": "text/plain; charset=utf-8"})
+    resp = urlopen(req, timeout=60)
+    try:
+        return json.loads(resp.read().decode("utf-8"))["key"]
+    finally:
+        resp.close()
+
+
+def _qr_screen(title, text, link):
+    """A QR code for the phone's camera, with text beside it, until Back."""
+    import qrpng
+    path = "special://temp/sortovia-qr-%d.png" % int(time.time())
+    out = _VfsWriter(path)
+    try:
+        out.write(qrpng.qr_png(link, scale=6))
+    finally:
+        out.close()
+
+    class Window(xbmcgui.WindowDialog):
+        def onAction(self, action):
+            if action.getId() in screens.BACK or action.getId() == screens.SELECT:
+                self.close()
+
+    win = Window()
+    win.addControl(xbmcgui.ControlImage(0, 0, 1280, 720, screens.MEDIA + "panel.png"))
+    win.addControl(xbmcgui.ControlImage(60, 120, 480, 480, path))
+    win.addControl(xbmcgui.ControlLabel(60, 40, 1160, 44, "[B]%s[/B]" % title, font="font13", textColor="FFFFFFFF"))
+    box = xbmcgui.ControlTextBox(590, 120, 630, 500, font="font13", textColor="FFFFFFFF")
+    win.addControl(box)
+    box.setText(text + "\n\nBack: close")
+    win.doModal()
+    del win
+    xbmcvfs.delete(path)
+
+
+def send_problem_report(dlg):
+    """Clean the log, show it if asked, upload it, and give the person a link for the developer."""
+    import report
+    try:
+        from urllib.parse import quote as q
+    except ImportError:
+        from urllib import quote as q
+    try:
+        cleaned = report.scrub(decode_text(backup._read("special://logpath/kodi.log")))
+    except Exception as e:
+        log("reading the log failed: %s" % type(e).__name__)
+        dlg.ok(ADDON, "Couldn't read Kodi's log on this device.")
+        return
+    while True:
+        pick = dlg.select("Send a problem report to the developer", [
+            "Upload the report",
+            "First, read exactly what will be sent",
+            "Cancel"])
+        if pick == 1:
+            dlg.textviewer("%s - what will be sent" % ADDON, cleaned)
+        elif pick == 0:
+            break
+        else:
+            return
+    if not dlg.yesno(ADDON, "The report is Kodi's recent log. Passwords, keys, sign-ins, user names and network addresses "
+                     "are removed, but it can still include the names of your files and folders.\n\n"
+                     "It goes on paste.kodi.tv, Kodi's public log site, where anyone with the link can read it.",
+                     nolabel="Cancel", yeslabel="Upload"):
+        return
+    try:
+        code = _upload_report(cleaned)
+    except Exception as e:
+        log("uploading the report failed: %s" % type(e).__name__)
+        dlg.ok(ADDON, "Couldn't upload the report. Check this device's internet connection and try again.")
+        return
+    version = xbmcaddon.Addon().getAddonInfo("version")
+    body = "Sortovia %s\nLog: %s%s\n\nWhat happened:\n" % (version, PASTE_SITE, code)
+    link = "%s?title=%s&body=%s" % (ISSUES, q("Problem report " + code), q(body))
+    log("problem report uploaded: %s" % code)
+    try:
+        _qr_screen("Your report is ready: %s" % code,
+                   "One last step: scan this code with your phone's camera. It opens a report to the developer with the "
+                   "log link filled in. Add what happened, then submit it. It needs a free GitHub account.\n\n"
+                   "Your report code is [B]%s[/B]. Keep it in case you're asked." % code, link)
+    except Exception:
+        dlg.ok(ADDON, "Your report code is %s.\nGive it to the developer on the Sortovia GitHub page." % code)
+
+
 def rd_sort(dlg, spath):
     folder = rd_folder(dlg)
     last = load_cache(data_file("last_settings.json"))
@@ -2330,7 +2526,8 @@ def rd_account(dlg):
         rd.sign_out()
 
 
-WORK_DIR = "_Kodi Sorter temp"
+WORK_DIR = "_Sortovia temp"
+OLD_WORK_DIR = "_Kodi Sorter temp"
 
 
 def work_dir(near=None):
@@ -2341,6 +2538,9 @@ def work_dir(near=None):
     root = backup.drive_dir(base) if base else None
     if root:
         folder = root.replace(backup.DRIVE_DIR, WORK_DIR)
+        old = root.replace(backup.DRIVE_DIR, OLD_WORK_DIR)
+        if xbmcvfs.exists(old):  # only ever held temporary files
+            xbmcvfs.rmdir(old, True)
         xbmcvfs.mkdirs(folder)
         mark_nomedia(folder)
         if xbmcvfs.exists(folder):
@@ -2650,7 +2850,7 @@ def all_backups():
 def _backup_to_phone(stamp, files):
     if not (load_cache(data_file("phone.json")).get("dav") or {}).get("pass"):
         return False
-    status = send_logs("backup", files=files, folder="KodiSorterBackups/" + stamp)
+    status = send_logs("backup", files=files, folder="SortoviaBackups/" + stamp)
     return status == "sent %d file(s) to the phone" % len(files)
 
 
@@ -3097,7 +3297,7 @@ def folder_report(kind, folder, dest, lib, sources, progress=None):
         if split_name(name)[1] not in VIDEO or name.startswith(".") or "sample" in name.lower():
             continue
         size = size_of(path)
-        if 0 <= size < MIN_VIDEO_BYTES:
+        if setting_on("skip_small") and 0 <= size < MIN_VIDEO_BYTES:
             continue
         rep["videos"] += 1
         if progress and rep["videos"] % 25 == 0:
@@ -3283,6 +3483,7 @@ def startup_checks(dlg):
     """Opening Sortovia: update check, welcome screen, library backup check.
     Returns True if an update was installed (the person opens it again)."""
     home().setProperty(PROP_OPENED, str(time.time()))
+    vault_unlock(dlg)
     if start_up(dlg):
         home().clearProperty(PROP_OPENED)
         return True
@@ -3812,7 +4013,7 @@ class TitleFixer(object):
     def __init__(self):
         self.ready, self.tm, self.cache, self.dirty = False, None, {}, False
         key = load_cache(data_file(WATCH_FILE)).get("key")
-        if key:
+        if key and setting_on("rename_foreign"):
             import whereto
             self.tm = whereto.TMDb(key)
             self.cache = load_cache(data_file("titles.json"))
@@ -3835,7 +4036,7 @@ class TitleFixer(object):
                 if not self.cache[key] and notes:
                     log("title check %s: %s" % (folder, " | ".join(notes)[:600]))
             except Exception as e:
-                log("English title lookup failed for %s: %s" % (folder, e))
+                log("Movie title lookup failed for %s: %s" % (folder, e))
                 if "refused" in str(e):
                     self.ready = False  # bad key: stop asking
                 return target
@@ -3846,7 +4047,7 @@ class TitleFixer(object):
         parts = [new_folder if i == 1 else p for i, p in enumerate(rel)]
         if parts[-1].lower().startswith(folder.lower()):
             parts[-1] = new_folder + parts[-1][len(folder):]
-        log("English title: %s -> %s" % (folder, new_folder))
+        log("Movie title: %s -> %s" % (folder, new_folder))
         return from_rel(parts, dest)
 
     def save(self):
@@ -4176,7 +4377,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode
         import traceback
         log_block("ERROR", traceback.format_exc())
         dlg.ok(ADDON, "Something went wrong - nothing more was moved.\n"
-               "Details are in Kodi's log (Settings > System > Logging, or the Kodi Logfile Uploader add-on).")
+               "You can send the developer a report from Help & settings > Send a problem report.")
     finally:
         COPY_HOOK[0] = STEP_HOOK[0] = None
         home().clearProperty(PROP_RUN)
@@ -4213,7 +4414,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         friendly(kind_root(k, dest)) for k in ("Movies", "TV", "Comics", "Tutorials"))
     log(where_to)
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
-        dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start sharing (companion app, xbox-share or primitive ftpd), "
+        dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start sharing (companion app, kodi-share or primitive ftpd), "
                "and keep this device on the phone's hotspot or the same Wi-Fi. Then open Sortovia and choose Resume."
                % masked(src))
         return
@@ -4267,7 +4468,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         label = ("%s  (inside %s)" % (name, archive_of[arc])) if arc else shown_path(path, src)
         eng, langs = english_status(path, name) if check_lang else (None, [])
         if eng is None and check_lang and ENG_HINT_RE.search(base_of(parent_of(path))):
-            eng, langs = True, (langs or []) + ["folder name says English"]
+            eng, langs = True, (langs or []) + ["folder name says %s" % LN()]
         if eng is False:
             skipped.append("SKIP  %s  (separate audio track, no %s: %s)" % (label, LN(), ", ".join(langs)))
             continue
@@ -4381,7 +4582,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                 item["eng"], item["langs"] = True, list(item["langs"]) + ["%s in %s" % (LN(), dub["name"])]
         if check_lang and item["eng"] is False:
             if lang_mode == 0:
-                skipped.append("NO ENGLISH  %s  (%s)" % (label if arc else name, lang_note(False, item["langs"])))
+                skipped.append("NO %s AUDIO  %s  (%s)" % (LN().upper(), label if arc else name, lang_note(False, item["langs"])))
             else:
                 no_eng.append(item)
             continue
@@ -4947,13 +5148,21 @@ def menu_items(name):
         out = [_item("%s: %s" % (label, "On" if setting_on(key) else "Off"), "Select to change. " + note,
                      "DefaultAddonService.png", action="toggle_" + key)
                for key, label, note in SWITCHES if key != "send_logs" or setting_on("use_phone")]
-        return out + [_item("Set your TMDb key, country and streaming services",
+        on = bool(load_cache(data_file(VAULT_FILE)).get("salt"))
+        return out + [_item("Protect saved passwords and keys with a passcode: %s" % ("On" if on else "Off"),
+                            "Encrypts them on this device. You type the passcode once each time Kodi starts.",
+                            "DefaultAddonService.png", action="vault"),
+                      _item("Set your TMDb key, country and streaming services",
                             "A free key gives movie titles in your language and Where to watch.",
                             "DefaultAddonService.png", action="tmdb_settings")]
     if name == "help":
         return [i for i in [
-            _item("Read the guide", "Features and first-time setup.", "DefaultIconInfo.png", action="guide"),
-            _item("Settings", "Update checks, automatic backups, the phone helper, your TMDb key.",
+            _item("Read the guide", "Every step and feature, by topic.", "DefaultIconInfo.png", action="guide"),
+            _item("How to set up your phone", "Android and iPhone: import files over Wi-Fi.", "DefaultIconInfo.png",
+                  action="guide_phone"),
+            _item("Send a problem report to the developer", "Cleans Kodi's log, shows you what's in it, and sends it "
+                  "if you agree.", "DefaultIconInfo.png", action="problem_report"),
+            _item("Settings", "Updates, backups, your phone, small files, title renaming, passcode, TMDb key.",
                   "DefaultAddonService.png", menu="settings"),
             _item("Version history", "What each update added.", "DefaultIconInfo.png", action="history"),
             _item("What to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
@@ -4969,7 +5178,7 @@ def menu_items(name):
                   "the steps for your device.", "DefaultIconInfo.png", action="sources_help"),
             _item("Check for updates now", "Sortovia also checks every time it opens.", "DefaultAddonsUpdates.png",
                   action="update"),
-            _item("Send Kodi's log to my phone now", "The phone must be sharing (companion app or xbox-share).", "DefaultNetwork.png",
+            _item("Send Kodi's log to my phone now", "The phone must be sharing (companion app or kodi-share). For your own records.", "DefaultNetwork.png",
                   action="logs"),
             _item("View a text / NFO file", "Reads old DOS-style NFO art correctly.", "DefaultIconInfo.png",
                   action="nfo"),
@@ -5068,7 +5277,7 @@ ACTIONS = {
     "clean_tv": lambda dlg, spath: clean_tv_library(dlg),
     "missing": lambda dlg, spath: find_missing_episodes(dlg),
     "wherewatch": lambda dlg, spath: where_to_watch_menu(dlg),
-    "guide": _ob(lambda ob, dlg: ob.show_guide(dlg)), "history": _ob(lambda ob, dlg: ob.show_history(dlg)),
+    "guide": _ob(lambda ob, dlg: ob.show_guide(dlg, pick=True)), "history": _ob(lambda ob, dlg: ob.show_history(dlg)),
     "kinds": _ob(lambda ob, dlg: ob.choose_kinds(dlg)), "folders": _ob(lambda ob, dlg: ob.choose_folders(dlg)),
     "language": _ob(lambda ob, dlg: ob.choose_language(dlg)), "welcome": _ob(_welcome),
     "update": lambda dlg, spath: check_for_update(dlg, manual=True),
@@ -5085,6 +5294,9 @@ ACTIONS = {
     "rd_history": lambda dlg, spath: rd_history(dlg),
     "rd_sort": rd_sort,
     "rd_stop": lambda dlg, spath: home().setProperty(PROP_RD_STOP, "1"),
+    "problem_report": lambda dlg, spath: send_problem_report(dlg),
+    "vault": lambda dlg, spath: vault_menu(dlg),
+    "guide_phone": _ob(lambda ob, dlg: ob.show_guide(dlg, topic="use a phone")),
     "rd_releases": lambda dlg, spath: rd_releases(dlg),
     "rd_feed_add": lambda dlg, spath: rd_feed_add(dlg),
     "rd_feed_remove": lambda dlg, spath: rd_feed_remove(dlg),
@@ -5111,9 +5323,11 @@ def sources_help():
 
 
 def do_action(name):
-    dlg = xbmcgui.Dialog()
+    dlg = screens.Friendly(xbmcgui.Dialog())
     fn = ACTIONS.get(name)
     if not fn:
+        return
+    if name not in ("rd_watch", "rd_stop") and not vault_unlock(dlg):
         return
     status = home().getProperty(PROP_RUN)
     if status and name in STARTS_A_RUN:
@@ -5138,12 +5352,12 @@ def plugin_main(argv):
     handle = int(argv[1]) if len(argv) > 1 and argv[1].lstrip("-").isdigit() else -1
     name = q.get("menu", "root")
     if name == "root" and startup_due() and not home().getProperty(PROP_RUN):
-        if startup_checks(xbmcgui.Dialog()):
+        if startup_checks(screens.Friendly(xbmcgui.Dialog())):
             import xbmcplugin
             xbmcplugin.endOfDirectory(handle, succeeded=False)
             return
     list_menu(handle, name)
-    if name == "root" and rd_queue() and not home().getProperty(PROP_RD_WATCH):
+    if name == "root" and rd_queue() and not home().getProperty(PROP_RD_WATCH) and rd_client().signed_in():
         xbmc.executebuiltin("RunPlugin(%s?action=rd_watch)" % PLUGIN)  # carries on after Kodi was closed
     if name == "root" and home().getProperty(PROP_REORG):
         xbmc.executebuiltin("RunPlugin(%s?action=reorganize)" % PLUGIN)

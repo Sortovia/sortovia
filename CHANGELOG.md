@@ -2,28 +2,39 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.40 – Easier to read, more options
+- **1.40.0**
+  - **A full window for messages, and a guide that scrolls slowly by itself**, one line at a time, so you never lose your place. OK pauses, Up and Down move, and Left and Right change the speed. The guide is now split into topics.
+  - **Send a problem report to the developer.** Sortovia removes private details from Kodi's log, shows you what's in it, and only uploads it if you agree.
+  - **Protect saved passwords and keys with a passcode**, in Settings.
+  - **New options in Settings:** sort videos under 50 MB instead of skipping them, and turn renaming movie titles to your language on or off.
+  - **Your phone is now a download source,** with steps in the guide for the Android app, Termux and iPhone (experimental).
+  - **xbox-share is now kodi-share,** because not everyone has an Xbox. The old command still works.
+  - **New folder names:** `SortoviaLogs` and `SortoviaBackups` on the phone, and `_Sortovia temp` on your drive. Earlier logs and phone backups stay in their old folders.
+  - Messages say your language instead of English.
+
 ## 1.39 – Sortovia
 - **1.39.1** **The daily library backup is skipped when nothing has changed**, which saves time and space. *Back up now* always runs.
 - **1.39.0**
-  - **Kodi Sorter is now called Sortovia.** Your folders, settings and updates carry on as before.
+  - **Sortovia is now called Sortovia.** Your folders, settings and updates carry on as before.
   - **Real-Debrid downloads by itself.** Anything you send to Real-Debrid downloads automatically once it's ready, in the background. If Kodi closes, it carries on the next time you open Sortovia.
   - **My releases.** Add the feed of your own uploads from any site you use, tick releases, and they go to Real-Debrid. No sites are built in.
 
 ## 1.38 – Ready for everyone
-- **1.38.1** **Settings you can read.** The settings page showed blank labels on the Xbox, so *Help & settings → Settings* is now a plain list in Kodi Sorter's own menu. Select a line to turn it on or off.
+- **1.38.1** **Settings you can read.** The settings page showed blank labels on the Xbox, so *Help & settings → Settings* is now a plain list in Sortovia's own menu. Select a line to turn it on or off.
 - **1.38.0**
   - **A settings page.** Open it from *Help & settings → Settings* or Kodi's *Configure* button. You can turn update checks, the daily library backup, the phone helper and log copying on or off, and set your TMDb key.
   - **The phone is now optional.** The welcome screen asks whether you want to use one, and answering No hides the phone and YouTube options.
-  - **No more network searches for a phone you haven't set up.** Kodi Sorter used to look for a phone every time it opened. Now it only looks after you've set one up or when you ask it to.
+  - **No more network searches for a phone you haven't set up.** Sortovia used to look for a phone every time it opened. Now it only looks after you've set one up or when you ask it to.
   - **Messages fit any device**, not just an Xbox, and mention the companion app.
-  - **A new guide and web page**, with install steps, a troubleshooting section and a list of what Kodi Sorter connects to. The add-on also has an icon and an MIT licence file.
+  - **A new guide and web page**, with install steps, a troubleshooting section and a list of what Sortovia connects to. The add-on also has an icon and an MIT licence file.
 
 ## 1.37 – Your device, QR sign-in
 - **1.37.3** **Copies from the phone are no longer thrown away as "size mismatch (0 vs …)".** When the phone's share was busy, the check of the original's size failed and came back as 0, so a good copy was deleted (the originals were always kept). The size is now asked again after the copy. The companion app's own cause is fixed in app 0.1.5.
-- **1.37.2** **Picking a folder on the phone opens the phone's Download folder.** Kodi's folder browser can't open a place that isn't a Kodi source, so it showed the Xbox's list instead. Kodi Sorter now lists the phone's folders itself: pick one to go into it, *Use this folder* to choose it, and Back to go up. This works with xbox-share and the companion app.
+- **1.37.2** **Picking a folder on the phone opens the phone's Download folder.** Kodi's folder browser can't open a place that isn't a Kodi source, so it showed the Xbox's list instead. Sortovia now lists the phone's folders itself: pick one to go into it, *Use this folder* to choose it, and Back to go up. This works with kodi-share and the companion app.
 - **1.37.1** **An Xbox is detected as an Xbox** (1.37.0 said Windows PC). Kodi's system info on the Xbox only says Windows, so the device model is now read from the top of Kodi's log ("Running on Microsoft Xbox One S"), with the Xbox's network name as a backup check. If you confirmed Windows PC before, it asks once more.
 - **1.37.0**
-  - **Your device:** Kodi Sorter detects what Kodi runs on (Xbox, Windows, Android, Raspberry Pi/Linux, Mac, Apple TV, LG TV) and asks you to confirm it once, on the welcome screen or at the next start. Steps are fitted to it.
+  - **Your device:** Sortovia detects what Kodi runs on (Xbox, Windows, Android, Raspberry Pi/Linux, Mac, Apple TV, LG TV) and asks you to confirm it once, on the welcome screen or at the next start. Steps are fitted to it.
     - New in *Help & settings*: **How to add your folders to Kodi** (on the Xbox, typing the `win-lib://` path; elsewhere, Browse) and **Your device**.
     - On an Xbox, moves don't try to rename first, which never works there.
   - **Real-Debrid sign-in shows a QR code.** Scan it with your phone's camera, and Real-Debrid opens for this sign-in, so you just tap Allow. The code to type at real-debrid.com/device is still shown. The QR code is drawn on the device itself, and nothing is sent to a website.
@@ -33,7 +44,7 @@ Newest first. Each line says what the update changed for you.
 
 ## 1.36 – One menu entry, backups on the drive
 - **1.36.0**
-  - **Kodi Sorter shows once in Program add-ons** again (1.34 and 1.35 showed it twice). Opening it still checks for updates and backs up the library first, at most once every 10 minutes.
+  - **Sortovia shows once in Program add-ons** again (1.34 and 1.35 showed it twice). Opening it still checks for updates and backs up the library first, at most once every 10 minutes.
   - **Library backups are saved on the library drive** (`_Kodi library backups`) and the phone only, not on the Xbox's own storage. Old ones on the Xbox are cleared after the next backup.
     - *Restore a backup* gets the one you pick ready in Kodi's Home folder, because Kodi's Import library can't see the external drive.
     - *Remove old library backups* frees space, always keeping the newest.
@@ -44,7 +55,7 @@ Newest first. Each line says what the update changed for you.
   - **Real-Debrid:** a new menu category.
     - Sign in with a code on your phone (real-debrid.com/device), then pick from *My torrents*, add a magnet link, unlock a file-host link, or get a recent download again.
     - Files download straight to `E:\Downloads\Real-Debrid` in the background, with progress and Stop at the top of the menu. Then *Sort the Real-Debrid downloads*.
-  - **Big temporary files go on the library drive** (`E:\_Kodi Sorter temp`), not the Xbox's own small storage. This covers building .cbz comics and the library backup's export, which also writes every poster and fan art.
+  - **Big temporary files go on the library drive** (`E:\_Sortovia temp`), not the Xbox's own small storage. This covers building .cbz comics and the library backup's export, which also writes every poster and fan art.
     - Turning comic pages failed with "no space left on device" because of this.
   - **Free up space on the Xbox** (*Help & settings*) shows what's using the Xbox's storage and clears leftovers: temporary files, old add-on downloads and older backups. Kodi's artwork cache is shown but kept.
   - Shorter folder-picker titles, so they aren't cut off.
@@ -54,7 +65,7 @@ Newest first. Each line says what the update changed for you.
   - **Converting .cbr to .cbz works on the Xbox.** The pages were read fine, but copying the finished .cbz onto the drive failed ("copying the .cbz failed"). It now copies through Kodi's own temp folder path.
   - **Clean TV library** (in *Kodi library*) removes episode entries that aren't TV episodes: files in Movies, Tutorials or a set-aside folder (`_Replaced`, `_Unpacked`, `_No English`), or ones also listed as movies. Then Kodi removes entries whose files are gone. Files are never deleted, and a backup is made first.
   - "Remove wrong movie entries" is now **Clean movie library**, and it also lets Kodi remove entries whose files are gone.
-- **1.34.0** **The menu is now a Kodi folder list, sorted into categories**, like other add-ons: *Sort my downloads*, *YouTube*, *Tidy my library folders*, *Kodi library* and *Help & settings*. Each entry has a short description. Opening Kodi Sorter still checks for updates and backs up the library first. A sort that's running, or one to resume, shows at the top.
+- **1.34.0** **The menu is now a Kodi folder list, sorted into categories**, like other add-ons: *Sort my downloads*, *YouTube*, *Tidy my library folders*, *Kodi library* and *Help & settings*. Each entry has a short description. Opening Sortovia still checks for updates and backs up the library first. A sort that's running, or one to resume, shows at the top.
   - **Pause YouTube downloads:** pause one download or all of them in *Downloads*, and carry on later from where they got to.
   - **Tidy my TV folder / Tidy my Movies folder:** puts what's already there into the folders and names Kodi expects. You see the full list first, and nothing is replaced without asking.
 
@@ -70,7 +81,7 @@ Newest first. Each line says what the update changed for you.
 - **1.32.0** **Back up / restore my Kodi library** on the start menu.
   - A backup holds Kodi's own library export (shows, episodes, movies, watched marks and resume points) plus a copy of Kodi's database file.
   - It's saved on the Xbox (Home folder → Kodi library backups), on your library drive (`_Kodi library backups`) and on the phone (`Download/KodiSorterBackups`). The newest 5 are kept on the Xbox and the drive.
-  - It **backs up by itself once a day** when Kodi Sorter opens, in the background. An empty library is never backed up, so a good backup is never pushed out.
+  - It **backs up by itself once a day** when Sortovia opens, in the background. An empty library is never backed up, so a good backup is never pushed out.
   - If the library **suddenly loses half its episodes or movies**, for example after changing a source's content type, it warns you and shows how to put the backup back (Kodi: Settings → Media → Library → Import library).
   - **YouTube search** shows when each video came out and how many views it has. A new menu item, **Search results order**, sorts by best match, newest, most viewed, longest or shortest. Search is also quicker, because it asks YouTube directly.
 
@@ -96,7 +107,7 @@ Newest first. Each line says what the update changed for you.
   - Downloads YouTube sends in pieces show progress (pieces done, MB) instead of 0%.
   - Hidden folders (like `.adblocker_1dm`) are skipped when scanning.
 - **1.30.0** Choose **your language** on the welcome screen or under Help → Your language. You can pick one or use **Kodi's language**.
-  - Kodi Sorter keeps videos with audio in that language. Ones without go to `_No Spanish` and so on, or are skipped or deleted as you choose.
+  - Sortovia keeps videos with audio in that language. Ones without go to `_No Spanish` and so on, or are skipped or deleted as you choose.
   - It keeps subtitles in that language, and names movies by their title in that language (TMDb).
   - Untagged audio tracks only count as English when English is your language.
   - The YouTube cookie guide now explains how to add an extension from its file when **Add to Firefox** is greyed out.
@@ -106,16 +117,16 @@ Newest first. Each line says what the update changed for you.
   - **Library folders** show where the standard folders are (for example `E:\Movies`).
   - **The guide** no longer breaks sentences across lines.
   - A folder whose videos are already in Kodi's library is no longer reported as "not a Kodi video source".
-- **1.29.0** Kodi Sorter also finds the phone when it runs the new **Kodi Sorter companion** Android app instead of xbox-share in Termux.
+- **1.29.0** Sortovia also finds the phone when it runs the new **Sortovia companion** Android app instead of kodi-share in Termux.
 
 ## Phone setup
 - **YouTube helper (Nov 3):** dropped connections ("Did not get any data blocks") retry by themselves, up to 3 times per video, keeping what was already downloaded. Pieces are retried 30 times before that.
 
-- **One-step install for the phone (Nov 2026):** paste one line into Termux. Ubuntu isn't needed any more. It installs the Wi-Fi share, the YouTube downloader and the `xbox-share` command, and keeps the password from an older setup. See the README, section 3.
+- **One-step install for the phone (Nov 2026):** paste one line into Termux. Ubuntu isn't needed any more. It installs the Wi-Fi share, the YouTube downloader and the `kodi-share` command, and keeps the password from an older setup. See the README, section 3.
 
 ## 1.28 – Can Kodi read your folder?
 - **1.28.1** **Search & download from YouTube** and **Help** are on the start menu from the very first run, so you don't need to sort something first.
-- **1.28.0** When you pick an existing TV or Movies folder, Kodi Sorter checks it against Kodi's library:
+- **1.28.0** When you pick an existing TV or Movies folder, Sortovia checks it against Kodi's library:
   - how many videos Kodi already has,
   - whether the folder is a video source with the right content type,
   - which files have names Kodi can't read.
@@ -190,7 +201,7 @@ Newest first. Each line says what the update changed for you.
 - **1.12.6** Resume never deletes a finished copy.
 - **1.12.5** Sort a drive in place (source = destination).
 - **1.12.4** Finds the phone on the hotspot by itself.
-- **1.12.3** Asks for the xbox-share password at start-up.
+- **1.12.3** Asks for the kodi-share password at start-up.
 - **1.12.2** Choose **Stop now** or **Stop after this file**.
 - **1.12.1** Works with the Xbox's drives, which can't rename files: copies go straight to the final name.
 - **1.12.0** Kodi's logs are sent to the phone automatically.
@@ -198,7 +209,7 @@ Newest first. Each line says what the update changed for you.
 ## 1.9 – 1.11 – Background moves and the phone
 - **1.11.1** Shows each step after a copy, so a hang can be traced.
 - **1.11.0** Progress bar for each file (GB done, speed, time left). You can stop in the middle of a file.
-- **1.10.0** Read downloads from the phone over Wi-Fi (xbox-share), or from a USB drive on the phone (FTP).
+- **1.10.0** Read downloads from the phone over Wi-Fi (kodi-share), or from a USB drive on the phone (FTP).
 - **1.9.0** Moves run in the background while Kodi stays usable.
 
 ## 1.4 – 1.8 – Self-update, archives, resume

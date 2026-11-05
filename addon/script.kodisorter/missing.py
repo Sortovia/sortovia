@@ -41,7 +41,7 @@ def _get(url):
         from urllib import quote  # noqa: F401
     for attempt in range(3):
         try:
-            resp = urlopen(Request(url, headers={"User-Agent": "KodiSorter"}), timeout=20)
+            resp = urlopen(Request(url, headers={"User-Agent": "Sortovia"}), timeout=20)
             try:
                 return json.loads(resp.read().decode("utf-8"))
             finally:

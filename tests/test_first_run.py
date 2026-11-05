@@ -20,7 +20,7 @@ class Dlg:
 
     def yesno(self, h, m, **k):
         self.shown.append(m)
-        return self.phone if "Android phone" in m else False
+        return self.phone if "download source" in m else False
 
     def select(self, h, opts, **k):
         self.shown.append(h)
@@ -101,7 +101,7 @@ class FirstRun(unittest.TestCase):
         self.d.startup_checks(dlg)
         self.assertEqual(self.settings.get("use_phone"), "true")
         self.assertIn("YouTube", [i["label"] for i in self.d.menu_items("root")])
-        self.assertTrue([s for s in dlg.shown if "section 3" in s or "kodi-repo" in s])
+        self.assertTrue([s for s in dlg.shown if "How to set up your phone" in s])
 
     def test_update_check_switch(self):
         self.d.startup_checks(Dlg())
@@ -128,6 +128,24 @@ class FirstRun(unittest.TestCase):
         self.assertEqual(self.settings["check_updates"], "true")
         self.d.ACTIONS["toggle_use_phone"](None, None)
         self.assertFalse([l for l in labels() if "logs" in l])  # nothing to copy logs to
+
+    def test_small_videos_are_sorted_when_the_switch_is_off(self):
+        self.d.size_of = lambda p: 1024
+        name = "Short.Film.2024.mkv"
+        self.assertEqual(self.d.plan_for("E/" + name, name, "E/")[1], "sample/too small")
+        self.settings["skip_small"] = "false"
+        self.assertIsNotNone(self.d.plan_for("E/" + name, name, "E/")[0])
+
+    def test_a_file_named_sample_stays_put_either_way(self):
+        self.d.size_of = lambda p: 500 * 1024 * 1024
+        self.settings["skip_small"] = "false"
+        self.assertIsNone(self.d.plan_for("E/Film.2024.sample.mkv", "Film.2024.sample.mkv", "E/")[0])
+
+    def test_no_user_facing_english_in_the_report(self):
+        import re
+        src = open(self.d.__dict__.get("__file__", "addon/script.kodisorter/default.py"), encoding="utf-8").read() \
+            if os.path.exists("addon/script.kodisorter/default.py") else ""
+        self.assertFalse(re.search(r'"NO ENGLISH|folder name says English', src))
 
     def test_no_screen_assumes_an_xbox(self):
         for name in ("root", "sort", "tidy", "library", "help", "settings"):

@@ -1,10 +1,10 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Sortovia phone helper - one-step install for plain Termux (no Ubuntu needed).
+# Sortovia phone setup - one-step install for plain Termux (no Ubuntu needed).
 #
 #   pkg install -y curl && curl -fsSL https://akaguyver.github.io/kodi-repo/phone/install.sh | bash
 #
 # Installs rclone (the Wi-Fi share), Python, yt-dlp, ffmpeg and nodejs (YouTube
-# downloads), and the `xbox-share` command. Run it again any time to update.
+# downloads), and the `kodi-share` command. Run it again any time to update.
 set -e
 BASE="${KS_BASE:-https://akaguyver.github.io/kodi-repo/phone}"
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
@@ -36,18 +36,20 @@ fi
 
 say "3/4  Downloading the Sortovia phone scripts"
 mkdir -p "$DIR" "$CONF"
-for f in xbox_share.sh yt_helper.py; do
+for f in kodi_share.sh yt_helper.py; do
   curl -fsSL "$BASE/$f?t=$(date +%s)" -o "$DIR/$f.new"
   mv "$DIR/$f.new" "$DIR/$f"
 done
-chmod +x "$DIR/xbox_share.sh"
-cat > "$PREFIX/bin/xbox-share" <<EOF
+chmod +x "$DIR/kodi_share.sh"
+cat > "$PREFIX/bin/kodi-share" <<EOF
 #!$PREFIX/bin/bash
 # Sortovia: share the phone's Download folder with Kodi, plus YouTube downloads.
 command -v termux-wake-lock >/dev/null && termux-wake-lock
-exec bash "$DIR/xbox_share.sh" "\$@"
+exec bash "$DIR/kodi_share.sh" "\$@"
 EOF
-chmod +x "$PREFIX/bin/xbox-share"
+chmod +x "$PREFIX/bin/kodi-share"
+# The command's older name still works
+ln -sf "$PREFIX/bin/kodi-share" "$PREFIX/bin/xbox-share"
 
 # Moving over from the older Ubuntu (proot) setup: keep its password, so Kodi on the
 # Xbox keeps working without typing a new one, and its YouTube cookies, queue and settings.
@@ -77,11 +79,11 @@ cat <<EOF
 =====================================================
  Done. To use it:
    1. Connect Kodi's device to the phone's Mobile Hotspot, or put both on the same Wi-Fi.
-   2. In Termux type:   xbox-share
+   2. In Termux type:   kodi-share
    3. In Kodi open Sortovia and choose your phone. It asks once for
-      the password xbox-share shows:  $(cat "$CONF/password")
+      the password kodi-share shows:  $(cat "$CONF/password")
  Keep Termux open (it can be in the background) while you use it.
  YouTube downloads also need your sign-in cookies once - see
- Sortovia > Search & download from YouTube > How to set up cookies.
+ Sortovia > Help & settings > Read the guide.
 =====================================================
 EOF

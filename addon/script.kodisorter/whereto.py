@@ -24,7 +24,7 @@ class TMDb(object):
         except ImportError:
             from urllib2 import Request, urlopen
             from urllib import urlencode
-        headers = {"User-Agent": "KodiSorter", "Accept": "application/json"}
+        headers = {"User-Agent": "Sortovia", "Accept": "application/json"}
         if len(self.key) > 40:  # v4 "API Read Access Token"
             headers["Authorization"] = "Bearer " + self.key
         else:
@@ -147,7 +147,7 @@ def annotate(data, tm, region, mine, progress=None):
     return data
 
 
-# ---------- English movie titles ----------
+# ---------- movie titles in your language ----------
 _CYR = {"а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh", "з": "z", "и": "i",
         "й": "j", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t",
         "у": "u", "ф": "f", "х": "kh", "ц": "c", "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "",
@@ -196,7 +196,7 @@ def to_cyrillic(latin):
 
 
 def english_title(tm, title, year, notes=None, language="en-US"):
-    """The English title of a movie whose folder is named e.g. 'Bolshoi Gorod 3 (2026)'.
+    """The title, in your language, of a movie whose folder is named e.g. 'Bolshoi Gorod 3 (2026)'.
     Only returned when TMDb confirms the current name is one of THAT movie's
     alternative/translated titles (same year +-1, any script); None = keep it.
     notes (list) collects what TMDb returned, for the log."""

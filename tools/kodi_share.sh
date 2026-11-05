@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# xbox-share: let Sortovia read the phone's downloads over the
+# kodi-share (older name: xbox-share): let Sortovia read the phone's downloads over the
 # hotspot Wi-Fi (no mobile data used). Runs a password-protected WebDAV server.
-#   xbox-share                      share /storage/emulated/0/Download
-#   xbox-share /storage/emulated/0/Movies   share another folder
-#   xbox-share password             just show the password (e.g. to type it into the companion app)
-#   xbox-share stop                 stop a share that's running (in any Termux session)
+#   kodi-share                      share /storage/emulated/0/Download
+#   kodi-share /storage/emulated/0/Movies   share another folder
+#   kodi-share password             just show the password (e.g. to type it into the companion app)
+#   kodi-share stop                 stop a share that's running (in any Termux session)
 # Stop it with Ctrl+C (or close Termux).
+# Saved settings stay in ~/.config/xbox-share, so existing passwords keep working.
 DIR="${1:-/storage/emulated/0/Download}"
 PORT=8080
 CONF="$HOME/.config/xbox-share"
@@ -16,16 +17,16 @@ if [ ! -s "$CONF/password" ]; then
 fi
 PASS=$(cat "$CONF/password")
 if [ "$1" = "password" ] || [ "$1" = "pass" ]; then
-  echo "xbox-share password: $PASS   (user name: kodi)"
+  echo "kodi-share password: $PASS   (user name: kodi)"
   exit 0
 fi
 if [ "$1" = "stop" ]; then
   # only the share itself (anchored, so it can't match this script); the YouTube helper
   # keeps running, so Sortovia's YouTube downloads still work with the companion app
   if pkill -f "^rclone serve webdav" 2>/dev/null; then
-    echo "xbox-share stopped. (The companion app can share now.)"
+    echo "kodi-share stopped. (The companion app can share now.)"
   else
-    echo "xbox-share wasn't running."
+    echo "kodi-share wasn't running."
   fi
   exit 0
 fi
@@ -41,7 +42,7 @@ fi
 IPS=$(ifconfig 2>/dev/null | awk '/^[a-z]/{i=$1} /inet /{print i, $2}' \
       | grep -Ev '^(lo|rmnet|tun|dummy|ccmni|ppp)' | awk '{print $2}')
 
-echo "=========== KODI SORTER PHONE SHARE ========"
+echo "================ KODI SHARE ================"
 echo " Sharing : $DIR"
 echo " User    : kodi"
 echo " Password: $PASS"
@@ -67,9 +68,9 @@ if [ -f "$HELPER" ] && [ "$DIR" = "/storage/emulated/0/Download" ]; then
 fi
 if (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
   echo
-  echo " Port $PORT is already in use: xbox-share is already running (maybe in another Termux"
+  echo " Port $PORT is already in use: kodi-share is already running (maybe in another Termux"
   echo " session), or the companion app is sharing. Kodi can already reach the phone."
-  echo " To restart it: type  xbox-share stop  then  xbox-share"
+  echo " To restart it: type  kodi-share stop  then  kodi-share"
   exit 1
 fi
 rclone serve webdav "$DIR" --addr ":$PORT" --user kodi --pass "$PASS" \

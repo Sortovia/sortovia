@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YouTube downloads for Sortovia, run on the phone next to xbox-share.
+"""YouTube downloads for Sortovia, run on the phone next to kodi-share.
 
 The Xbox can't run yt-dlp (Kodi's sandboxed Python has no ffmpeg or JavaScript
 runtime), so the add-on asks this helper to do it. Videos are saved to
@@ -10,7 +10,7 @@ bot"). Android won't let other apps read a browser's cookies, so export them onc
 as a cookies.txt file into Download; this helper moves it out of the shared
 folder into ~/.config/xbox-share/youtube-cookies.txt and uses it from there.
 
-HTTP on port 8081, same user/password as xbox-share (Basic auth):
+HTTP on port 8081, same user/password as kodi-share (Basic auth):
   GET  /yt/ping              helper + cookies status
   GET  /yt/search?q=..&n=15&order=best|newest|views|longest|shortest  search results
   POST /yt/add   {"url", "title"}   queue a download
@@ -466,7 +466,7 @@ def worker():
 
 # ---------- HTTP ----------
 class Handler(BaseHTTPRequestHandler):
-    server_version = "KodiSorterYT/1"
+    server_version = "SortoviaYT/1"
 
     def log_message(self, fmt, *args):
         pass
@@ -584,7 +584,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     if not os.path.exists(os.path.join(CONF, "password")):
-        sys.exit("no xbox-share password yet - start xbox-share once first")
+        sys.exit("no kodi-share password yet - start kodi-share once first")
     if not tool("yt-dlp"):
         log("yt-dlp is missing: in plain Termux run  pkg install yt-dlp ffmpeg nodejs")
     load_jobs()

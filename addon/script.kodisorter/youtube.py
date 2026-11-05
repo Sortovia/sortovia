@@ -1,6 +1,6 @@
 """Download from YouTube - the Xbox side.
 
-The phone does the downloading (tools/yt_helper.py, started by xbox-share on
+The phone does the downloading (tools/yt_helper.py, started by kodi-share on
 port 8081, same password): Kodi on the Xbox can't run yt-dlp. This module is
 the remote control: search, queue, progress, then sort the finished videos.
 Videos land in the phone's Download/YouTube, which Sortovia sorts
@@ -26,13 +26,11 @@ HEADING = "Download from YouTube"
 
 COOKIE_HELP = """YouTube only lets the phone download when it sends the cookies of a browser that is signed in to YouTube ("Sign in to confirm you're not a bot"). Android doesn't let other apps read a browser's cookies, so you export them once as a file.
 
-[B]1. Get Firefox and a cookie extension[/B]
+[B]1. Get Firefox and the cookie extension[/B]
 - Install Firefox from the Play Store.
-- In Firefox open addons.mozilla.org and search for "cookies.txt". Pick the one called just "cookies.txt" - it works on Android - and tap Add to Firefox, then Add.
-- If Add to Firefox is greyed out (some extensions, like "Get cookies.txt LOCALLY", aren't marked for Android), install it from its file instead:
-  a) Firefox menu > Settings > About Firefox, and tap the Firefox logo 5 times until it says the debug menu is on.
-  b) Go back to Settings: a new item "Install extension from file" is near the bottom.
-  c) Pick the extension's .xpi file in your Download folder. (Get it on a computer or in Firefox's "Desktop site" mode from the extension's page on addons.mozilla.org - "Download file". Only files from addons.mozilla.org install, because they are signed.)
+- In Firefox open akaguyver.github.io/kodi-repo/phone. Press and hold the file link and choose Download link. (Get cookies.txt LOCALLY 0.7.2 is the version known to install on Android.)
+- Firefox menu > Settings > About Firefox, and tap the Firefox logo 5 times until it says the debug menu is on.
+- Go back to Settings, choose "Install extension from file" near the bottom, and pick get-cookies-txt-locally.xpi from your Download folder.
 
 [B]2. Let it work in private tabs[/B]
 Firefox menu > Extensions > the cookie extension > Settings > turn on "Run in private browsing".
@@ -43,7 +41,7 @@ Firefox menu > Extensions > the cookie extension > Settings > turn on "Run in pr
 - Close the private tab - don't sign out, or the cookies stop working. (Cookies from a normal tab get replaced by YouTube within a day or so; private-tab cookies last much longer.)
 
 [B]4. That's all[/B]
-The phone's helper finds the file, moves it out of the shared Download folder (so the share can't see your sign-in) and uses it for every download. This menu then says "cookies from today".
+Start Kodi Share in Termux by typing kodi-share (if it's already running, type kodi-share stop first). It finds the file, moves it out of the shared Download folder so the share can't see your sign-in, and uses it for every download. This menu then says "cookies from today".
 
 When downloads start failing with "export a new cookies.txt", repeat step 3.
 
@@ -74,7 +72,7 @@ class Phone(object):
                     return json.loads(e.read().decode("utf-8"))
                 except Exception:
                     raise RuntimeError("phone answered %s" % code)
-            raise RuntimeError("can't reach the phone's YouTube helper (%s)" % (getattr(e, "reason", None) or e))
+            raise RuntimeError("can't reach the phone's YouTube service (%s)" % (getattr(e, "reason", None) or e))
 
 
 def _mins(sec):
@@ -179,7 +177,7 @@ def quality_label(cur, qualities):
 def choose_quality(dlg, phone):
     cur, qs = quality_info(phone)
     if not qs:
-        dlg.ok(HEADING, "The phone's YouTube helper is older than this option. On the phone: stop xbox-share "
+        dlg.ok(HEADING, "The phone's YouTube service is older than this option. On the phone: stop kodi-share "
                         "(Ctrl+C) and start it again, then try again.")
         return
     labels = [("%s  (now)" % v) if k == cur else v for k, v in qs]
@@ -297,7 +295,7 @@ def order_info(phone):
 def choose_order(dlg, phone):
     cur, orders = order_info(phone)
     if not orders:
-        dlg.ok(HEADING, "The phone's YouTube helper is older than this option. On the phone: stop xbox-share "
+        dlg.ok(HEADING, "The phone's YouTube service is older than this option. On the phone: stop kodi-share "
                         "(Ctrl+C) and start it again, then try again.")
         return
     pick = dlg.select("Show search results", [("%s  (now)" % v) if k == cur else v for k, v in orders])
@@ -418,12 +416,12 @@ def menu(dlg, find_ip, creds, log, dest_line=None, only=None):
     """Returns "sort" (sort the finished downloads now), "dest" (choose where they're sorted) or None."""
     c = creds()
     if not c or not c.get("pass"):
-        dlg.ok(HEADING, "First set up the phone: start xbox-share in Termux (the guide has the steps), then in Sortovia "
+        dlg.ok(HEADING, "First set up the phone: start kodi-share in Termux (the guide has the steps), then in Sortovia "
                         "choose Help & settings > \"Send Kodi's log to my phone now\" and type the password it shows.")
         return None
     ip = find_ip()
     if not ip:
-        dlg.ok(HEADING, "Can't find the phone. Start xbox-share in Termux on the phone and keep this "
+        dlg.ok(HEADING, "Can't find the phone. Start kodi-share in Termux on the phone and keep this "
                         "device on the phone's hotspot or the same Wi-Fi.")
         return None
     phone = Phone(ip, c.get("user", "kodi"), c["pass"])
@@ -434,7 +432,7 @@ def menu(dlg, find_ip, creds, log, dest_line=None, only=None):
             jobs = phone.call("/yt/jobs")["jobs"]
         except RuntimeError as e:
             log("youtube helper: %s" % e)
-            dlg.ok(HEADING, "%s.\nThe phone is sharing, but its YouTube helper isn't answering. With xbox-share "
+            dlg.ok(HEADING, "%s.\nThe phone is sharing, but its YouTube service isn't answering. With kodi-share "
                             "in Termux: stop it (Ctrl+C) and start it again - it starts the helper too. The companion "
                             "app can't download from YouTube yet (coming in its next version)." % e)
             return None
@@ -451,9 +449,9 @@ def menu(dlg, find_ip, creds, log, dest_line=None, only=None):
                 "How to set up cookies (sign-in) - %s" % cookie_line(st),
                 "Import cookies now (from the phone's Download folder)",
                 "Download quality: %s" % (quality_label(qcur, qlist) if qlist
-                                          else "restart xbox-share on the phone to choose"),
+                                          else "restart kodi-share on the phone to choose"),
                 "Search results order: %s" % (dict(olist).get(ocur, ocur) if olist
-                                              else "restart xbox-share on the phone to choose"),
+                                              else "restart kodi-share on the phone to choose"),
                 "Where sorted videos go: %s (change)" % (dest_line() if dest_line else "?")]
         pick = dlg.select("%s - %s" % (HEADING, cookie_line(st)), opts) if only is None else only
         try:

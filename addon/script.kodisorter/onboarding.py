@@ -73,6 +73,16 @@ def md_to_kodi(md):
     return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
 
 
+def sections(md):
+    """[(heading, text)] for each "## " part of the guide."""
+    out = []
+    for part in re.split(r"(?m)^(?=## )", md):
+        m = re.match(r"^## (.+)$", part, re.M)
+        if m:
+            out.append((m.group(1).strip(), re.sub(r"(?m)^-{3,}\s*$", "", part).strip() + "\n"))
+    return out
+
+
 def changes_since(changelog, old, new):
     """The CHANGELOG lines for versions newer than old, up to new (as Kodi text)."""
     def vt(v):
@@ -128,7 +138,7 @@ class Onboarding(object):
     def __init__(self, addon_path, data_path, version, heading, checker=None, std_folder=None, kodi_lang="en",
                  device_guess="other", set_phone=None):
         self.kodi_lang = kodi_lang
-        # set_phone(bool): turns the phone helper on or off on the settings page
+        # set_phone(bool): turns using a phone on or off on the settings page
         self.set_phone = set_phone
         self.device_guess = device_guess
         # std_folder(kind) -> "E:\\Movies": where a kind goes by default (None = not known yet)
@@ -265,10 +275,27 @@ class Onboarding(object):
         if self.state_file:
             _save(self.state_file, self.state)
 
-    def show_guide(self, dlg):
+    def show_guide(self, dlg, pick=False, topic=None):
+        """The whole guide, one topic (a word in its heading), or a list of topics to choose from."""
         md = _read(os.path.join(self.res, "README.md"))
-        dlg.textviewer("%s - guide" % self.heading, md_to_kodi(md) if md else
-                       "The guide isn't included in this copy. It's at akaguyver.github.io/kodi-repo")
+        if not md:
+            dlg.textviewer("%s - guide" % self.heading, "The guide isn't included in this copy. Reinstall Sortovia to get it.")
+            return
+        parts = sections(md)
+        if topic:
+            for title, body in parts:
+                if topic in title.lower():
+                    dlg.textviewer(title, md_to_kodi(body))
+                    return
+        while pick:
+            choice = dlg.select("%s - guide" % self.heading, ["The whole guide"] + [t for t, _ in parts])
+            if choice < 0:
+                return
+            if choice == 0:
+                dlg.textviewer("%s - guide" % self.heading, md_to_kodi(md))
+            else:
+                dlg.textviewer(parts[choice - 1][0], md_to_kodi(parts[choice - 1][1]))
+        dlg.textviewer("%s - guide" % self.heading, md_to_kodi(md))
 
     def show_history(self, dlg):
         md = _read(os.path.join(self.res, "CHANGELOG.md"))
@@ -293,9 +320,12 @@ class Onboarding(object):
         """Welcome screen once. Returns after the person has seen it."""
         if self.state.get("welcomed"):
             return False
-        hello = ("Sortovia tidies your downloads into the folders Kodi understands:\n"
-                 "TV\\Show\\Season 01, Movies\\Title (Year), Comics\\Series, Tutorials\\Program.\n"
-                 "It always shows you the plan first - nothing moves until you say so.")
+        hello = ("Sortovia tidies your downloads into the folders Kodi understands:\n\n"
+                 "    TV\\Show\\Season 01\n    Movies\\Title (Year)\n    Comics\\Series\n    Tutorials\\Program\n\n"
+                 "It always shows you the plan first, and nothing moves until you say so.\n\n"
+                 "Sortovia began as a tool for Kodi on an Xbox, with a phone as the hotspot. It's now capable of much more: "
+                 "it's built for Kodi on other devices too, and adds comic tools, library backups, Real-Debrid downloads "
+                 "and importing files from your phone.\n\nEvery step is in the guide, under Help & settings.")
         if returning:
             hello = "New in this version: a welcome screen, a guide you can read on the TV, and a choice of what to sort.\n" + hello
         dlg.ok("Welcome to %s" % self.heading, hello)
@@ -305,14 +335,15 @@ class Onboarding(object):
         self.choose_folders(dlg, first=True)
         if self.set_phone:
             phone = dlg.yesno(self.heading,
-                              "Do you want to use an Android phone as a helper? It's optional: Sortovia can read "
-                              "downloads from the phone over Wi-Fi and search YouTube through it.\n"
+                              "Do you want to use a phone as a download source? It's optional.\n\n"
+                              "Sortovia can import files directly from your phone over a Wi-Fi connection. For now, "
+                              "YouTube downloads go through a phone too.\n\n"
                               "Choosing No hides those options. You can change this in Help & settings > Settings.",
                               nolabel="No", yeslabel="Yes")
             self.set_phone(bool(phone))
             if phone:
-                dlg.ok(self.heading, "Set the phone up when you're ready. The steps are in the guide, section 3, "
-                                     "and at akaguyver.github.io/kodi-repo")
+                dlg.ok(self.heading, "Set the phone up when you're ready. The steps for Android and iPhone are under "
+                                     "Help & settings > How to set up your phone.")
         if dlg.yesno(self.heading, "Read the guide now? (features and how to get started)\n"
                                    "You can open it any time from the menu: Help.",
                      nolabel="Later", yeslabel="Read it"):

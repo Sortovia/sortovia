@@ -44,7 +44,7 @@ def _http(url, data=None, headers=None, timeout=30):
         from urllib import urlencode
     # bytes are a file being uploaded (a PUT); a dict is a form
     body = data if isinstance(data, bytes) else (urlencode(data).encode() if data is not None else None)
-    req = Request(url, data=body, headers=dict({"User-Agent": "KodiSorter"}, **(headers or {})))
+    req = Request(url, data=body, headers=dict({"User-Agent": "Sortovia"}, **(headers or {})))
     if isinstance(data, bytes):
         req.get_method = lambda: "PUT"
     try:

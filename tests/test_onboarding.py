@@ -34,7 +34,7 @@ class MarkdownForKodi(unittest.TestCase):
 
     def test_real_readme_sentences_not_split(self):
         t = ob.md_to_kodi((ROOT / "README.md").read_text(encoding="utf-8"))
-        self.assertIn("a movie named in another language gets a title in your language", t)
+        self.assertIn("a movie named in another language can be renamed to your language", t)
 
 
 class WhatsNew(unittest.TestCase):

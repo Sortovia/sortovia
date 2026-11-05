@@ -66,7 +66,8 @@ class PublicBuild(unittest.TestCase):
 
     def test_published_files_exist(self):
         for f in (self.name, "LICENSE.txt", "README.md", "CHANGELOG.md", "addons.xml", "script.kodisorter/icon.png",
-                  "phone/install.sh", "phone/xbox_share.sh", "phone/yt_helper.py"):
+                  "phone/install.sh", "phone/kodi_share.sh", "phone/yt_helper.py", "phone/index.html",
+                  "phone/get-cookies-txt-locally.xpi"):
             self.assertTrue((self.tmp / f).is_file(), f)
         md5 = (self.tmp / "script.kodisorter" / (self.name + ".md5")).read_text()
         self.assertEqual(md5, hashlib.md5((self.tmp / self.name).read_bytes()).hexdigest())

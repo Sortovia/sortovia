@@ -66,10 +66,11 @@ def build(out: Path):
     # Phone helper for other people: one-step Termux installer + the scripts it fetches.
     phone = out / "phone"
     phone.mkdir(exist_ok=True)
-    for src in (ROOT.parent / "tools" / "phone" / "install.sh", ROOT.parent / "tools" / "xbox_share.sh",
-                ROOT.parent / "tools" / "yt_helper.py"):
+    for src in (ROOT.parent / "tools" / "phone" / "install.sh", ROOT.parent / "tools" / "kodi_share.sh",
+                ROOT.parent / "tools" / "yt_helper.py", ROOT.parent / "tools" / "phone" / "get-cookies-txt-locally.xpi",
+                ROOT.parent / "tools" / "phone" / "index.html"):
         (phone / src.name).write_bytes(src.read_bytes())
-    print("built phone/ (install.sh, xbox_share.sh, yt_helper.py)")
+    print("built phone/")
 
     addons_xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<addons>\n'
                   + "\n".join(entries) + "\n</addons>\n")

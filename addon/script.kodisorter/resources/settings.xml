@@ -3,6 +3,8 @@
   <category label="32000">
     <setting id="check_updates" type="bool" label="32001" default="true"/>
     <setting id="auto_backup" type="bool" label="32002" default="true"/>
+    <setting id="skip_small" type="bool" label="32003" default="true"/>
+    <setting id="rename_foreign" type="bool" label="32004" default="true"/>
   </category>
   <category label="32010">
     <setting id="use_phone" type="bool" label="32011" default="true"/>

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.kodisorter" name="Sortovia" version="1.39.1" provider-name="akaguyver">
+<addon id="script.kodisorter" name="Sortovia" version="1.40.0" provider-name="akaguyver">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>
@@ -8,7 +8,7 @@
   </extension>
   <extension point="xbmc.addon.metadata">
     <summary lang="en_GB">Sort and rename downloads into the folders Kodi understands. Formerly Kodi Sorter.</summary>
-    <description lang="en_GB">Turns a pile of downloads into tidy TV, Movies, Comics and Tutorials folders that Kodi's library can read. You pick a source and a destination, see every move first, and nothing moves until you say so. An Android phone can help, but you don't need one.</description>
+    <description lang="en_GB">Turns a pile of downloads into tidy TV, Movies, Comics and Tutorials folders that Kodi's library can read. You pick a source and a destination, see every move first, and nothing moves until you say so. You can also import files from your phone over Wi-Fi, but you don't need one.</description>
     <disclaimer lang="en_GB">Sortovia moves and deletes files when you approve it. Keep a backup of anything you can't replace. Not affiliated with Kodi or the XBMC Foundation.</disclaimer>
     <platform>all</platform>
     <license>MIT</license>

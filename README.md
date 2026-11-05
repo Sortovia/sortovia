@@ -87,7 +87,7 @@ win-lib://removable/E:\TV\
 
 ## Settings
 
-Open **Help & settings → Settings**, or **Configure** on the add-on's page in Kodi.
+Open **Help & settings → Settings**.
 
 | Setting | What it does | Starts as |
 |---|---|---|

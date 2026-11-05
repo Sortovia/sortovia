@@ -118,8 +118,19 @@ class FirstRun(unittest.TestCase):
         self.assertIn("off", self.d.send_logs("start"))
         self.assertEqual(self.searched, [])
 
+    def test_settings_menu_shows_and_flips_each_switch(self):
+        labels = lambda: [i["label"] for i in self.d.menu_items("settings")]
+        self.assertTrue(all(l.endswith(": On") for l in labels()[:4]))
+        self.d.ACTIONS["toggle_check_updates"](None, None)
+        self.assertEqual(self.settings["check_updates"], "false")
+        self.assertIn("Check for updates when Kodi Sorter opens: Off", labels())
+        self.d.ACTIONS["toggle_check_updates"](None, None)
+        self.assertEqual(self.settings["check_updates"], "true")
+        self.d.ACTIONS["toggle_use_phone"](None, None)
+        self.assertFalse([l for l in labels() if "logs" in l])  # nothing to copy logs to
+
     def test_no_screen_assumes_an_xbox(self):
-        for name in ("root", "sort", "tidy", "library", "help"):
+        for name in ("root", "sort", "tidy", "library", "help", "settings"):
             for it in self.d.menu_items(name):
                 self.assertNotIn("Xbox", it["label"] + str(it.get("plot", "")), it)
                 self.assertNotIn("on the phone's hotspot", it["label"], it)

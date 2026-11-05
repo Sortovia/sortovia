@@ -43,6 +43,17 @@ def setting_on(name):
         return True
 
 
+# The switches, shown in Kodi Sorter's own Settings menu.
+SWITCHES = [("check_updates", "Check for updates when Kodi Sorter opens", "It always asks before installing."),
+            ("auto_backup", "Back up the Kodi library once a day", "Saved on your library drive."),
+            ("use_phone", "Use an Android phone as a helper", "Shows the phone and YouTube options."),
+            ("send_logs", "Copy Kodi's logs to the phone", "Only once a phone is set up.")]
+
+
+def toggle_setting(name):
+    xbmcaddon.Addon().setSetting(name, "false" if setting_on(name) else "true")
+
+
 RES_RE = re.compile(r"(?<![0-9])(2160|1440|1080|720|576|480|360)[pi](?![a-z0-9])", re.I)
 
 ASK, ALWAYS, NEVER = 0, 1, 2
@@ -4724,11 +4735,18 @@ def menu_items(name):
                   "DefaultTVShows.png", action="missing"),
             _item("Where to watch a show", "Your services, free, or buy/rent (TMDb).", "DefaultTVShows.png",
                   action="wherewatch")]
+    if name == "settings":
+        out = [_item("%s: %s" % (label, "On" if setting_on(key) else "Off"), "Select to change. " + note,
+                     "DefaultAddonService.png", action="toggle_" + key)
+               for key, label, note in SWITCHES if key != "send_logs" or setting_on("use_phone")]
+        return out + [_item("Set your TMDb key, country and streaming services",
+                            "A free key gives movie titles in your language and Where to watch.",
+                            "DefaultAddonService.png", action="tmdb_settings")]
     if name == "help":
         return [i for i in [
             _item("Read the guide", "Features and first-time setup.", "DefaultIconInfo.png", action="guide"),
             _item("Settings", "Update checks, automatic backups, the phone helper, your TMDb key.",
-                  "DefaultAddonService.png", action="settings"),
+                  "DefaultAddonService.png", menu="settings"),
             _item("Version history", "What each update added.", "DefaultIconInfo.png", action="history"),
             _item("What to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
                   "TV, Movies, Comics, Tutorials.", "DefaultAddonService.png", action="kinds"),
@@ -4825,7 +4843,6 @@ def _welcome(ob, dlg):
 
 
 ACTIONS = {
-    "settings": lambda dlg, spath: xbmcaddon.Addon().openSettings(),
     "tmdb_settings": lambda dlg, spath: watch_settings(dlg, change=True),
     "running": lambda dlg, spath: running_menu(dlg, home().getProperty(PROP_RUN)),
     "resume": _resume, "same": _same, "new": new_sort,
@@ -4862,6 +4879,7 @@ ACTIONS = {
     "rd_stop": lambda dlg, spath: home().setProperty(PROP_RD_STOP, "1"),
 }
 ACTIONS.update(("yt%d" % i, _youtube(i)) for i in range(9))
+ACTIONS.update(("toggle_" + s[0], lambda dlg, spath, key=s[0]: toggle_setting(key)) for s in SWITCHES)
 STARTS_A_RUN = ("resume", "same", "new", "tidy_tv", "tidy_movies", "yt3", "rd_sort")
 
 

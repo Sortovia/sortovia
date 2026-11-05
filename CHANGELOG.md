@@ -3,6 +3,7 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.38 – Ready for everyone
+- **1.38.1** **Settings you can read.** The settings page showed blank labels on the Xbox, so *Help & settings → Settings* is now a plain list in Kodi Sorter's own menu. Select a line to turn it on or off.
 - **1.38.0**
   - **A settings page.** Open it from *Help & settings → Settings* or Kodi's *Configure* button. You can turn update checks, the daily library backup, the phone helper and log copying on or off, and set your TMDb key.
   - **The phone is now optional.** The welcome screen asks whether you want to use one, and answering No hides the phone and YouTube options.

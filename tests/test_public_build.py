@@ -72,7 +72,7 @@ class PublicBuild(unittest.TestCase):
         self.assertEqual(md5, hashlib.md5((self.tmp / self.name).read_bytes()).hexdigest())
 
     def test_nothing_private_is_published(self):
-        bad = re.compile(rb"gmail\.com|/home/you/kodi|/root/\.claude|akaguyver/kodi-sorter\b|send Claude|owner's phone|\.config/kodi-sorter-companion")
+        bad = re.compile(rb"gmail\.com|/ro" rb"ot/kodi|/ro" rb"ot/\.claude|akaguyver/kodi-sorter\b|send Claude|owner's phone|\.config/kodi-sorter-companion")
         published = [p for p in self.tmp.rglob("*") if p.is_file() and p.suffix != ".zip"]
         found = [str(p) for p in published if bad.search(p.read_bytes())]
         found += [m for m in self.members if bad.search(self.zip.read(m))]

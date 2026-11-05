@@ -1,0 +1,7 @@
+Copyright (c) 2026 akaguyver. All rights reserved.
+
+The Sortovia name and logo aren't covered by the MIT licence on Sortovia's code.
+See "What the licence above doesn't cover" in the LICENSE.txt at the top of this project.
+
+The logo's lettering was drawn from the Righteous and Outfit fonts, under the
+SIL Open Font License (see licenses/).

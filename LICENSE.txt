@@ -20,5 +20,24 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-The bundled qrcodegen.py is by Project Nayuki, also under the MIT licence;
-its own notice is at the top of that file.
+--------------------------------------------------------------------------------
+What the licence above doesn't cover
+--------------------------------------------------------------------------------
+
+The MIT licence covers Sortovia's code. It doesn't give any right to use the
+Sortovia name or logo, which remain the property of akaguyver. The logo is in
+brand/, icon.png and resources/media/ (logo.png and fanart.png).
+
+You may use the name and logo to refer to Sortovia, and you may pass on unmodified
+copies of Sortovia with them. If you change Sortovia and publish your version, use
+your own name and logo, and don't suggest it's made or endorsed by Sortovia.
+
+Third-party parts keep their own licences:
+
+- qrcodegen.py, by Project Nayuki: MIT. Its notice is at the top of the file.
+- cookies-txt.xpi (tools/phone), the cookies.txt Firefox extension: GPL-3.0, in
+  cookies-txt-LICENSE.txt beside it. It's a separate program, offered as a
+  convenience and not part of Sortovia's code.
+  Source: https://github.com/lennonhill/cookies-txt
+- Fonts used to draw the logo, Righteous and Outfit: SIL Open Font License, in
+  brand/licenses.

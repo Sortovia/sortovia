@@ -4,7 +4,9 @@
 
 *Your library, on the right path.*
 
-Sortovia (formerly Kodi Sorter) is a free add-on for Kodi that turns a pile of downloads into the folders Kodi understands, so its
+**Kodi Sorter is now called Sortovia.** Source code and bug reports: github.com/sortovia/sortovia
+
+Sortovia is a free add-on for Kodi that turns a pile of downloads into the folders Kodi understands, so its
 library recognises everything. It began as a tool for Kodi on an Xbox, with a phone as the hotspot, and it's now capable of much more.
 
 
@@ -336,10 +338,16 @@ saved details and enter them again, and your files aren't affected. Without a pa
 
 In Sortovia: **Help & settings → Version history**.
 
+## How it's built
+
+See the [engineering notes](DEVELOPMENT.md) for the code layout, tests and design decisions.
+
 ## Licence and credits
 
 Sortovia is free software under the [MIT licence](LICENSE.txt), and comes with no warranty. It moves and deletes files when you
 approve it, so keep a backup of anything you can't replace. Only use it with content you have the right to keep.
+
+The Sortovia name and logo aren't covered by the MIT licence; see the licence file for details.
 
 Sortovia isn't affiliated with or endorsed by Kodi or the XBMC Foundation, Microsoft, YouTube or Real-Debrid.
 

@@ -70,7 +70,8 @@ def build(out: Path):
     phone.mkdir(exist_ok=True)
     for src in (ROOT.parent / "tools" / "phone" / "install.sh", ROOT.parent / "tools" / "kodi_share.sh",
                 ROOT.parent / "tools" / "yt_helper.py", ROOT.parent / "tools" / "phone" / "cookies-txt.xpi",
-                ROOT.parent / "tools" / "phone" / "index.html"):
+                ROOT.parent / "tools" / "phone" / "index.html",
+                ROOT.parent / "tools" / "phone" / "cookies-txt-LICENSE.txt"):
         (phone / src.name).write_bytes(src.read_bytes())
     print("built phone/")
 
@@ -90,7 +91,7 @@ def build(out: Path):
     (out / ".nojekyll").write_text("")
     page = (ROOT.parent / "tools" / "site_index.html").read_text(encoding="utf-8")
     (out / "index.html").write_text(page.replace("{{ZIP}}", links[0]), encoding="utf-8")
-    for doc in ("README.md", "CHANGELOG.md", "LICENSE.txt"):
+    for doc in ("README.md", "CHANGELOG.md", "LICENSE.txt", "DEVELOPMENT.md"):
         (out / doc).write_bytes((ROOT.parent / doc).read_bytes())
 
 

@@ -3,6 +3,7 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.42 – A new look
+- **1.42.1** Sortovia's source code is now public at github.com/sortovia/sortovia, and bug reports go there too.
 - **1.42.0** **Sortovia has its logo:** on its icon and Kodi backdrop, and in its full-window screens and web pages. Restart Kodi if the old icon still shows.
 
 ## 1.41 – YouTube test

@@ -207,6 +207,6 @@ def quality_nfo(tags, url):
 
 
 def our_url_nfo(text):
-    """An nfo that is only a link (what Kodi Sorter writes): safe to upgrade."""
+    """An nfo that is only a link (what Sortovia writes): safe to upgrade."""
     lines = [l for l in (text or "").strip().splitlines() if l.strip()]
     return len(lines) == 1 and re.match(r"^https?://\S+$", lines[0].strip()) is not None

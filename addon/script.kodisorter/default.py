@@ -1,4 +1,4 @@
-# Kodi Sorter - sorts downloads into Kodi-friendly folders from inside Kodi.
+# Sortovia - sorts downloads into Kodi-friendly folders from inside Kodi.
 #   TV:     <dest>/TV/Show Name (Year)/Season 01/Show Name (Year) S01E02.mkv
 #   Movies: <dest>/Movies/Movie Name (Year)/Movie Name (Year).mkv
 #   Comics: <dest>/Comics/<original name>
@@ -29,9 +29,9 @@ import comics
 from sortlib import VIDEO, SUBS, AUDIO, episode_tag, sub_lang, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
 
 try:
-    ADDON = "Kodi Sorter " + xbmcaddon.Addon().getAddonInfo("version")
+    ADDON = "Sortovia " + xbmcaddon.Addon().getAddonInfo("version")
 except Exception:
-    ADDON = "Kodi Sorter"
+    ADDON = "Sortovia"
 
 
 def setting_on(name):
@@ -43,8 +43,8 @@ def setting_on(name):
         return True
 
 
-# The switches, shown in Kodi Sorter's own Settings menu.
-SWITCHES = [("check_updates", "Check for updates when Kodi Sorter opens", "It always asks before installing."),
+# The switches, shown in Sortovia's own Settings menu.
+SWITCHES = [("check_updates", "Check for updates when Sortovia opens", "It always asks before installing."),
             ("auto_backup", "Back up the Kodi library once a day", "Saved on your library drive."),
             ("use_phone", "Use an Android phone as a helper", "Shows the phone and YouTube options."),
             ("send_logs", "Copy Kodi's logs to the phone", "Only once a phone is set up.")]
@@ -58,7 +58,7 @@ RES_RE = re.compile(r"(?<![0-9])(2160|1440|1080|720|576|480|360)[pi](?![a-z0-9])
 
 ASK, ALWAYS, NEVER = 0, 1, 2
 
-# Background moves: Kodi's home window holds two flags so that opening Kodi Sorter
+# Background moves: Kodi's home window holds two flags so that opening Sortovia
 # again while a move is running offers to stop it instead of starting a second run.
 PROP_RUN = "kodisorter.running"   # status text, e.g. "12 of 41" - empty when idle
 PROP_STOP = "kodisorter.stop"     # STOP_NOW or STOP_AFTER
@@ -72,7 +72,7 @@ def home():
 class Progress(object):
     """Full-screen progress with a Cancel button, or a small bar in the corner
     (background) that leaves Kodi free to use. Background runs are stopped by
-    opening Kodi Sorter again. Both stop if Kodi is closing."""
+    opening Sortovia again. Both stop if Kodi is closing."""
 
     def __init__(self, background, heading, text):
         self.background = background
@@ -412,7 +412,7 @@ ARCHIVES = (".rar", ".zip", ".7z")
 LATER_VOLUME_RE = re.compile(r"\.part0*(?:[2-9]|\d{2,})\.rar$", re.I)
 ARCHIVE_HELP = ("Some archives could not be opened. In Kodi go to Add-ons > Install from "
                 "repository > Kodi Add-on repository > VFS add-ons > Archive support, "
-                "install it, then run Kodi Sorter again.")
+                "install it, then run Sortovia again.")
 
 
 def _walk_archive(base):
@@ -861,7 +861,7 @@ def copy_with_progress(src, dst, total):
 NO_RENAME = [None]  # True on a device whose drives can't rename (Xbox)
 RENAME_FAILS = set()  # (source drive, destination drive) pairs where rename failed
 MADE_DIRS = set()
-# Folders Kodi Sorter parks things in. A ".nomedia" file inside makes Kodi's
+# Folders Sortovia parks things in. A ".nomedia" file inside makes Kodi's
 # library scan skip the folder, so parked videos never show up as shows.
 PARK_DIRS = ("_replaced", "_no english", "_unpacked")
 # "_No English", "_No Spanish" ...: files without audio in the person's language
@@ -885,7 +885,7 @@ def mark_nomedia(path):
             xbmcvfs.mkdirs(root)
             f = xbmcvfs.File(flag, "w")
             try:
-                wrote = f.write("Kodi Sorter: tells Kodi's library scan to skip this folder\n")
+                wrote = f.write("Sortovia: tells Kodi's library scan to skip this folder\n")
             finally:
                 f.close()
             if xbmcvfs.exists(flag):
@@ -1360,9 +1360,9 @@ def send_logs(why, dlg=None, files=None, folder=LOG_DIR):
     folder: where in the phone's Download folder (made if needed, e.g. "A/B")."""
     import socket
     if not setting_on("use_phone"):
-        return "the phone helper is off in Kodi Sorter's settings"
+        return "the phone helper is off in Sortovia's settings"
     if why in ("start", "during-run", "end") and not setting_on("send_logs"):
-        return "sending logs is off in Kodi Sorter's settings"
+        return "sending logs is off in Sortovia's settings"
     saved = load_cache(data_file("phone.json"))
     creds = saved.get("dav") or {}
     if not creds.get("pass") and why != "manual":
@@ -1533,7 +1533,7 @@ def latest_version():
         raise IOError("empty reply from GitHub")
     m = re.search(r'<addon[^>]*id="%s"[^>]*version="([^"]+)"' % re.escape(ADDON_ID), xml)
     if not m:
-        raise IOError("Kodi Sorter not listed on the update page")
+        raise IOError("Sortovia not listed on the update page")
     return m.group(1)
 
 
@@ -1570,7 +1570,7 @@ class UpdateSkipped(Exception):
 
 def toast(msg, ms=4000):
     try:
-        xbmcgui.Dialog().notification("Kodi Sorter", msg, xbmcgui.NOTIFICATION_INFO, ms)
+        xbmcgui.Dialog().notification("Sortovia", msg, xbmcgui.NOTIFICATION_INFO, ms)
     except Exception:
         log(msg)
 
@@ -1604,7 +1604,7 @@ def install_update(version, folder):
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         members = [n for n in z.namelist() if n.startswith(prefix) and not n.endswith("/")]
         if not any(n == prefix + "addon.xml" for n in members):
-            raise ValueError("download is not a Kodi Sorter add-on")
+            raise ValueError("download is not a Sortovia add-on")
         for n in members:
             rel = n[len(prefix):]
             if rel.startswith(("/", "\\")) or ".." in rel.replace("\\", "/").split("/"):
@@ -1659,7 +1659,7 @@ def check_for_update(dlg, manual=False, splash=None):
         else:
             toast("Up to date (%s)" % current, 3000)
         return False
-    if not yesno_default_yes(dlg, "Kodi Sorter %s is available (you have %s).\nUpdate now?" % (newest, current),
+    if not yesno_default_yes(dlg, "Sortovia %s is available (you have %s).\nUpdate now?" % (newest, current),
                              nolabel="Not now", yeslabel="Update"):
         return False
     try:
@@ -1668,7 +1668,7 @@ def check_for_update(dlg, manual=False, splash=None):
         log("update failed: %s" % e)
         dlg.ok(ADDON, "Update failed: %s\nNothing was changed. Carrying on with %s." % (e, current))
         return False
-    dlg.ok(ADDON, "Updated to %s.\nOpen Kodi Sorter again to use the new version." % newest)
+    dlg.ok(ADDON, "Updated to %s.\nOpen Sortovia again to use the new version." % newest)
     return True
 
 
@@ -1728,9 +1728,9 @@ SAFE_TEMP = {"addons": "Kodi's leftovers from installing add-ons (safe to delete
 def temp_label(name):
     low = name.lower()
     if low.startswith("kodisorter-export"):
-        return "Kodi Sorter's leftover backup export %s (safe)" % name[len("kodisorter-export-"):]
+        return "Sortovia's leftover backup export %s (safe)" % name[len("kodisorter-export-"):]
     if low.startswith(("kodisorter", "comic-")):
-        return "Kodi Sorter leftover: %s (safe)" % name
+        return "Sortovia leftover: %s (safe)" % name
     if low in SAFE_TEMP:
         return SAFE_TEMP[low]
     return "Kodi's temporary folder \"%s\" (delete only if you know what it is)" % name
@@ -1816,7 +1816,12 @@ def free_space(dlg):
 # ---------- Real-Debrid ----------
 PROP_RD = "kodisorter.rd"            # status text while a Real-Debrid download runs
 PROP_RD_STOP = "kodisorter.rd.stop"
+PROP_RD_WAIT = "kodisorter.rd.wait"  # status text while waiting for Real-Debrid to fetch torrents
+PROP_RD_WATCH = "kodisorter.rd.watch"
 RD_FILE = "realdebrid.json"
+RD_QUEUE = "rd_queue.json"           # torrents to download as soon as Real-Debrid has them
+RD_WATCH_EVERY = 15                  # seconds between checks
+FEEDS_FILE = "feeds.json"            # {"feeds": [{"name", "url"}]}; the address may hold a private key
 
 
 def rd_client():
@@ -1936,31 +1941,33 @@ def _rd_ready(dlg):
     return rd if rd.signed_in() else None
 
 
-def rd_download(dlg, files, group=""):
+def rd_download(dlg, files, group="", folder=None, auto=False):
     """Download [(url, name, size)] into the Real-Debrid folder, in the background
-    (Kodi stays usable; the top of Kodi Sorter's menu shows progress and Stop)."""
+    (Kodi stays usable; the top of the menu shows progress and Stop).
+    auto: asked for already, so no questions; says the result in a corner of the screen.
+    Returns "stopped" if the person stopped it."""
     try:
         from urllib.request import Request, urlopen
     except ImportError:
         from urllib2 import Request, urlopen
-    if home().getProperty(PROP_RD):
+    if home().getProperty(PROP_RD) and not auto:
         dlg.ok(ADDON, "A Real-Debrid download is already running (%s)." % home().getProperty(PROP_RD))
         return
-    folder = rd_folder(dlg)
+    folder = folder or rd_folder(dlg)
     if not folder:
         return
     if group:
         folder = join(folder, safe(group)) + "/"
         xbmcvfs.mkdirs(folder)
     total = sum(f[2] for f in files)
-    if not dlg.yesno(ADDON, "Download %d file(s), %s, to %s?\nIt uses the phone's internet (mobile data if Wi-Fi is "
-                     "off). It runs in the background - Kodi Sorter's menu shows the progress." % (
-                         len(files), _mb(total), friendly(folder)), nolabel="Cancel", yeslabel="Download"):
+    if not auto and not dlg.yesno(ADDON, "Download %d file(s), %s, to %s?\nIt uses this device's internet connection. "
+                                  "It runs in the background - Sortovia's menu shows the progress." % (
+                                      len(files), _mb(total), friendly(folder)), nolabel="Cancel", yeslabel="Download"):
         return
     home().clearProperty(PROP_RD_STOP)
     bar = xbmcgui.DialogProgressBG()
     bar.create("Real-Debrid", "Starting")
-    done_bytes, ok, report = 0, 0, []
+    done_bytes, ok, report, stopped = 0, 0, [], False
     try:
         for i, (url, name, size) in enumerate(files):
             dst = folder + safe(name)
@@ -2000,6 +2007,7 @@ def rd_download(dlg, files, group=""):
             except CopyStopped:
                 xbmcvfs.delete(dst)
                 report.append("STOPPED  %s - half download removed" % name)
+                stopped = True
                 break
             except Exception as e:
                 xbmcvfs.delete(dst)
@@ -2010,6 +2018,11 @@ def rd_download(dlg, files, group=""):
         home().clearProperty(PROP_RD)
         home().clearProperty(PROP_RD_STOP)
     text = "%d of %d downloaded to %s\n\n%s" % (ok, len(files), friendly(folder), "\n".join(report))
+    if auto:
+        if not stopped:
+            toast("%s: %d of %d downloaded. Real-Debrid > Sort the downloads files them." % (
+                group or "Real-Debrid", ok, len(files)), 10000)
+        return "stopped" if stopped else None
     if ok and dlg.yesno(ADDON, "Real-Debrid: %d of %d downloaded.\nSort them into your library now?" % (ok, len(files)),
                         nolabel="Later", yeslabel="Sort now"):
         rd_sort(dlg, session_file())
@@ -2039,10 +2052,15 @@ def rd_torrents(dlg):
     try:
         if t.get("status") == "waiting_files_selection":
             rd.call("/torrents/selectFiles/%s" % t["id"], {"files": "all"})
-            dlg.ok(ADDON, "Picked all its files. Real-Debrid fetches it now - come back when it says Ready.")
-            return
         if t.get("status") != "downloaded":
-            dlg.ok(ADDON, "%s\n%s" % realdebrid.torrent_lines(t))
+            if t.get("status") in realdebrid.FAILED:
+                dlg.ok(ADDON, "%s\n%s" % realdebrid.torrent_lines(t))
+            elif dlg.yesno(ADDON, "%s\n%s\nDownload it automatically as soon as Real-Debrid has it?"
+                           % realdebrid.torrent_lines(t), nolabel="No", yeslabel="Yes"):
+                folder = rd_folder(dlg)
+                if folder:
+                    rd_queue_save(rd_queue() + [{"id": t["id"], "name": t.get("filename") or "Torrent", "folder": folder}])
+                    rd_watch()
             return
         files = rd.torrent_files(t["id"])
         if not files:
@@ -2076,13 +2094,180 @@ def rd_magnet(dlg):
     if not m.strip().startswith("magnet:"):
         dlg.ok(ADDON, "That isn't a magnet link (it should start with magnet:).")
         return
-    try:
-        rd.add_magnet(m)
-    except realdebrid.RDError as e:
-        dlg.ok(ADDON, str(e))
+    rd_send(dlg, [{"title": "Magnet link", "magnet": m.strip()}])
+
+
+def rd_queue():
+    return load_cache(data_file(RD_QUEUE)).get("items") or []
+
+
+def rd_queue_save(items):
+    save_cache(data_file(RD_QUEUE), {"items": items})
+
+
+def rd_send(dlg, releases):
+    """Send releases to Real-Debrid, then download each by itself as soon as it's ready."""
+    import realdebrid
+    rd = _rd_ready(dlg)
+    folder = rd and rd_folder(dlg)
+    if not folder:
         return
-    dlg.ok(ADDON, "Added to Real-Debrid. Popular ones are ready in seconds - open My torrents and pick it when it "
-                  "says Ready.")
+    if not dlg.yesno(ADDON, "Send %d to Real-Debrid, and download automatically to %s as soon as each one is ready?\n"
+                     "This keeps working in the background, and carries on when you next open Sortovia if Kodi is closed."
+                     % (len(releases), friendly(folder)), nolabel="Cancel", yeslabel="Send"):
+        return
+    items, failed = rd_queue(), []
+    for r in releases:
+        try:
+            items.append({"id": rd.add_source(r), "name": r.get("title") or "Torrent", "folder": folder})
+        except Exception as e:  # e.g. the connection dropped, or a bad link
+            log("real-debrid: couldn't add %s: %s" % (r.get("title"), type(e).__name__))
+            failed.append(r.get("title") or "?")
+    rd_queue_save(items)
+    if failed:
+        dlg.ok(ADDON, "Real-Debrid couldn't take:\n%s" % "\n".join(failed))
+    if len(failed) < len(releases):
+        toast("Sent to Real-Debrid. It downloads by itself when ready.", 6000)
+        rd_watch()
+
+
+def rd_watch():
+    """Check the list of waiting torrents until every one is downloaded. Runs in the background."""
+    import realdebrid
+    if home().getProperty(PROP_RD_WATCH):
+        return
+    home().setProperty(PROP_RD_WATCH, "1")
+    monitor = xbmc.Monitor()
+    try:
+        while rd_queue():
+            if home().getProperty(PROP_RD_STOP):
+                rd_queue_save([])
+                home().clearProperty(PROP_RD_STOP)
+                toast("Stopped. What's already on Real-Debrid stays under My torrents.")
+                return
+            status = ""
+            rd = rd_client()
+            for item in rd_queue():
+                try:
+                    kind, what = rd.check(item["id"])
+                    if kind == "ready" and home().getProperty(PROP_RD):
+                        kind, what = "wait", "A download is finishing first"  # one download at a time
+                    if kind == "ready":
+                        home().clearProperty(PROP_RD_WAIT)
+                        todo = [rd.unrestrict(link) for _, _, link in what]
+                        rd_queue_save([i for i in rd_queue() if i["id"] != item["id"]])
+                        if rd_download(None, todo, item["name"], item["folder"], auto=True) == "stopped":
+                            rd_queue_save([])
+                            return
+                    elif kind == "failed":
+                        rd_queue_save([i for i in rd_queue() if i["id"] != item["id"]])
+                        toast("%s: %s" % (item["name"], what), 10000)
+                    elif not status:
+                        status = "%s - %s" % (item["name"], what)
+                except realdebrid.RDError as e:
+                    status = status or "%s - %s" % (item["name"], e)
+                except Exception as e:  # a dropped connection: it stays on the list for the next check
+                    log("real-debrid: check failed: %s" % type(e).__name__)
+                    status = status or "%s - waiting for a connection" % item["name"]
+            left = len(rd_queue())
+            if left:
+                home().setProperty(PROP_RD_WAIT, "%d waiting: %s" % (left, status))
+            for _ in range(RD_WATCH_EVERY):
+                if monitor.waitForAbort(1):
+                    return  # Kodi is closing: the list is saved for next time
+                if home().getProperty(PROP_RD_STOP):
+                    break
+    finally:
+        home().clearProperty(PROP_RD_WAIT)
+        home().clearProperty(PROP_RD_WATCH)
+
+
+def rd_read_feeds(http=None):
+    """(releases from every feed, names of feeds that failed). Feed addresses are never logged."""
+    import feeds
+    import realdebrid
+    lists, failed = [], []
+    for f in load_cache(data_file(FEEDS_FILE)).get("feeds") or []:
+        try:
+            code, body = (http or realdebrid._http)(f["url"])
+            if code != 200:
+                raise ValueError("answered %s" % code)
+            lists.append(feeds.parse(body, f["name"]))
+        except Exception as e:
+            log("feed %s couldn't be read: %s" % (f["name"], type(e).__name__))
+            failed.append(f["name"])
+    return feeds.merge(lists), failed
+
+
+def rd_releases(dlg):
+    """Everything in the feeds the person added: pick some and they go to Real-Debrid."""
+    import feeds
+    import realdebrid
+    import youtube
+    if not load_cache(data_file(FEEDS_FILE)).get("feeds"):
+        dlg.ok(ADDON, "Add a feed first: the RSS address of your uploads, from your tracker's profile or help page.")
+        rd_feed_add(dlg)
+        if not load_cache(data_file(FEEDS_FILE)).get("feeds"):
+            return
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, "Reading your feeds...")
+    try:
+        rows, failed = rd_read_feeds()
+    finally:
+        prog.close()
+    if failed:
+        dlg.ok(ADDON, "Couldn't read: %s" % ", ".join(failed))
+    if not rows:
+        if not failed:
+            dlg.ok(ADDON, "Nothing with a torrent or magnet link in your feeds.")
+        return
+    words = dlg.input("Filter by title (leave empty for all %d)" % len(rows))
+    shown = feeds.matching(rows, words)
+    if not shown:
+        dlg.ok(ADDON, "Nothing matches that.")
+        return
+    chosen = youtube.select2(dlg, "My releases - tick what to get", [
+        (youtube._short(r["title"], 70), " - ".join(x for x in (
+            realdebrid.size_text(r["size"]) if r["size"] else "", r["feed"]) if x)) for r in shown], multi=True)
+    if chosen:
+        rd_send(dlg, [shown[i] for i in chosen])
+
+
+def rd_feed_add(dlg):
+    import feeds
+    import realdebrid
+    name = dlg.input("A name for this feed (e.g. the tracker's name)")
+    if not name:
+        return
+    url = dlg.input("The feed's address (paste it with Kore on the phone)")
+    if not url:
+        return
+    url = url.strip()
+    try:
+        code, body = realdebrid._http(url)
+        if code != 200:
+            raise ValueError("it answered %s" % code)
+        count = len(feeds.parse(body, name))
+    except Exception as e:
+        log("feed %s couldn't be read: %s" % (name, type(e).__name__))
+        dlg.ok(ADDON, "That address didn't return a feed, so it wasn't added.")
+        return
+    saved = load_cache(data_file(FEEDS_FILE))
+    saved["feeds"] = [f for f in saved.get("feeds") or [] if f["name"] != name] + [{"name": name, "url": url}]
+    save_cache(data_file(FEEDS_FILE), saved)
+    dlg.ok(ADDON, "Added %s. It has %d release(s) right now." % (name, count))
+
+
+def rd_feed_remove(dlg):
+    saved = load_cache(data_file(FEEDS_FILE))
+    have = saved.get("feeds") or []
+    if not have:
+        dlg.ok(ADDON, "You haven't added any feeds.")
+        return
+    pick = dlg.select("Remove which feed?", [f["name"] for f in have])
+    if pick >= 0:
+        saved["feeds"] = have[:pick] + have[pick + 1:]
+        save_cache(data_file(FEEDS_FILE), saved)
 
 
 def rd_link(dlg):
@@ -2128,7 +2313,7 @@ def rd_sort(dlg, spath):
     folder = rd_folder(dlg)
     last = load_cache(data_file("last_settings.json"))
     if not folder or not last.get("dest"):
-        dlg.ok(ADDON, "Sort something once first (Sort my downloads), so Kodi Sorter knows your library drive.")
+        dlg.ok(ADDON, "Sort something once first (Sort my downloads), so Sortovia knows your library drive.")
         return
     run(dlg, spath, folder, last["dest"], last.get("mode", ASK), last.get("delete_old", False),
         last.get("lang_mode", 0), last.get("nfo_mode", 0), last.get("sub_mode", 0), last.get("empty_mode", 1))
@@ -2740,7 +2925,7 @@ def _close(splash):
 
 
 # ---------- start-up ----------
-# Opening Kodi Sorter used to show nothing for 8-20 s while it sent the logs to
+# Opening Sortovia used to show nothing for 8-20 s while it sent the logs to
 # the phone and then checked for updates, so it got clicked twice. Now a splash
 # shows at once, both run at the same time, and a second click is ignored.
 PROP_STARTING = "kodisorter.starting"  # time.time() while the splash is up
@@ -2748,7 +2933,7 @@ START_LOCK_SECS = 90  # a stale flag (a crash mid start-up) stops counting after
 
 
 def already_starting():
-    """True if another Kodi Sorter is on its start-up screen right now."""
+    """True if another Sortovia is on its start-up screen right now."""
     try:
         t = float(home().getProperty(PROP_STARTING) or 0)
     except ValueError:
@@ -2970,9 +3155,9 @@ def check_library_folder(dlg, okind, folder):
     gb = rep["move_bytes"] / 1e9
     hours = rep["move_bytes"] / (30e6 * 3600)  # the Xbox copies, then deletes, at about 30 MB/s
     dlg.textviewer("%s - %s" % (ADDON, friendly(folder)), "\n\n".join(problems) + (
-        "\n\nKodi Sorter can reorganize this folder into Kodi-style folders (Show\\Season 01\\Show S01E02.mkv, "
+        "\n\nSortovia can reorganize this folder into Kodi-style folders (Show\\Season 01\\Show S01E02.mkv, "
         "Movie (Year)\\Movie (Year).mkv), inside the same folder. That would move or rename %d files (%.1f GB)%s. "
-        "You see the full list before anything moves; files Kodi Sorter can't place stay where they are." % (
+        "You see the full list before anything moves; files Sortovia can't place stay where they are." % (
             rep["moves"], gb, ", which can take about %.1f hours" % hours if hours >= 0.5 else "")
         if rep["moves"] else ""))
     if not rep["moves"]:
@@ -3056,15 +3241,15 @@ def running_menu(dlg, status):
         if flag == STOP_AFTER:
             opts[0] = "Keep going (cancel the stop)"
             opts[1] = "Stop after this file - already chosen"
-        pick = dlg.select("Kodi Sorter is moving files (%s)" % status, opts)
+        pick = dlg.select("Sortovia is moving files (%s)" % status, opts)
         if pick == 0:
             home().clearProperty(PROP_STOP)
         elif pick == 1:
             home().setProperty(PROP_STOP, STOP_AFTER)
-            toast("Will stop after this file. Open Kodi Sorter later and choose Resume.")
+            toast("Will stop after this file. Open Sortovia later and choose Resume.")
         elif pick == 2:
             home().setProperty(PROP_STOP, STOP_NOW)
-            toast("Stopping now. Open Kodi Sorter later and choose Resume.")
+            toast("Stopping now. Open Sortovia later and choose Resume.")
 
 
 PROP_OPENED = "kodisorter.opened"  # when the start-up checks last ran (this Kodi session)
@@ -3081,7 +3266,7 @@ def startup_due():
 
 
 def startup_checks(dlg):
-    """Opening Kodi Sorter: update check, welcome screen, library backup check.
+    """Opening Sortovia: update check, welcome screen, library backup check.
     Returns True if an update was installed (the person opens it again)."""
     home().setProperty(PROP_OPENED, str(time.time()))
     if start_up(dlg):
@@ -3837,7 +4022,7 @@ def read_text(path, limit=512 * 1024):
 def make_quality_nfos(moved, src, dest, report):
     """Movies moved this run get a Kodi 'combination' .nfo: quality tags (codec,
     10-bit, source, bit rate) plus the IMDb/TMDb link, so Kodi still fetches all
-    the normal info. Never touches an nfo Kodi Sorter didn't write (or that was
+    the normal info. Never touches an nfo Sortovia didn't write (or that was
     only a link). Kodi has no tags on TV episodes, so TV is left alone."""
     import nfos
     movies = [it for it in moved if it["kind"] == "MOVIE"]
@@ -4015,7 +4200,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     log(where_to)
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
         dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start sharing (companion app, xbox-share or primitive ftpd), "
-               "and keep this device on the phone's hotspot or the same Wi-Fi. Then open Kodi Sorter and choose Resume."
+               "and keep this device on the phone's hotspot or the same Wi-Fi. Then open Sortovia and choose Resume."
                % masked(src))
         return
 
@@ -4099,7 +4284,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             save_cache(cpath, cache)
             busy.close()
             xbmcgui.Dialog().ok(ADDON, "Scan stopped after %d of %d files.\nNothing was moved. "
-                                "Files already checked are remembered. Open Kodi Sorter "
+                                "Files already checked are remembered. Open Sortovia "
                                 "again and choose Resume to carry on." % (i, len(files)))
             return
         busy.update(int(i * 100 / max(len(files), 1)),
@@ -4242,7 +4427,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         if busy.iscanceled():
             busy.close()
             xbmcgui.Dialog().ok(ADDON, "Stopped before anything was moved. Files already checked are "
-                                "remembered - open Kodi Sorter again and choose Resume to carry on.")
+                                "remembered - open Sortovia again and choose Resume to carry on.")
             return
         stage("Step 3 of 3 - checking what's already in your library", g, len(groups), base_of(items[0]["target"]))
         # Within this run: keep the best copy, skip the rest.
@@ -4417,7 +4602,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     home().setProperty(PROP_RUN, "starting")
     prog = Progress(background, ADDON, "Moving files...")
     if background:
-        toast("Moving %d file(s) in the background. Open Kodi Sorter again to stop." % len(plan), 6000)
+        toast("Moving %d file(s) in the background. Open Sortovia again to stop." % len(plan), 6000)
     report, ok_count = [], 0
     moved_ok = []
     arc_ok, arc_count = {}, {}
@@ -4425,7 +4610,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     for i, it in enumerate(plan):
         if prog.canceled():
             cancelled = True
-            report.append("STOPPED - remaining files untouched. Open Kodi Sorter again and choose Resume.")
+            report.append("STOPPED - remaining files untouched. Open Sortovia again and choose Resume.")
             break
         short = it["target"].replace(dest, "")
         home().setProperty(PROP_RUN, "%d of %d" % (i + 1, len(plan)))
@@ -4464,7 +4649,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         log(report[-1])
         if stopped:
             cancelled = True
-            report.append("STOPPED - remaining files untouched. Open Kodi Sorter again and choose Resume.")
+            report.append("STOPPED - remaining files untouched. Open Sortovia again and choose Resume.")
             break
     for it in no_eng:
         if cancelled or prog.canceled():
@@ -4498,7 +4683,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
             if n % 25 == 0:
                 if prog.canceled():
                     cancelled = True
-                    report.append("STOPPED while removing foreign subtitles - open Kodi Sorter again to finish.")
+                    report.append("STOPPED while removing foreign subtitles - open Sortovia again to finish.")
                     break
                 prog.update(int(n * 100 / len(unwanted_subs)), "Foreign subtitles: %d of %d" % (n + 1, len(unwanted_subs)))
             if sub_mode == SUB_DELETE:
@@ -4558,14 +4743,14 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
 
     stamp = time.strftime("%Y-%m-%d %H:%M")
     total = len(plan) + len(no_eng) + len(unwanted_subs) + len(identical) + len(empties)
-    text = "Kodi Sorter run %s\n%d of %d actions done OK\n\n%s\n" % (stamp, ok_count, total, "\n".join(report))
+    text = "Sortovia run %s\n%d of %d actions done OK\n\n%s\n" % (stamp, ok_count, total, "\n".join(report))
     log_block("MOVE RESULT", text)
     write_text(join(dest, "kodi_sorter_log.txt"), text)
     write_text(data_file("last_report.txt"), text)
     done = "%s: %d of %d done OK." % ("Stopped" if cancelled else "Finished", ok_count, total)
     if background and xbmc.Player().isPlayingVideo():
         # Don't cover what you're watching: a note in the corner instead.
-        toast(done + " Report: open Kodi Sorter > View the report from the last move.", 10000)
+        toast(done + " Report: open Sortovia > View the report from the last move.", 10000)
     elif dlg.yesno(ADDON, done + "\nA log was saved as kodi_sorter_log.txt on the destination drive.",
                    nolabel="Close", yeslabel="View report"):
         dlg.textviewer("%s - done" % ADDON, text)
@@ -4578,7 +4763,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
 
 
 # ---------- the menu: categories in a Kodi folder list ----------
-# Opening Kodi Sorter runs script_main() (update check, welcome screen ...),
+# Opening Sortovia runs script_main() (update check, welcome screen ...),
 # which opens this list. Folders are categories; the other entries are
 # actions, each run by do_action() in its own call.
 PLUGIN = "plugin://%s/" % ADDON_ID
@@ -4630,9 +4815,13 @@ def menu_items(name):
             out.append(_item("Moving files now (%s) - keep going or stop" % status,
                              "A sort is running in the background.", "DefaultIconInfo.png", action="running"))
         rd_status = home().getProperty(PROP_RD)
+        rd_wait = home().getProperty(PROP_RD_WAIT)
         if rd_status:
             out.append(_item("Real-Debrid downloading (%s) - stop" % rd_status, "Select to stop it.",
                              "DefaultNetwork.png", action="rd_stop"))
+        elif rd_wait:
+            out.append(_item("Real-Debrid: %s - stop" % rd_wait, "It downloads by itself when ready. Select to stop "
+                             "waiting; what's on Real-Debrid stays there.", "DefaultNetwork.png", action="rd_stop"))
         prev = load_cache(session_file())
         if prev.get("src") and prev.get("dest") and not status:
             out.append(_item("Resume the sort that didn't finish (%s)" % prev.get("started", "?"),
@@ -4688,9 +4877,14 @@ def menu_items(name):
                if st.get("access_token") else "Sign in to Real-Debrid")
         return [
             _item(who, "With a code on your phone, or an API token.", "DefaultUser.png", action="rd_account"),
+            _item("My releases", "Tick releases from the feeds you added. Real-Debrid fetches them, then they "
+                  "download by themselves.", "DefaultNetwork.png", action="rd_releases"),
+            _item("Add a feed", "The RSS address of your uploads on a tracker or site you use.",
+                  "DefaultAddonsUpdates.png", action="rd_feed_add"),
+            _item("Remove a feed", "Takes it off this list.", "DefaultAddonsUpdates.png", action="rd_feed_remove"),
             _item("My torrents", "What's in your Real-Debrid account. Pick one that's Ready, tick the files, "
                   "and they download to the drive.", "DefaultNetwork.png", action="rd_torrents"),
-            _item("Add a magnet link", "Real-Debrid fetches it; then pick it under My torrents.",
+            _item("Add a magnet link", "Real-Debrid fetches it, then it downloads by itself.",
                   "DefaultAddonsUpdates.png", action="rd_magnet"),
             _item("Unlock a file-host link", "A link from a file host Real-Debrid supports.",
                   "DefaultAddonsUpdates.png", action="rd_link"),
@@ -4719,7 +4913,7 @@ def menu_items(name):
         return [
             _item("Back up the library now (last: %s)" % backup_line(), "Kodi's export with watched marks, plus "
                   "its database. It also runs by itself once a day.", "DefaultAddonsUpdates.png", action="backup"),
-            _item("Restore a backup", "Pick a date; Kodi Sorter gets it ready, then Kodi's Import library "
+            _item("Restore a backup", "Pick a date; Sortovia gets it ready, then Kodi's Import library "
                   "puts it back.", "DefaultAddonsUpdates.png", action="restore"),
             _item("List the backups", "When each was made, what was in the library, and where it is.",
                   "DefaultIconInfo.png", action="backups"),
@@ -4755,11 +4949,11 @@ def menu_items(name):
             _item("Your language (now: %s)" % (ob.language_line() if ob else "English"),
                   "Audio it looks for, subtitles it keeps, movie title language.", "DefaultAddonService.png",
                   action="language"),
-            _item("Your device (now: %s)" % (ob.device_line() if ob else "?"), "Kodi Sorter fits its steps to it.",
+            _item("Your device (now: %s)" % (ob.device_line() if ob else "?"), "Sortovia fits its steps to it.",
                   "DefaultAddonService.png", action="device"),
             _item("How to add your folders to Kodi", "TV, Movies and Tutorials as sources, Comics under Pictures - "
                   "the steps for your device.", "DefaultIconInfo.png", action="sources_help"),
-            _item("Check for updates now", "Kodi Sorter also checks every time it opens.", "DefaultAddonsUpdates.png",
+            _item("Check for updates now", "Sortovia also checks every time it opens.", "DefaultAddonsUpdates.png",
                   action="update"),
             _item("Send Kodi's log to my phone now", "The phone must be sharing (companion app or xbox-share).", "DefaultNetwork.png",
                   action="logs"),
@@ -4877,6 +5071,10 @@ ACTIONS = {
     "rd_history": lambda dlg, spath: rd_history(dlg),
     "rd_sort": rd_sort,
     "rd_stop": lambda dlg, spath: home().setProperty(PROP_RD_STOP, "1"),
+    "rd_releases": lambda dlg, spath: rd_releases(dlg),
+    "rd_feed_add": lambda dlg, spath: rd_feed_add(dlg),
+    "rd_feed_remove": lambda dlg, spath: rd_feed_remove(dlg),
+    "rd_watch": lambda dlg, spath: rd_watch(),
 }
 ACTIONS.update(("yt%d" % i, _youtube(i)) for i in range(9))
 ACTIONS.update(("toggle_" + s[0], lambda dlg, spath, key=s[0]: toggle_setting(key)) for s in SWITCHES)
@@ -4931,6 +5129,8 @@ def plugin_main(argv):
             xbmcplugin.endOfDirectory(handle, succeeded=False)
             return
     list_menu(handle, name)
+    if name == "root" and rd_queue() and not home().getProperty(PROP_RD_WATCH):
+        xbmc.executebuiltin("RunPlugin(%s?action=rd_watch)" % PLUGIN)  # carries on after Kodi was closed
     if name == "root" and home().getProperty(PROP_REORG):
         xbmc.executebuiltin("RunPlugin(%s?action=reorganize)" % PLUGIN)
 

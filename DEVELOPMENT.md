@@ -1,6 +1,6 @@
-# How Kodi Sorter is built
+# How Sortovia is built
 
-Kodi Sorter is a Python add-on for Kodi, with shell and Python helpers for an Android phone. It started as a command-line
+Sortovia is a Python add-on for Kodi, with shell and Python helpers for an Android phone. It started as a command-line
 script and grew to meet one real need: managing a large media library on an Xbox, using only a phone, with no PC available.
 
 It was built by akaguyver with [Claude Code](https://claude.com/claude-code), an AI coding tool, as a development partner.

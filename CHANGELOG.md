@@ -1,6 +1,12 @@
-# Kodi Sorter – version history
+# Sortovia (formerly Kodi Sorter) – version history
 
 Newest first. Each line says what the update changed for you.
+
+## 1.39 – Sortovia
+- **1.39.0**
+  - **Kodi Sorter is now called Sortovia.** Your folders, settings and updates carry on as before.
+  - **Real-Debrid downloads by itself.** Anything you send to Real-Debrid downloads automatically once it's ready, in the background. If Kodi closes, it carries on the next time you open Sortovia.
+  - **My releases.** Add the feed of your own uploads from any site you use, tick releases, and they go to Real-Debrid. No sites are built in.
 
 ## 1.38 – Ready for everyone
 - **1.38.1** **Settings you can read.** The settings page showed blank labels on the Xbox, so *Help & settings → Settings* is now a plain list in Kodi Sorter's own menu. Select a line to turn it on or off.

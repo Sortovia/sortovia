@@ -30,7 +30,7 @@ DB_MAX = 300 * 1024 * 1024  # a bigger database isn't copied (the XML still is)
 
 RESTORE_HELP = (
     "How to put a library backup back\n\n"
-    "1. Kodi Sorter > Kodi library > Restore a backup: pick the date. Kodi Sorter gets it ready in "
+    "1. Sortovia > Kodi library > Restore a backup: pick the date. Sortovia gets it ready in "
     "Kodi's Home folder (Kodi's own import can't see the external drive).\n"
     "2. In Kodi: Settings > Media > Library, and in the Videos part choose Import library.\n"
     "3. Choose Home folder > Kodi library restore > the date > OK.\n\n"

@@ -8,7 +8,7 @@ msgid "General"
 msgstr ""
 
 msgctxt "#32001"
-msgid "Check for updates when Kodi Sorter opens"
+msgid "Check for updates when Sortovia opens"
 msgstr ""
 
 msgctxt "#32002"
@@ -24,7 +24,7 @@ msgid "Use an Android phone as a helper (phone downloads, YouTube)"
 msgstr ""
 
 msgctxt "#32012"
-msgid "Copy Kodi's logs to the phone when Kodi Sorter runs"
+msgid "Copy Kodi's logs to the phone when Sortovia runs"
 msgstr ""
 
 msgctxt "#32020"

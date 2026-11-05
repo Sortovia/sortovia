@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""YouTube downloads for Kodi Sorter, run on the phone next to xbox-share.
+"""YouTube downloads for Sortovia, run on the phone next to xbox-share.
 
 The Xbox can't run yt-dlp (Kodi's sandboxed Python has no ffmpeg or JavaScript
 runtime), so the add-on asks this helper to do it. Videos are saved to
-Download/YouTube, where Kodi Sorter picks them up (tutorials -> Tutorials/<program>).
+Download/YouTube, where Sortovia picks them up (tutorials -> Tutorials/<program>).
 
 YouTube asks for a signed-in browser's cookies ("Sign in to confirm you're not a
 bot"). Android won't let other apps read a browser's cookies, so export them once
@@ -42,7 +42,7 @@ COOKIES = os.path.join(CONF, "youtube-cookies.txt")
 JOBS_FILE = os.path.join(CONF, "yt-jobs.json")
 SETTINGS_FILE = os.path.join(CONF, "yt-settings.json")
 
-# Download quality (Kodi Sorter > YouTube > Download quality). Each is "the best up to this",
+# Download quality (Sortovia > YouTube > Download quality). Each is "the best up to this",
 # preferring H.264/AAC in .mp4, which every Kodi plays; 4K on YouTube is VP9/AV1 only.
 QUALITIES = {
     "2160": ("Best, up to 4K (big files)", ["-S", "res:2160,vcodec:h264,acodec:aac,ext:mp4:m4a", "--merge-output-format", "mp4"]),
@@ -357,7 +357,7 @@ def run_job(job):
         "--retries", "15", "--fragment-retries", "30", "--retry-sleep", "fragment:exp=1:30",
         "--socket-timeout", "30",
         # Whole download (and the final merge) happens in TMP, outside the share; publish() then
-        # copies it in under a hidden name and renames it, so Kodi Sorter never sees half a file.
+        # copies it in under a hidden name and renames it, so Sortovia never sees half a file.
         "-P", TMP, "-o", "%(title)s.%(ext)s",
         "--progress-template", "download:KSPROG %(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s"
                                "|%(progress.fragment_index)s|%(progress.fragment_count)s|%(progress.downloaded_bytes)s",
@@ -428,7 +428,7 @@ def run_job(job):
 
 def publish(path):
     """Copy a finished download from TMP into Download/YouTube: hidden .part name first
-    (Kodi Sorter skips hidden files), then renamed. Returns the final file name."""
+    (Sortovia skips hidden files), then renamed. Returns the final file name."""
     name = os.path.basename(path)
     stem, ext = os.path.splitext(name)
     final, n = os.path.join(OUT, name), 2

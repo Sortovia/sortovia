@@ -1,4 +1,4 @@
-"""Which device Kodi runs on, so Kodi Sorter can give the right instructions
+"""Which device Kodi runs on, so Sortovia can give the right instructions
 and skip what doesn't work there (an Xbox can't rename files on its drives,
 and its file browser can't see them, for example)."""
 

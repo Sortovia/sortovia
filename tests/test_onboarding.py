@@ -70,7 +70,7 @@ class FirstRun(unittest.TestCase):
         res.mkdir(parents=True)
         for doc in ("README.md", "CHANGELOG.md"):
             (res / doc).write_text((ROOT / doc).read_text(encoding="utf-8"), encoding="utf-8")
-        return ob.Onboarding(str(Path(d) / "addon"), os.path.join(d, "onboarding.json"), "1.26.0", "Kodi Sorter")
+        return ob.Onboarding(str(Path(d) / "addon"), os.path.join(d, "onboarding.json"), "1.26.0", "Sortovia")
 
     def test_welcome_once_then_kinds_kept(self):
         with tempfile.TemporaryDirectory() as d:
@@ -80,7 +80,7 @@ class FirstRun(unittest.TestCase):
             self.assertEqual(o.wanted(), ["MOVIE", "TUTORIAL"])
             self.assertEqual((o.device(), o.device_line()), ("xbox", "Xbox"))
             self.assertTrue(any(isinstance(x, tuple) and x[0] == "text" for x in dlg.seen))
-            o2 = ob.Onboarding(str(Path(d) / "addon"), os.path.join(d, "onboarding.json"), "1.26.0", "Kodi Sorter")
+            o2 = ob.Onboarding(str(Path(d) / "addon"), os.path.join(d, "onboarding.json"), "1.26.0", "Sortovia")
             self.assertFalse(o2.first_run(Dlg([])))  # not shown again
             self.assertEqual(o2.wanted_line(), "Movies, Tutorials")
 

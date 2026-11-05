@@ -188,7 +188,7 @@ class Onboarding(object):
         opts = [("kodi", "Use Kodi's language (%s)" % kodi.name)] + lang.choices()
         now = self.state.get("language", "en")
         labels = [("%s  (now)" % n) if c == now else n for c, n in opts]
-        pick = dlg.select("Your language - Kodi Sorter keeps videos with audio in it, keeps its subtitles "
+        pick = dlg.select("Your language - Sortovia keeps videos with audio in it, keeps its subtitles "
                           "and names movies in it", labels)
         if pick >= 0:
             self.state["language"] = opts[pick][0]
@@ -222,7 +222,7 @@ class Onboarding(object):
         if first and not dlg.yesno(
                 self.heading,
                 "Do you already have folders for your shows or movies (any name, any drive - e.g. "
-                "D:\\My Shows, E:\\Films)?\nKodi Sorter can add new files to them instead of making new "
+                "D:\\My Shows, E:\\Films)?\nSortovia can add new files to them instead of making new "
                 "TV / Movies folders. Nothing already in them is moved.",
                 nolabel="No, use the standard folders", yeslabel="Yes, pick them"):
             return
@@ -278,7 +278,7 @@ class Onboarding(object):
         """Tick-list of what to sort. Returns False if cancelled."""
         now = self.wanted()
         while True:
-            picks = dlg.multiselect("What do you want Kodi Sorter to sort? (OK when done)",
+            picks = dlg.multiselect("What do you want Sortovia to sort? (OK when done)",
                                     [n for _, n in KINDS],
                                     preselect=[i for i, (k, _) in enumerate(KINDS) if k in now])
             if picks is None:
@@ -293,7 +293,7 @@ class Onboarding(object):
         """Welcome screen once. Returns after the person has seen it."""
         if self.state.get("welcomed"):
             return False
-        hello = ("Kodi Sorter tidies your downloads into the folders Kodi understands:\n"
+        hello = ("Sortovia tidies your downloads into the folders Kodi understands:\n"
                  "TV\\Show\\Season 01, Movies\\Title (Year), Comics\\Series, Tutorials\\Program.\n"
                  "It always shows you the plan first - nothing moves until you say so.")
         if returning:
@@ -305,7 +305,7 @@ class Onboarding(object):
         self.choose_folders(dlg, first=True)
         if self.set_phone:
             phone = dlg.yesno(self.heading,
-                              "Do you want to use an Android phone as a helper? It's optional: Kodi Sorter can read "
+                              "Do you want to use an Android phone as a helper? It's optional: Sortovia can read "
                               "downloads from the phone over Wi-Fi and search YouTube through it.\n"
                               "Choosing No hides those options. You can change this in Help & settings > Settings.",
                               nolabel="No", yeslabel="Yes")

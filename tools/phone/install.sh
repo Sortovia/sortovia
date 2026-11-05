@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# Kodi Sorter phone helper - one-step install for plain Termux (no Ubuntu needed).
+# Sortovia phone helper - one-step install for plain Termux (no Ubuntu needed).
 #
 #   pkg install -y curl && curl -fsSL https://akaguyver.github.io/kodi-repo/phone/install.sh | bash
 #
@@ -34,7 +34,7 @@ else
   ls /storage/emulated/0/Download >/dev/null 2>&1 || echo "Still no access to Download: run termux-setup-storage and allow it."
 fi
 
-say "3/4  Downloading the Kodi Sorter phone scripts"
+say "3/4  Downloading the Sortovia phone scripts"
 mkdir -p "$DIR" "$CONF"
 for f in xbox_share.sh yt_helper.py; do
   curl -fsSL "$BASE/$f?t=$(date +%s)" -o "$DIR/$f.new"
@@ -43,7 +43,7 @@ done
 chmod +x "$DIR/xbox_share.sh"
 cat > "$PREFIX/bin/xbox-share" <<EOF
 #!$PREFIX/bin/bash
-# Kodi Sorter: share the phone's Download folder with Kodi, plus YouTube downloads.
+# Sortovia: share the phone's Download folder with Kodi, plus YouTube downloads.
 command -v termux-wake-lock >/dev/null && termux-wake-lock
 exec bash "$DIR/xbox_share.sh" "\$@"
 EOF
@@ -78,10 +78,10 @@ cat <<EOF
  Done. To use it:
    1. Connect Kodi's device to the phone's Mobile Hotspot, or put both on the same Wi-Fi.
    2. In Termux type:   xbox-share
-   3. In Kodi open Kodi Sorter and choose your phone. It asks once for
+   3. In Kodi open Sortovia and choose your phone. It asks once for
       the password xbox-share shows:  $(cat "$CONF/password")
  Keep Termux open (it can be in the background) while you use it.
  YouTube downloads also need your sign-in cookies once - see
- Kodi Sorter > Search & download from YouTube > How to set up cookies.
+ Sortovia > Search & download from YouTube > How to set up cookies.
 =====================================================
 EOF

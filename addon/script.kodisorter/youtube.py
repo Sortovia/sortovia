@@ -3,7 +3,7 @@
 The phone does the downloading (tools/yt_helper.py, started by xbox-share on
 port 8081, same password): Kodi on the Xbox can't run yt-dlp. This module is
 the remote control: search, queue, progress, then sort the finished videos.
-Videos land in the phone's Download/YouTube, which Kodi Sorter sorts
+Videos land in the phone's Download/YouTube, which Sortovia sorts
 (tutorials -> Tutorials/<program>).
 """
 import base64
@@ -418,7 +418,7 @@ def menu(dlg, find_ip, creds, log, dest_line=None, only=None):
     """Returns "sort" (sort the finished downloads now), "dest" (choose where they're sorted) or None."""
     c = creds()
     if not c or not c.get("pass"):
-        dlg.ok(HEADING, "First set up the phone: start xbox-share in Termux (the guide has the steps), then in Kodi Sorter "
+        dlg.ok(HEADING, "First set up the phone: start xbox-share in Termux (the guide has the steps), then in Sortovia "
                         "choose Help & settings > \"Send Kodi's log to my phone now\" and type the password it shows.")
         return None
     ip = find_ip()

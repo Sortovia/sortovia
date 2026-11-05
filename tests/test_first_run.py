@@ -123,7 +123,7 @@ class FirstRun(unittest.TestCase):
         self.assertTrue(all(l.endswith(": On") for l in labels()[:4]))
         self.d.ACTIONS["toggle_check_updates"](None, None)
         self.assertEqual(self.settings["check_updates"], "false")
-        self.assertIn("Check for updates when Kodi Sorter opens: Off", labels())
+        self.assertIn("Check for updates when Sortovia opens: Off", labels())
         self.d.ACTIONS["toggle_check_updates"](None, None)
         self.assertEqual(self.settings["check_updates"], "true")
         self.d.ACTIONS["toggle_use_phone"](None, None)

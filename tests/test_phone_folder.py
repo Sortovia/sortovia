@@ -1,4 +1,4 @@
-"""Picking a folder on the phone: Kodi Sorter lists the phone's folders itself."""
+"""Picking a folder on the phone: Sortovia lists the phone's folders itself."""
 import os
 import shutil
 import sys

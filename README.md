@@ -1,6 +1,6 @@
-# Kodi Sorter
+# Sortovia
 
-Kodi Sorter is a free Kodi add-on that turns a pile of downloads into the folders Kodi understands, so its
+Sortovia (formerly Kodi Sorter) is a free add-on for Kodi that turns a pile of downloads into the folders Kodi understands, so its
 library recognises everything:
 
 ```
@@ -23,7 +23,7 @@ You need:
 
 That's all. An Android phone, a TMDb key and Real-Debrid are optional extras, and you can ignore them to begin with.
 
-Kodi Sorter is built and tested on **Kodi 21 on an Xbox One S**. It uses Kodi's own file functions, so it should work on
+Sortovia is built and tested on **Kodi 21 on an Xbox One S**. It uses Kodi's own file functions, so it should work on
 other devices, but they haven't been tested yet. Try it on a few files first.
 
 ---
@@ -40,9 +40,9 @@ other devices, but they haven't been tested yet. Try it on a few files first.
 3. Go to **Settings → Add-ons → Install from zip file → kodirepo** and pick **`script.kodisorter-x.y.z.zip`**.
 4. Recommended: go to **Add-ons → Install from repository → Kodi Add-on repository → VFS add-ons → Archive support**.
    Without it, `.rar` and `.7z` files can't be unpacked.
-5. Open **Kodi Sorter** from **Add-ons → Program add-ons**.
+5. Open **Sortovia** from **Add-ons → Program add-ons**.
 
-From then on, Kodi Sorter offers its own updates when it opens. You can turn that off in its settings.
+From then on, Sortovia offers its own updates when it opens. You can turn that off in its settings.
 
 ---
 
@@ -64,7 +64,7 @@ Then:
 
 ### Then show Kodi the new folders
 
-Kodi only lists folders you've added as sources. Add **each folder on its own**. In Kodi Sorter,
+Kodi only lists folders you've added as sources. Add **each folder on its own**. In Sortovia,
 **Help & settings → How to add your folders to Kodi** has the steps for your device.
 
 | Folder | Where to add it | "This directory contains" |
@@ -91,7 +91,7 @@ Open **Help & settings → Settings**.
 
 | Setting | What it does | Starts as |
 |---|---|---|
-| Check for updates | Looks for a new version each time Kodi Sorter opens | On |
+| Check for updates | Looks for a new version each time Sortovia opens | On |
 | Daily library backup | Saves Kodi's library to your library drive once a day | On |
 | Use an Android phone | Shows the phone and YouTube options, and lets it look for your phone | Your welcome-screen answer |
 | Copy logs to the phone | Saves Kodi's logs to the phone's `Download/KodiSorterLogs` folder | On, once a phone is set up |
@@ -102,10 +102,10 @@ Open **Help & settings → Settings**.
 ## Already have a library?
 
 You can point each kind of file at your own folders, with any name on any drive (for example `D:\My Shows`, `F:\Films`).
-New files are added there, and nothing already there is moved. Kodi Sorter reuses your existing show, season and movie
+New files are added there, and nothing already there is moved. Sortovia reuses your existing show, season and movie
 folders: "Sams Sandwiches S15E01" goes into your `Sam's Sandwiches\Season 15`, not a new near-duplicate folder.
 
-When you pick an existing TV or Movies folder, Kodi Sorter checks whether Kodi's library can read it:
+When you pick an existing TV or Movies folder, Sortovia checks whether Kodi's library can read it:
 - how many of its videos are already in the library,
 - whether the folder is set up as a Kodi video source,
 - which files have names Kodi can't read.
@@ -117,7 +117,7 @@ anything moves.
 
 ## Optional: use an Android phone
 
-A phone lets Kodi Sorter read downloads from the phone over Wi-Fi and save Kodi's logs there. It can also download from
+A phone lets Sortovia read downloads from the phone over Wi-Fi and save Kodi's logs there. It can also download from
 YouTube. Kodi's device and the phone must be on the same Wi-Fi, or Kodi's device must be on the phone's hotspot.
 
 | | Companion app | Termux |
@@ -131,7 +131,7 @@ YouTube. Kodi's device and the phone must be on the same Wi-Fi, or Kodi's device
 
 1. On the phone, open https://akaguyver.github.io/kodi-repo/app/ and follow the steps to install it.
 2. Allow the **Phone settings** it asks for, then tap **Start sharing**.
-3. In Kodi Sorter, choose **My phone over Wi-Fi** and type the password the app shows.
+3. In Sortovia, choose **My phone over Wi-Fi** and type the password the app shows.
 
 ### For YouTube too: Termux
 
@@ -144,7 +144,7 @@ YouTube. Kodi's device and the phone must be on the same Wi-Fi, or Kodi's device
    ```
 
    It takes a few minutes the first time and ends by showing your password. Run the same line again any time to update.
-3. Type **`xbox-share`** in Termux. Despite the name, it works with Kodi on any device. Kodi Sorter finds the phone by itself and asks for the
+3. Type **`xbox-share`** in Termux. Despite the name, it works with Kodi on any device. Sortovia finds the phone by itself and asks for the
    password once. Keep Termux open in the background while you use it.
 
 Handy commands: `xbox-share password` shows the password, and `xbox-share stop` stops the share. Use only one share at a
@@ -169,7 +169,7 @@ signed-in browser, so this needs your browser's cookies.
 4. Allow the extension in private tabs: Extensions → the extension → Settings → *Run in private browsing*.
 5. Open a **private tab**, sign in to youtube.com, and export the cookies for that site (Netscape format) into **Download**. Then close the tab without signing out.
 6. Start `xbox-share`. The helper moves the file out of the shared folder and uses it from there. Repeat these steps if downloads start failing.
-7. In Kodi Sorter, open **YouTube**. You can search or type a link, follow **Downloads**, choose the quality and result order, then **Sort the finished downloads**.
+7. In Sortovia, open **YouTube**. You can search or type a link, follow **Downloads**, choose the quality and result order, then **Sort the finished downloads**.
 
 ---
 
@@ -183,24 +183,24 @@ of browsing.
 
 **My shows disappeared from the library or appeared as movies.** A source probably covers the whole drive. Remove that source,
 add `TV` and `Movies` separately with the right content types, and scan again. **Kodi library → Clean movie library** removes
-TV episodes wrongly listed as movies. Kodi Sorter never deletes your video files for this.
+TV episodes wrongly listed as movies. Sortovia never deletes your video files for this.
 
-**Kodi closed in the middle of a sort.** Open Kodi Sorter and choose **Resume**.
+**Kodi closed in the middle of a sort.** Open Sortovia and choose **Resume**.
 
-**Kodi Sorter can't find the phone.** Check the share is running on the phone and that both devices are on the same Wi-Fi or
+**Sortovia can't find the phone.** Check the share is running on the phone and that both devices are on the same Wi-Fi or
 hotspot. A VPN on the phone can get in the way. If it still can't find it, type the phone's address when asked.
 
 **A file was skipped.** The preview says why. Common reasons: it's under 50 MB (treated as a sample), it has no audio in your
 language, or a better copy already exists.
 
 **Something else.** The last sort's report is under **Sort my downloads**, and Kodi's log has more detail in lines containing
-`Kodi Sorter`.
+`Sortovia`.
 
 ---
 
 ## What it connects to
 
-Kodi Sorter has no accounts of its own, no ads and no analytics. It connects only to:
+Sortovia has no accounts of its own, no ads and no analytics. It connects only to:
 
 | Service | When | What it sends |
 |---|---|---|
@@ -208,10 +208,11 @@ Kodi Sorter has no accounts of its own, no ads and no analytics. It connects onl
 | TVmaze | *Find missing episodes* | Show names |
 | TMDb | English titles, *Where to watch*, if you add a key | Titles and your key |
 | Real-Debrid | Only if you sign in | Your links and sign-in token |
+| Sites whose feeds you add | When you open *My releases* | A normal web request to the address you added |
 | Your phone | Only if you set one up | Files and logs, on your own network |
 | YouTube | Only from the phone, if you use YouTube downloads | Your searches, links and cookies |
 
-When the phone is set up, Kodi Sorter looks for it by briefly checking the addresses on your local network. Passwords and keys
+When the phone is set up, Sortovia looks for it by briefly checking the addresses on your local network. Passwords and keys
 are stored unencrypted in Kodi's add-on data on your device.
 
 ---
@@ -253,6 +254,12 @@ are stored unencrypted in Kodi's add-on data on your device.
 **Real-Debrid** (optional, needs a premium account)
 - Sign in with a QR code or a code on your phone. Pick from your Real-Debrid torrents, add a magnet link, or unlock a file-host
   link. Files download to `Downloads\Real-Debrid` on the library drive, then *Sort the Real-Debrid downloads* files them.
+- **Automatic downloads:** anything you send to Real-Debrid downloads by itself as soon as it's ready. It works in the
+  background, and carries on the next time you open Sortovia if Kodi was closed. The top of the menu shows progress and Stop.
+- **My releases:** add the RSS, Atom or JSON feed of your own uploads from any site you use, then tick releases to get them.
+  Sortovia includes no sites and sends no searches: it reads only the feeds you add and filters them on your device. Feed
+  addresses often contain a private key, so treat them like passwords. Only fetch what you have the right to download, and check
+  your site's rules, because some private trackers don't allow debrid services.
 
 **Library extras**
 - *Kodi library → Back up*: Kodi's library export (with watched marks) plus its database file, saved on the library drive
@@ -273,10 +280,10 @@ See [CHANGELOG.md](CHANGELOG.md), or in Kodi: **Help & settings → Version hist
 
 ## Licence and credits
 
-Kodi Sorter is free software under the [MIT licence](LICENSE.txt), and comes with no warranty. It moves and deletes files when you
+Sortovia is free software under the [MIT licence](LICENSE.txt), and comes with no warranty. It moves and deletes files when you
 approve it, so keep a backup of anything you can't replace. Only use it with content you have the right to keep.
 
-Kodi Sorter isn't affiliated with or endorsed by Kodi or the XBMC Foundation, Microsoft, YouTube or Real-Debrid.
+Sortovia isn't affiliated with or endorsed by Kodi or the XBMC Foundation, Microsoft, YouTube or Real-Debrid.
 
 QR codes are drawn with the [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) by Project Nayuki
 (MIT licence), included as `qrcodegen.py`.

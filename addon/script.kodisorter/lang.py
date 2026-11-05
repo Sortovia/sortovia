@@ -1,10 +1,10 @@
-"""The person's language: the audio Kodi Sorter looks for, the subtitles it keeps,
+"""The person's language: the audio Sortovia looks for, the subtitles it keeps,
 and the language of movie titles from TMDb. English unless they choose another
 (or "Kodi's language", the language Kodi's menus are in). Pure, no Kodi imports.
 """
 import re
 
-# ISO 639-1 code -> English name, as Kodi Sorter shows it
+# ISO 639-1 code -> English name, as Sortovia shows it
 NAMES = {
     "en": "English", "es": "Spanish", "fr": "French", "de": "German", "it": "Italian", "pt": "Portuguese",
     "ru": "Russian", "ja": "Japanese", "zh": "Chinese", "ko": "Korean", "nl": "Dutch", "ar": "Arabic",

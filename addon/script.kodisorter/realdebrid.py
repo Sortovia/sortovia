@@ -2,7 +2,7 @@
 
 Sign-in uses Real-Debrid's TV-style device code: Kodi shows a short code, you
 enter it at real-debrid.com/device on your phone. (Or type an API token from
-real-debrid.com/apitoken.) The tokens are kept in Kodi Sorter's addon_data.
+real-debrid.com/apitoken.) The tokens are kept in Sortovia's addon_data.
 """
 import json
 import time
@@ -26,6 +26,9 @@ STATUS = {
 }
 
 
+FAILED = ("magnet_error", "error", "virus", "dead")
+
+
 class RDError(Exception):
     pass
 
@@ -39,8 +42,11 @@ def _http(url, data=None, headers=None, timeout=30):
     except ImportError:
         from urllib2 import Request, urlopen, HTTPError
         from urllib import urlencode
-    body = urlencode(data).encode() if data is not None else None
+    # bytes are a file being uploaded (a PUT); a dict is a form
+    body = data if isinstance(data, bytes) else (urlencode(data).encode() if data is not None else None)
     req = Request(url, data=body, headers=dict({"User-Agent": "KodiSorter"}, **(headers or {})))
+    if isinstance(data, bytes):
+        req.get_method = lambda: "PUT"
     try:
         resp = urlopen(req, timeout=timeout)
         try:
@@ -131,25 +137,39 @@ class RD(object):
 
     def torrent_files(self, tid):
         """[(name, size, restricted link)] for the files of a finished torrent."""
-        info = self.call("/torrents/info/%s" % tid)
-        files = [f for f in info.get("files", []) if f.get("selected")]
-        links = info.get("links") or []
-        return [(f["path"].strip("/").split("/")[-1], f.get("bytes", 0), links[i])
-                for i, f in enumerate(files) if i < len(links)]
+        return _files_of(self.call("/torrents/info/%s" % tid))
 
     def add_magnet(self, magnet):
         tid = self.call("/torrents/addMagnet", {"magnet": magnet.strip()}).get("id")
         if not tid:
             raise RDError("Real-Debrid didn't take that magnet link")
-        for _ in range(10):  # the file list appears after a moment
-            info = self.call("/torrents/info/%s" % tid)
-            if info.get("status") == "waiting_files_selection":
-                self.call("/torrents/selectFiles/%s" % tid, {"files": "all"})
-                break
-            if info.get("status") not in ("magnet_conversion", "queued"):
-                break
-            time.sleep(1)
         return tid
+
+    def add_source(self, release):
+        """Send a release (magnet link, or a .torrent address) to Real-Debrid. Returns its id."""
+        if release.get("magnet"):
+            return self.add_magnet(release["magnet"])
+        code, body = self.http(release["torrent_url"])  # the tracker, so no Real-Debrid sign-in goes with it
+        if code != 200 or not body.startswith(b"d"):
+            raise RDError("That site didn't give a torrent file (%s)" % code)
+        tid = self.call("/torrents/addTorrent", body).get("id")
+        if not tid:
+            raise RDError("Real-Debrid didn't take that torrent")
+        return tid
+
+    def check(self, tid):
+        """Moves a torrent along: ("wait", text), ("ready", files) or ("failed", text)."""
+        info = self.call("/torrents/info/%s" % tid)
+        status = info.get("status")
+        if status == "waiting_files_selection":
+            self.call("/torrents/selectFiles/%s" % tid, {"files": "all"})
+            return "wait", STATUS[status]
+        if status in FAILED:
+            return "failed", STATUS[status]
+        if status == "downloaded":
+            files = _files_of(info)
+            return ("ready", files) if files else ("failed", "Real-Debrid has no files for it")
+        return "wait", torrent_lines(info)[1]
 
     def unrestrict(self, link):
         r = self.call("/unrestrict/link", {"link": link.strip()})
@@ -159,6 +179,13 @@ class RD(object):
 
     def history(self):
         return self.call("/downloads?limit=50")
+
+
+def _files_of(info):
+    files = [f for f in info.get("files", []) if f.get("selected")]
+    links = info.get("links") or []
+    return [(f["path"].strip("/").split("/")[-1], f.get("bytes", 0), links[i])
+            for i, f in enumerate(files) if i < len(links)]
 
 
 def torrent_lines(t):

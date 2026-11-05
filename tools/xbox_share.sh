@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# xbox-share: let Kodi Sorter read the phone's downloads over the
+# xbox-share: let Sortovia read the phone's downloads over the
 # hotspot Wi-Fi (no mobile data used). Runs a password-protected WebDAV server.
 #   xbox-share                      share /storage/emulated/0/Download
 #   xbox-share /storage/emulated/0/Movies   share another folder
@@ -21,7 +21,7 @@ if [ "$1" = "password" ] || [ "$1" = "pass" ]; then
 fi
 if [ "$1" = "stop" ]; then
   # only the share itself (anchored, so it can't match this script); the YouTube helper
-  # keeps running, so Kodi Sorter's YouTube downloads still work with the companion app
+  # keeps running, so Sortovia's YouTube downloads still work with the companion app
   if pkill -f "^rclone serve webdav" 2>/dev/null; then
     echo "xbox-share stopped. (The companion app can share now.)"
   else
@@ -31,7 +31,7 @@ if [ "$1" = "stop" ]; then
 fi
 
 if ! command -v rclone >/dev/null; then
-  echo "rclone is missing: in Termux run  pkg install rclone  (or run the Kodi Sorter installer again)"; exit 1
+  echo "rclone is missing: in Termux run  pkg install rclone  (or run the Sortovia installer again)"; exit 1
 fi
 if [ ! -d "$DIR" ]; then
   echo "Folder not found: $DIR"; exit 1
@@ -49,13 +49,13 @@ if [ -n "$IPS" ]; then
   for ip in $IPS; do echo " Address : $ip   (port $PORT)"; done
 else
   echo " Address : none found - is the Mobile Hotspot ON?"
-  echo "           (Kodi Sorter finds the phone by itself anyway)"
+  echo "           (Sortovia finds the phone by itself anyway)"
 fi
 echo
-echo " In Kodi: Kodi Sorter > Sort my downloads > Choose folders >"
+echo " In Kodi: Sortovia > Sort my downloads > Choose folders >"
 echo "   My phone over Wi-Fi - phone storage"
 echo " Keep Termux open while files copy. Ctrl+C stops sharing."
-echo " YouTube downloads: Kodi Sorter > Download from YouTube (port 8081)."
+echo " YouTube downloads: Sortovia > Download from YouTube (port 8081)."
 echo " (The NOTICE lines below are normal - it is working.)"
 echo "============================================"
 # YouTube downloads for the add-on (port 8081, same password): see yt_helper.py
@@ -68,7 +68,7 @@ fi
 if (exec 3<>/dev/tcp/127.0.0.1/$PORT) 2>/dev/null; then
   echo
   echo " Port $PORT is already in use: xbox-share is already running (maybe in another Termux"
-  echo " session), or the Kodi Sorter companion app is sharing. Kodi can already reach the phone."
+  echo " session), or the companion app is sharing. Kodi can already reach the phone."
   echo " To restart it: type  xbox-share stop  then  xbox-share"
   exit 1
 fi

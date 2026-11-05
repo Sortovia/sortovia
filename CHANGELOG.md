@@ -3,6 +3,7 @@
 Newest first. Each line says what the update changed for you.
 
 ## 1.39 – Sortovia
+- **1.39.1** **The daily library backup is skipped when nothing has changed**, which saves time and space. *Back up now* always runs.
 - **1.39.0**
   - **Kodi Sorter is now called Sortovia.** Your folders, settings and updates carry on as before.
   - **Real-Debrid downloads by itself.** Anything you send to Real-Debrid downloads automatically once it's ready, in the background. If Kodi closes, it carries on the next time you open Sortovia.

@@ -45,7 +45,7 @@ def setting_on(name):
 
 # The switches, shown in Sortovia's own Settings menu.
 SWITCHES = [("check_updates", "Check for updates when Sortovia opens", "It always asks before installing."),
-            ("auto_backup", "Back up the Kodi library once a day", "Saved on your library drive."),
+            ("auto_backup", "Back up the Kodi library once a day", "Saved on your library drive. Skipped if nothing changed."),
             ("use_phone", "Use an Android phone as a helper", "Shows the phone and YouTube options."),
             ("send_logs", "Copy Kodi's logs to the phone", "Only once a phone is set up.")]
 
@@ -2661,6 +2661,7 @@ def backup_line():
 def backup_now(dlg=None):
     """Make a library backup. With dlg: show progress and the result."""
     prog = None
+    print_before = backup.fingerprint()  # taken first, so a change during the export is caught next time
     if dlg is not None:
         prog = xbmcgui.DialogProgress()
         prog.create(ADDON, "Backing up the Kodi library...\n(Kodi's export can take a minute)")
@@ -2673,7 +2674,8 @@ def backup_now(dlg=None):
             dlg.ok(ADDON, "Library backup failed: %s" % e)
         return False
     _close(prog)
-    save_cache(data_file(BACKUP_STATE), {"time": time.time(), "made": info["made"], "counts": info["counts"]})
+    save_cache(data_file(BACKUP_STATE), {"time": time.time(), "made": info["made"], "counts": info["counts"],
+                                               "fingerprint": print_before})
     if backup.HOME_DIR not in saved:
         try:
             _clear_xbox_backups()
@@ -2686,6 +2688,18 @@ def backup_now(dlg=None):
     else:
         toast("Library backed up (%s)" % backup.counts_line(info["counts"]), 4000)
     return True
+
+
+def backup_if_changed():
+    """The daily backup: nothing changed since the last one means nothing to save."""
+    state = load_cache(data_file(BACKUP_STATE))
+    now = backup.fingerprint()
+    if now and now == state.get("fingerprint"):
+        state["time"] = time.time()  # look again tomorrow
+        save_cache(data_file(BACKUP_STATE), state)
+        log("library unchanged since the backup of %s: skipping today's backup" % state.get("made", "?"))
+        return False
+    return backup_now()
 
 
 def check_library_backup(dlg):
@@ -2711,7 +2725,7 @@ def check_library_backup(dlg):
     if not setting_on("auto_backup"):
         return
     import threading
-    threading.Thread(target=backup_now).start()
+    threading.Thread(target=backup_if_changed).start()
 
 
 def wrong_movies(movies, episode_keys, tv_root):

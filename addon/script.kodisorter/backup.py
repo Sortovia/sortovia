@@ -158,6 +158,14 @@ def newest_db():
         return None, None
 
 
+def fingerprint():
+    """A checksum of Kodi's video database, which changes with anything in the library, including
+    watched marks. "" if it can't be read or is too big to copy, so the backup goes ahead."""
+    import hashlib
+    data = newest_db()[1]
+    return hashlib.md5(data).hexdigest() if data else ""
+
+
 def _prune(base, keep=KEEP):
     try:
         dirs = sorted(d for d in xbmcvfs.listdir(base)[0] if STAMP_RE.match(d))

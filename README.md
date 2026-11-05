@@ -92,7 +92,7 @@ Open **Help & settings → Settings**.
 | Setting | What it does | Starts as |
 |---|---|---|
 | Check for updates | Looks for a new version each time Sortovia opens | On |
-| Daily library backup | Saves Kodi's library to your library drive once a day | On |
+| Daily library backup | Saves Kodi's library to your library drive once a day, if it has changed | On |
 | Use an Android phone | Shows the phone and YouTube options, and lets it look for your phone | Your welcome-screen answer |
 | Copy logs to the phone | Saves Kodi's logs to the phone's `Download/KodiSorterLogs` folder | On, once a phone is set up |
 | TMDb | Your free key, country and streaming services | Not set |
@@ -263,7 +263,7 @@ are stored unencrypted in Kodi's add-on data on your device.
 
 **Library extras**
 - *Kodi library → Back up*: Kodi's library export (with watched marks) plus its database file, saved on the library drive
-  (`_Kodi library backups`) and the phone if you use one. It warns you if the library suddenly shrinks. *Restore a backup* gets one
+  (`_Kodi library backups`) and the phone if you use one. The daily backup is skipped when nothing in the library has changed. It warns you if the library suddenly shrinks. *Restore a backup* gets one
   ready for Kodi's Import library.
 - *Clean TV library / Clean movie library*: removes entries that are in the wrong library, never files.
 - *Find missing episodes*: compares your TV library with TVmaze and lists aired episodes you don't have.

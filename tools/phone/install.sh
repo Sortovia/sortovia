@@ -50,13 +50,15 @@ EOF
 chmod +x "$PREFIX/bin/xbox-share"
 
 # Moving over from the older Ubuntu (proot) setup: keep its password, so Kodi on the
-# Xbox keeps working without typing a new one, and its YouTube cookies and queue.
-OLD="$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu/root/.config/xbox-share"
-if [ -d "$OLD" ]; then
-  for f in password youtube-cookies.txt yt-jobs.json; do
+# Xbox keeps working without typing a new one, and its YouTube cookies, queue and settings.
+# proot-distro keeps Ubuntu in installed-rootfs/ubuntu or containers/ubuntu/rootfs, by version.
+for OLD in "$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu/root/.config/xbox-share" \
+           "$PREFIX/var/lib/proot-distro/containers/ubuntu/rootfs/root/.config/xbox-share"; do
+  [ -d "$OLD" ] || continue
+  for f in password youtube-cookies.txt yt-jobs.json yt-settings.json; do
     if [ -s "$OLD/$f" ] && [ ! -s "$CONF/$f" ]; then cp "$OLD/$f" "$CONF/$f"; echo "Kept your $f from the Ubuntu setup."; fi
   done
-fi
+done
 if [ ! -s "$CONF/password" ]; then
   # letters + digits only, so it can be typed with the Xbox controller
   tr -dc 'a-z0-9' </dev/urandom | head -c 8 >"$CONF/password"

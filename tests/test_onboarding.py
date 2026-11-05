@@ -18,6 +18,10 @@ class MarkdownForKodi(unittest.TestCase):
         self.assertIn("A  -  B", t)
         self.assertNotIn("---", t)
 
+    def test_pictures_are_left_out_on_the_tv(self):
+        t = ob.md_to_kodi("![Logo](https://x/logo.png)\n\nHello")
+        self.assertEqual(t.strip(), "Hello")
+
     def test_real_readme_has_no_markdown_left(self):
         t = ob.md_to_kodi((ROOT / "README.md").read_text(encoding="utf-8"))
         self.assertIn("INSTALL IT", t)

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260" width="260" height="260" role="img" aria-label="Sortovia icon"><title>Sortovia icon</title><rect x="3" y="3" width="254" height="254" rx="55" fill="#16283A" stroke="#2EC4B6" stroke-width="6"/>
+<g transform="translate(35 35) scale(0.95)"><path d="M150 40 H80 A30 30 0 0 0 80 100 H120 A30 30 0 0 1 120 160 H50" fill="none" stroke="#2EC4B6" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M131 29 Q131 23 137 23 H146 L150 27 H163 Q169 27 169 33 V51 Q169 57 163 57 H137 Q131 57 131 51 Z" fill="#FFFFFF" stroke="#16283A" stroke-width="4"/>
+<circle cx="100" cy="100" r="19" fill="#FFFFFF" stroke="#16283A" stroke-width="4"/>
+<path d="M94 90 L110 100 L94 110 Z" fill="#16283A"/>
+<rect x="31" y="143" width="38" height="34" rx="5" fill="#FFFFFF" stroke="#16283A" stroke-width="4"/>
+<path d="M38 149 V171 M62 149 V171" stroke="#16283A" stroke-width="4" stroke-dasharray="4 5"/>
+<rect x="45" y="149" width="10" height="22" rx="1" fill="#2EC4B6"/></g></svg>

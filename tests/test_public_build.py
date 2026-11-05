@@ -32,7 +32,7 @@ class PublicBuild(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def test_package_has_what_kodi_and_a_new_user_need(self):
-        for f in ("addon.xml", "default.py", "icon.png", "LICENSE.txt", "resources/README.md", "resources/CHANGELOG.md",
+        for f in ("addon.xml", "default.py", "icon.png", "resources/media/logo.png", "resources/media/fanart.png", "LICENSE.txt", "resources/README.md", "resources/CHANGELOG.md",
                   "resources/settings.xml", "resources/language/resource.language.en_gb/strings.po"):
             self.assertIn("script.kodisorter/" + f, self.members)
         self.assertFalse([m for m in self.members if "__pycache__" in m or m.endswith(".pyc")])
@@ -40,6 +40,7 @@ class PublicBuild(unittest.TestCase):
     def test_addon_xml_is_valid_and_names_its_icon(self):
         root = ET.fromstring(self.zip.read("script.kodisorter/addon.xml"))
         self.assertEqual(root.findtext(".//assets/icon"), "icon.png")
+        self.assertEqual(root.findtext(".//assets/fanart"), "resources/media/fanart.png")
         self.assertEqual(self.zip.read("script.kodisorter/icon.png")[:8], b"\x89PNG\r\n\x1a\n")
 
     def test_every_setting_has_its_text_and_a_real_action(self):
@@ -66,7 +67,8 @@ class PublicBuild(unittest.TestCase):
 
     def test_published_files_exist(self):
         for f in (self.name, "LICENSE.txt", "README.md", "CHANGELOG.md", "addons.xml", "script.kodisorter/icon.png",
-                  "phone/install.sh", "phone/kodi_share.sh", "phone/yt_helper.py", "phone/index.html",
+                  "phone/install.sh", "phone/kodi_share.sh", "phone/yt_helper.py", "phone/index.html", "assets/favicon.png", "assets/sortovia-logo-horizontal.png",
+                  "script.kodisorter/fanart.png",
                   "phone/cookies-txt.xpi"):
             self.assertTrue((self.tmp / f).is_file(), f)
         md5 = (self.tmp / "script.kodisorter" / (self.name + ".md5")).read_text()

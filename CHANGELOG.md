@@ -2,6 +2,9 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.42 – A new look
+- **1.42.0** **Sortovia has its logo:** on its icon and Kodi backdrop, and in its full-window screens and web pages. Restart Kodi if the old icon still shows.
+
 ## 1.41 – YouTube test
 - **1.41.0**
   - **Test YouTube without a phone**, in *Help & settings*. It checks whether this device could download from YouTube by itself, and downloads no videos.

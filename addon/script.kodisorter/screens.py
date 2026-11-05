@@ -83,8 +83,9 @@ def show_page(title, body, buttons):
 
     win = Page()
     win.addControl(xbmcgui.ControlImage(0, 0, 1280, 720, MEDIA + "panel.png"))
-    win.addControl(xbmcgui.ControlLabel(60, 40, 1160, 44, "[B]%s[/B]" % title, font="font13", textColor="FFFFFFFF"))
-    box = xbmcgui.ControlTextBox(60, 100, 1160, 500, font="font13", textColor="FFFFFFFF")
+    win.addControl(xbmcgui.ControlImage(1140, 24, 80, 80, MEDIA + "logo.png"))
+    win.addControl(xbmcgui.ControlLabel(60, 40, 1060, 44, "[B]%s[/B]" % title, font="font13", textColor="FF2EC4B6"))
+    box = xbmcgui.ControlTextBox(60, 116, 1160, 484, font="font13", textColor="FFFFFFFF")
     win.addControl(box)
     box.setText(body)
     width = 300
@@ -92,7 +93,8 @@ def show_page(title, body, buttons):
     made = []
     for label in buttons:
         b = xbmcgui.ControlButton(x, 620, width, 60, label, focusTexture=MEDIA + "focus.png",
-                                  noFocusTexture=MEDIA + "button.png", alignment=6, font="font13")
+                                  noFocusTexture=MEDIA + "button.png", alignment=6, font="font13",
+                                  textColor="FFFFFFFF", focusedColor="FF0F1A24")
         win.addControl(b)
         made.append(b)
         x += width + 30
@@ -138,11 +140,11 @@ def read_text(title, text):
 
     win = Reader()
     win.addControl(xbmcgui.ControlImage(0, 0, 1280, 720, MEDIA + "panel.png"))
-    win.addControl(xbmcgui.ControlLabel(40, 18, 1200, 40, "[B]%s[/B]" % title, font="font13", textColor="FFFFFFFF"))
+    win.addControl(xbmcgui.ControlLabel(40, 18, 1200, 40, "[B]%s[/B]" % title, font="font13", textColor="FF2EC4B6"))
     box = xbmcgui.ControlTextBox(40, 66, 1200, 600, font="font13", textColor="FFFFFFFF")
     win.addControl(box)
     box.setText(text)
-    hint = xbmcgui.ControlLabel(40, 676, 1200, 34, state.hint(), font="font12", textColor="FFB8C4CF")
+    hint = xbmcgui.ControlLabel(40, 676, 1200, 34, state.hint(), font="font12", textColor="FFA9BAC0")
     win.addControl(hint)
     monitor = xbmc.Monitor()
     win.show()

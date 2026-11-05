@@ -1,4 +1,8 @@
+![Sortovia](https://akaguyver.github.io/kodi-repo/assets/sortovia-logo-horizontal.png)
+
 # Sortovia
+
+*Your library, on the right path.*
 
 Sortovia (formerly Kodi Sorter) is a free add-on for Kodi that turns a pile of downloads into the folders Kodi understands, so its
 library recognises everything. It began as a tool for Kodi on an Xbox, with a phone as the hotspot, and it's now capable of much more.

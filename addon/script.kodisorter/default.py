@@ -2448,7 +2448,7 @@ def _qr_screen(title, text, link):
     win = Window()
     win.addControl(xbmcgui.ControlImage(0, 0, 1280, 720, screens.MEDIA + "panel.png"))
     win.addControl(xbmcgui.ControlImage(60, 120, 480, 480, path))
-    win.addControl(xbmcgui.ControlLabel(60, 40, 1160, 44, "[B]%s[/B]" % title, font="font13", textColor="FFFFFFFF"))
+    win.addControl(xbmcgui.ControlLabel(60, 40, 1160, 44, "[B]%s[/B]" % title, font="font13", textColor="FF2EC4B6"))
     box = xbmcgui.ControlTextBox(590, 120, 630, 500, font="font13", textColor="FFFFFFFF")
     win.addControl(box)
     box.setText(text + "\n\nBack: close")

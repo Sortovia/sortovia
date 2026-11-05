@@ -61,6 +61,8 @@ def build(out: Path):
             links.append(top.name)
             icon = addon / "icon.png"
             (zpath.parent / "icon.png").write_bytes(icon.read_bytes())
+            # Kodi shows these on the add-on's page in its repository browser
+            (zpath.parent / "fanart.png").write_bytes((addon / "resources" / "media" / "fanart.png").read_bytes())
         print(f"built {zpath.relative_to(out)}")
 
     # Phone helper for other people: one-step Termux installer + the scripts it fetches.
@@ -71,6 +73,15 @@ def build(out: Path):
                 ROOT.parent / "tools" / "phone" / "index.html"):
         (phone / src.name).write_bytes(src.read_bytes())
     print("built phone/")
+
+    # The logo on the web pages
+    brand = ROOT.parent / "brand" / "png"
+    assets = out / "assets"
+    assets.mkdir(exist_ok=True)
+    for src, name in ((brand / "sortovia-logo-horizontal-1200.png", "sortovia-logo-horizontal.png"),
+                      (brand / "icon" / "sortovia-icon-64.png", "favicon.png"),
+                      (brand / "icon" / "sortovia-icon-256.png", "sortovia-icon.png")):
+        (assets / name).write_bytes(src.read_bytes())
 
     addons_xml = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<addons>\n'
                   + "\n".join(entries) + "\n</addons>\n")

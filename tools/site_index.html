@@ -4,18 +4,20 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sortovia</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
 <meta name="description" content="A free add-on for Kodi that sorts your downloads into the folders Kodi understands.">
 <style>
-:root { --bg:#f7f8fa; --card:#fff; --text:#1b2530; --muted:#55636f; --line:#dfe4e9; --accent:#17528a; --code:#eef1f4; }
+:root { --bg:#f5f8f9; --card:#fff; --text:#16283a; --muted:#52636f; --line:#dbe4e6; --accent:#0c7168; --code:#eaf1f2; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg:#12171d; --card:#1b222a; --text:#e8edf2; --muted:#a4b0bb; --line:#303a44; --accent:#8cc3f5; --code:#262f38; }
+  :root { --bg:#0f1a24; --card:#16283a; --text:#eef3f5; --muted:#a9bac0; --line:#2a3f52; --accent:#2ec4b6; --code:#0f1a24; }
 }
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
 main { max-width:720px; margin:0 auto; padding:32px 16px 56px; }
-header { display:flex; gap:16px; align-items:center; margin-bottom:12px; }
-header img { width:72px; height:72px; flex:none; }
-h1 { font-size:2rem; line-height:1.15; margin:0; }
+header { margin-bottom:16px; }
+h1 { margin:0; line-height:0; }
+h1 img { width:min(300px, 80%); height:auto; }
+.tagline { color:var(--accent); font-size:1.1rem; margin:0 0 8px; }
 .lead { font-size:1.1rem; color:var(--muted); margin:0 0 24px; }
 h2 { font-size:1.25rem; margin:0 0 12px; }
 section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:20px; margin-bottom:16px; }
@@ -35,9 +37,9 @@ pre code { padding:0; background:none; overflow-wrap:normal; }
 <body>
 <main>
 <header>
-<img src="script.kodisorter/icon.png" alt="">
-<h1>Sortovia</h1>
+<h1><img src="assets/sortovia-logo-horizontal.png" width="1200" height="409" alt="Sortovia"></h1>
 </header>
+<p class="tagline">Your library, on the right path.</p>
 <p class="lead">A free add-on for Kodi that turns a pile of downloads into the folders Kodi understands. You see the whole plan first, and nothing moves until you say so.</p>
 <pre><code>E:\
 ├── TV\Show Name (Year)\Season 01\Show Name (Year) S01E02.mkv

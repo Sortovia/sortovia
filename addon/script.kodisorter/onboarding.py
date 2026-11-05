@@ -44,6 +44,8 @@ def md_to_kodi(md):
         if line.strip().startswith("```"):
             in_code = not in_code
             continue
+        if not in_code and re.match(r"^\s*!\[[^\]]*\]\([^)]*\)\s*$", line):
+            continue  # a picture, for the web only
         if in_code:
             out.append("    " + line)
             continue

@@ -38,6 +38,6 @@ Third-party parts keep their own licences:
 - cookies-txt.xpi (tools/phone), the cookies.txt Firefox extension: GPL-3.0, in
   cookies-txt-LICENSE.txt beside it. It's a separate program, offered as a
   convenience and not part of Sortovia's code.
-  Source: https://github.com/lennonhill/cookies-txt
+  Source: https://github.com/hrdl-github/cookies-txt
 - Fonts used to draw the logo, Righteous and Outfit: SIL Open Font License, in
   brand/licenses.

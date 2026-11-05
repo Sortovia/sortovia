@@ -2,6 +2,11 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.41 – YouTube test
+- **1.41.0**
+  - **Test YouTube without a phone**, in *Help & settings*. It checks whether this device could download from YouTube by itself, and downloads no videos.
+  - **The guide now points to the right cookie extension,** cookies.txt 1.0, which is marked for Firefox on Android.
+
 ## 1.40 – Easier to read, more options
 - **1.40.0**
   - **A full window for messages, and a guide that scrolls slowly by itself**, one line at a time, so you never lose your place. OK pauses, Up and Down move, and Left and Right change the speed. The guide is now split into topics.

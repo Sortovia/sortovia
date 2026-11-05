@@ -2505,6 +2505,29 @@ def send_problem_report(dlg):
         dlg.ok(ADDON, "Your report code is %s.\nGive it to the developer on the Sortovia GitHub page." % code)
 
 
+def youtube_test(dlg):
+    """Could this device download from YouTube without a phone? See youtube_test.py."""
+    import realdebrid
+    import youtube_test as yt
+    if not dlg.yesno(ADDON, "This test checks whether this device could download from YouTube by itself, without a phone.\n\n"
+                     "It downloads the official yt-dlp tool from GitHub (about 3 MB), checks it against its published "
+                     "checksum, and asks YouTube about one test video. No video is downloaded, and no sign-in or cookies "
+                     "are used. The tool is deleted afterwards.\n\nIt can take up to 3 minutes.",
+                     nolabel="Cancel", yeslabel="Run the test"):
+        return
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, "Starting...")
+    try:
+        folder = xbmcvfs.translatePath("special://temp/")  # for Python's own file functions, not Kodi's
+        works, lines = yt.run(lambda url: realdebrid._http(url, timeout=120), folder, lambda m: prog.update(0, m))
+    finally:
+        _close(prog)
+    for line in lines:
+        log("youtube test: %s" % line)
+    dlg.textviewer("%s - YouTube test" % ADDON, "\n".join(lines) + "\n\nThese results are also in Kodi's log. To share them, "
+                   "use Help & settings > Send a problem report.")
+
+
 def rd_sort(dlg, spath):
     folder = rd_folder(dlg)
     last = load_cache(data_file("last_settings.json"))
@@ -5160,6 +5183,8 @@ def menu_items(name):
             _item("Read the guide", "Every step and feature, by topic.", "DefaultIconInfo.png", action="guide"),
             _item("How to set up your phone", "Android and iPhone: import files over Wi-Fi.", "DefaultIconInfo.png",
                   action="guide_phone"),
+            _item("Test YouTube without a phone", "Checks whether this device could download from YouTube by itself. "
+                  "Downloads no videos.", "DefaultAddonVideo.png", action="youtube_test"),
             _item("Send a problem report to the developer", "Cleans Kodi's log, shows you what's in it, and sends it "
                   "if you agree.", "DefaultIconInfo.png", action="problem_report"),
             _item("Settings", "Updates, backups, your phone, small files, title renaming, passcode, TMDb key.",
@@ -5295,6 +5320,7 @@ ACTIONS = {
     "rd_sort": rd_sort,
     "rd_stop": lambda dlg, spath: home().setProperty(PROP_RD_STOP, "1"),
     "problem_report": lambda dlg, spath: send_problem_report(dlg),
+    "youtube_test": lambda dlg, spath: youtube_test(dlg),
     "vault": lambda dlg, spath: vault_menu(dlg),
     "guide_phone": _ob(lambda ob, dlg: ob.show_guide(dlg, topic="use a phone")),
     "rd_releases": lambda dlg, spath: rd_releases(dlg),

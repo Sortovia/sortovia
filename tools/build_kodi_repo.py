@@ -67,7 +67,7 @@ def build(out: Path):
     phone = out / "phone"
     phone.mkdir(exist_ok=True)
     for src in (ROOT.parent / "tools" / "phone" / "install.sh", ROOT.parent / "tools" / "kodi_share.sh",
-                ROOT.parent / "tools" / "yt_helper.py", ROOT.parent / "tools" / "phone" / "get-cookies-txt-locally.xpi",
+                ROOT.parent / "tools" / "yt_helper.py", ROOT.parent / "tools" / "phone" / "cookies-txt.xpi",
                 ROOT.parent / "tools" / "phone" / "index.html"):
         (phone / src.name).write_bytes(src.read_bytes())
     print("built phone/")

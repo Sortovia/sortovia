@@ -28,9 +28,9 @@ COOKIE_HELP = """YouTube only lets the phone download when it sends the cookies 
 
 [B]1. Get Firefox and the cookie extension[/B]
 - Install Firefox from the Play Store.
-- In Firefox open akaguyver.github.io/kodi-repo/phone. Press and hold the file link and choose Download link. (Get cookies.txt LOCALLY 0.7.2 is the version known to install on Android.)
+- In Firefox open akaguyver.github.io/kodi-repo/phone. Press and hold the file link and choose Download link. (This is the extension called cookies.txt, version 1.0, which is marked for Firefox on Android.)
 - Firefox menu > Settings > About Firefox, and tap the Firefox logo 5 times until it says the debug menu is on.
-- Go back to Settings, choose "Install extension from file" near the bottom, and pick get-cookies-txt-locally.xpi from your Download folder.
+- Go back to Settings, choose "Install extension from file" near the bottom, and pick cookies-txt.xpi from your Download folder. It is 87 KB.
 
 [B]2. Let it work in private tabs[/B]
 Firefox menu > Extensions > the cookie extension > Settings > turn on "Run in private browsing".

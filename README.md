@@ -197,13 +197,13 @@ creator permits. YouTube only allows downloads from a signed-in browser, so this
 > **Your cookies file works like a password for your Google account.** Consider using a spare account. Automated downloading
 > may be against YouTube's terms, and using it is at your own risk.
 
-**Get the cookie extension.** The version known to install on Firefox for Android is **Get cookies.txt LOCALLY 0.7.2**:
+**Get the cookie extension.** Use the one called **cookies.txt, version 1.0**. It's marked for Firefox on Android, and other cookie extensions may not appear after installing:
 
 1. In Firefox on the phone, open **akaguyver.github.io/kodi-repo/phone**.
 2. **Press and hold** the file link and choose **Download link**. Tapping it normally may be blocked.
 3. In Firefox, go to **Settings → About Firefox** and tap the Firefox logo **5 times** to turn on the debug menu.
-4. Go back to **Settings**, choose **Install extension from file**, and pick `get-cookies-txt-locally.xpi` from your Download folder.
-5. Go to **Extensions → Get cookies.txt LOCALLY → Settings** and turn on *Run in private browsing*.
+4. Go back to **Settings**, choose **Install extension from file**, and pick `cookies-txt.xpi` from your Download folder. It's 87 KB.
+5. Go to **Extensions → cookies.txt → Settings** and turn on *Run in private browsing*.
 
 **Export your cookies.**
 

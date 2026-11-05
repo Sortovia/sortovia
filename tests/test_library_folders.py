@@ -134,7 +134,7 @@ class LibraryCheck(unittest.TestCase):
         rep = self.d.folder_report("TV", self.shows, self.d.parent_of(self.shows), self.lib(),
                                    [self.d._lib_key(os.path.join(self.tmp, "D"))])
         self.assertEqual((rep["videos"], rep["in_library"], rep["readable"]), (4, 1, 1))
-        self.assertEqual(sorted(rep["unreadable"]), ["Sams Sandwiches 3x04.mkv", "Random Show/episode 7.mkv"])
+        self.assertEqual(sorted(rep["unreadable"]), ["Random Show/episode 7.mkv", "Sams Sandwiches 3x04.mkv"])
         self.assertTrue(rep["is_source"])
         # fargo.s01e02.720p gets its Kodi name, Sams Sandwiches 3x04 gets a show folder; the in-library
         # file is already right and "episode 7" can't be placed: 2 moves

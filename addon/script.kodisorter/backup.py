@@ -244,6 +244,34 @@ def list_backups(base=HOME_DIR):
     return out
 
 
+LETTER_DIR_RE = re.compile(r"^Drive [A-Z]$")
+
+
+def letter_bases(base):
+    """The per-letter folders in a backup folder, such as <base>Drive E/."""
+    try:
+        return [base + d + "/" for d in sorted(xbmcvfs.listdir(base)[0]) if LETTER_DIR_RE.match(d)]
+    except Exception:
+        return []
+
+
+def save_letter_copy(base, letter, stamp, counts_now, xml, db_name, db, extra=()):
+    """Save a backup whose addresses all use one drive letter, in <base>Drive X/<stamp>/. These sit
+    apart from the dated backups, so those coming and going never removes them. Returns the folder."""
+    parent = "%sDrive %s/" % (base, letter)
+    folder = parent + stamp + "/"
+    info = {"made": stamp, "counts": counts_now, "drive": letter, "xml_bytes": len(xml or b""), "db": db_name,
+            "kodi": xbmc.getInfoLabel("System.BuildVersion")}
+    files = [("backup-info.json", json.dumps(info, indent=1).encode()), (db_name, db)] + list(extra)
+    if xml:
+        files.append(("videodb.xml", xml))
+    xbmcvfs.mkdirs(folder)
+    if not all(_write(folder + n, d) for n, d in files):
+        raise IOError("couldn't save the backup to %s" % folder)
+    _prune(parent)
+    return folder
+
+
 RESTORE_DIR = "special://home/Kodi library restore/"
 
 

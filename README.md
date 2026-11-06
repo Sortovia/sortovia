@@ -90,6 +90,8 @@ Kodi only lists folders you've added as sources. Add **each folder on its own**.
 win-lib://removable/E:\TV\
 ```
 
+**If your drive's letter changes** (for example, plugging in or removing a USB stick turns `E:` into `D:`), your files are safe and don't need downloading again. Don't run Clean library. Instead, open **Kodi library → Drive letter changed? Fix the library**. Sortovia checks your files really are on the new letter, saves a library backup for each letter in `_Kodi library backups`, and points Kodi and Sortovia at the new letter. Then restart Kodi. Run it again whenever the letter changes.
+
 ---
 
 ## Settings

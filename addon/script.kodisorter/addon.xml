@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.kodisorter" name="Sortovia" version="1.42.1" provider-name="akaguyver">
+<addon id="script.kodisorter" name="Sortovia" version="1.43.0" provider-name="akaguyver">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>

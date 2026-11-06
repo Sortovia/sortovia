@@ -26,6 +26,7 @@ import xbmcvfs
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
 import backup
 import comics
+import drive_letter
 import screens
 import vault
 from sortlib import VIDEO, SUBS, AUDIO, episode_tag, sub_lang, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
@@ -3084,19 +3085,29 @@ def _where(base):
     return "this device" if base == backup.HOME_DIR else friendly(base)
 
 
+def letter_backups():
+    """[(folder, stamp, info)] of the backups kept for each drive letter, newest first."""
+    out = []
+    for base in backup_bases():
+        for folder in backup.letter_bases(base):
+            out += [(folder, st, info) for st, info in backup.list_backups(folder)]
+    return sorted(out, key=lambda r: r[1], reverse=True)
+
+
 def backups_list(dlg):
     rows = ["%s   %s   (%s)" % (st, backup.counts_line(info.get("counts") or {}), _where(base))
-            for base, st, info in all_backups()]
+            for base, st, info in all_backups() + letter_backups()]
     dlg.textviewer("%s - backups" % ADDON, "\n".join(rows) or "No backups yet.")
 
 
 def restore_backup(dlg):
-    rows = all_backups()
+    rows = all_backups() + [r for r in letter_backups() if r[2].get("xml_bytes")]
     if not rows:
         dlg.ok(ADDON, "No library backups yet.")
         return
-    pick = dlg.select("Restore which backup?", ["%s   %s" % (st, backup.counts_line(info.get("counts") or {}))
-                                                for base, st, info in rows])
+    pick = dlg.select("Restore which backup?",
+                      ["%s%s   %s" % (st, "   for %s:" % info["drive"] if info.get("drive") else "",
+                                      backup.counts_line(info.get("counts") or {})) for base, st, info in rows])
     if pick < 0:
         return
     base, st, info = rows[pick]
@@ -3125,6 +3136,134 @@ def remove_old_backups(dlg):
         return
     gone = sum(1 for i in picks if xbmcvfs.rmdir(rows[1:][i][0] + rows[1:][i][1] + "/", True))
     dlg.ok(ADDON, "Removed %d of %d backup(s). Kept the newest, %s." % (gone, len(picks), newest[1]))
+
+
+# Sortovia's own saved files that can hold a folder on the library drive.
+SAVED_WITH_FOLDERS = ("last_settings.json", "onboarding.json", "youtube.json", "rd_queue.json", COMICS_PREF, "session.json")
+KODI_FILES_WITH_FOLDERS = ("sources.xml", "favourites.xml")
+
+
+def _swap_bytes(data, old, new):
+    return drive_letter.swap_text(data.decode("utf-8", "surrogateescape"), old, new).encode("utf-8", "surrogateescape")
+
+
+def _kodi_files():
+    """[(name, bytes)] of Kodi's own files that list folders, for the ones this device has."""
+    out = []
+    for name in KODI_FILES_WITH_FOLDERS:
+        path = "special://profile/" + name
+        if xbmcvfs.exists(path):
+            out.append((name, backup._read(path)))
+    return out
+
+
+def _switch_saved_folders(kodi_files, old, new):
+    """Point Kodi's sources and favourites and Sortovia's saved folders at the new letter.
+    Returns the names of any that couldn't be saved."""
+    failed = []
+    for name, data in kodi_files:
+        changed = _swap_bytes(data, old, new)
+        if changed != data and not backup._write("special://profile/" + name, changed):
+            failed.append(name)
+    for name in SAVED_WITH_FOLDERS:
+        path = data_file(name)
+        saved = load_cache(path)
+        if saved:
+            changed = json.loads(drive_letter.swap_text(json.dumps(saved), old, new))
+            if changed != saved and not save_cache(path, changed):
+                failed.append(name)
+    return failed
+
+
+def _listdir_or_nothing(path):
+    try:
+        return xbmcvfs.listdir(path)
+    except Exception:
+        return [], []
+
+
+def _choose_new_letter(dlg, name):
+    """(old, new) once the person agrees, or None after saying why not."""
+    files = drive_letter.library_files(xbmcvfs.translatePath("special://database/" + name))
+    found = drive_letter.diagnose(files, _listdir_or_nothing)
+    if not found["moved"]:
+        if found["lost"]:
+            dlg.ok(ADDON, "Your library's files on %s: weren't found on any drive. Check the drive is plugged in, then "
+                   "try again. Nothing was changed." % ", ".join(found["lost"]))
+        elif found["ok"]:
+            dlg.ok(ADDON, "Nothing to fix: your library's files are on %s:, where Kodi expects them."
+                   % ", ".join(found["ok"]))
+        else:
+            dlg.ok(ADDON, "Your library has no videos on an external drive, so there's nothing to fix.")
+        return None
+    old, hits = found["moved"][0]
+    new = hits[0]
+    if len(hits) > 1:
+        pick = dlg.select("Your library's files are on more than one drive. Use which?", ["%s:" % h for h in hits])
+        if pick < 0:
+            return None
+        new = hits[pick]
+    if not dlg.yesno(ADDON, "Kodi's library points to %s:, but your files are now on %s:.\n\nSortovia will save a "
+                     "library backup for each letter, then point Kodi at %s:. It won't move or delete any videos."
+                     % (old, new, new), nolabel="Cancel", yeslabel="Fix it"):
+        return None
+    return old, new
+
+
+def fix_drive_letter(dlg):
+    """Point Kodi and Sortovia at the drive's new letter, keeping a backup for each letter."""
+    name, db = backup.newest_db()
+    if not db:
+        dlg.ok(ADDON, "Couldn't read Kodi's library database. Nothing was changed.")
+        return False
+    prog = None
+    try:
+        letters = _choose_new_letter(dlg, name)
+        if not letters:
+            return False
+        old, new = letters
+        stamp = time.strftime("%Y-%m-%d %H%M")
+        drive = "win-lib://removable/%s:\\" % new
+        base = backup.drive_dir(drive)
+        prog = xbmcgui.DialogProgress()
+        prog.create(ADDON, "Saving the library backup for %s:...\n(Kodi's export can take a minute)" % old)
+        try:
+            xml = backup.export_xml(work=work_dir(drive))
+        except Exception as e:  # the database copy still protects the library
+            log("drive letter: export failed: %s" % e)
+            xml = None
+        count = backup.counts()
+        kodi_files = _kodi_files()
+        backup.save_letter_copy(base, old, stamp, count, xml, name, db, kodi_files)
+        prog.update(50, "Pointing Kodi at %s:..." % new)
+        changed = drive_letter.rewrite_db(xbmcvfs.translatePath("special://database/" + name), old, new)
+        log("drive letter: %s: to %s:, %d database values changed" % (old, new, changed))
+        failed = _switch_saved_folders(kodi_files, old, new)
+        prog.update(80, "Saving the library backup for %s:..." % new)
+        second = ""
+        try:
+            backup.save_letter_copy(base, new, stamp, count, _swap_bytes(xml, old, new) if xml else None, name,
+                                    backup.newest_db()[1], [(n, _swap_bytes(d, old, new)) for n, d in kodi_files])
+        except Exception as e:
+            log("drive letter: second backup failed: %s" % e)
+            second = "\nThe backup for %s: couldn't be saved, so make one from this menu after restarting." % new
+    except (drive_letter.DriveLetterError, IOError, OSError) as e:
+        log("drive letter: stopped: %s" % e)
+        _close(prog)
+        dlg.ok(ADDON, "Couldn't fix the drive letter: %s" % e)
+        return False
+    except Exception as e:  # for example an unreadable database
+        log("drive letter failed: %s" % e)
+        _close(prog)
+        dlg.ok(ADDON, "Couldn't fix the drive letter: %s" % e)
+        return False
+    _close(prog)
+    trouble = "\nThese couldn't be updated: %s." % ", ".join(failed) if failed else ""
+    if dlg.yesno(ADDON, "Kodi's library now points to %s:. Backups for both letters are in the _Kodi library backups "
+                 "folder on the drive.%s%s\n\nRestart Kodi so it loads your updated folders. If the letter changes "
+                 "again, run this again. Close Kodi now?" % (new, second, trouble), nolabel="Later", yeslabel="Close Kodi"):
+        xbmc.executebuiltin("Quit")
+    return True
 
 
 def backup_menu(dlg):
@@ -5153,6 +5292,9 @@ def menu_items(name):
                   "its database. It also runs by itself once a day.", "DefaultAddonsUpdates.png", action="backup"),
             _item("Restore a backup", "Pick a date; Sortovia gets it ready, then Kodi's Import library "
                   "puts it back.", "DefaultAddonsUpdates.png", action="restore"),
+            _item("Drive letter changed? Fix the library", "If your drive's letter changed (for example E: to D:), this "
+                  "points Kodi at the new one and keeps a backup for each letter. No videos are moved.",
+                  "DefaultHardDisk.png", action="drive_letter"),
             _item("List the backups", "When each was made, what was in the library, and where it is.",
                   "DefaultIconInfo.png", action="backups"),
             _item("Remove old library backups", "Frees space. The newest is always kept; the newest two on the "
@@ -5296,6 +5438,7 @@ ACTIONS = {
     "comics_auto": lambda dlg, spath: save_cache(data_file(COMICS_PREF), dict(comics_pref(), convert=not comics_pref()["convert"])),
     "backup": lambda dlg, spath: backup_now(dlg),
     "restore": lambda dlg, spath: restore_backup(dlg),
+    "drive_letter": lambda dlg, spath: fix_drive_letter(dlg),
     "remove_backups": lambda dlg, spath: remove_old_backups(dlg),
     "backups": lambda dlg, spath: backups_list(dlg),
     "wrong_movies": lambda dlg, spath: fix_wrong_movies(dlg),

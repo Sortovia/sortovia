@@ -2,6 +2,9 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.43 – Drive letter changes
+- **1.43.0** **Drive letter changed? Fix the library**, in *Kodi library*. If your drive's letter changes, for example from E: to D:, Sortovia checks your files are on the new letter, saves a library backup for each letter, and points Kodi and Sortovia at the new one. Your shows, watched marks and resume points stay, and no videos are moved. Run it again whenever the letter changes.
+
 ## 1.42 – A new look
 - **1.42.1** Sortovia's source code is now public at github.com/sortovia/sortovia, and bug reports go there too.
 - **1.42.0** **Sortovia has its logo:** on its icon and Kodi backdrop, and in its full-window screens and web pages. Restart Kodi if the old icon still shows.

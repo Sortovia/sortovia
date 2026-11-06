@@ -40,6 +40,22 @@ def make_db(path):
     c.close()
 
 
+def make_music_db(path, letter="E"):
+    c = sqlite3.connect(path)
+    c.executescript("""
+      CREATE TABLE path (idPath INTEGER PRIMARY KEY, strPath TEXT, strHash TEXT);
+      CREATE TABLE song (idSong INTEGER PRIMARY KEY, idPath INTEGER, strFileName TEXT, iTimesPlayed INTEGER);
+      CREATE TABLE source_path (idSource INTEGER, idPath INTEGER, strPath TEXT);
+      CREATE TABLE art (art_id INTEGER PRIMARY KEY, url TEXT);""")
+    folder = "win-lib://removable/%s:\\Music\\Band\\Album\\" % letter
+    c.execute("INSERT INTO path (strPath) VALUES (?)", (folder,))
+    c.execute("INSERT INTO song (idPath, strFileName, iTimesPlayed) VALUES (1, '01 - Song.mp3', 7)")
+    c.execute("INSERT INTO source_path VALUES (1, 1, ?)", ("win-lib://removable/%s:\\Music\\" % letter,))
+    c.execute("INSERT INTO art (url) VALUES (?)", (folder + "cover.jpg",))
+    c.commit()
+    c.close()
+
+
 def fake_listdir(drives):
     """drives: {"D": ["TV/Made Up Show/Season 01/a.mkv"]}"""
     def listdir(path):
@@ -151,6 +167,23 @@ class Rewrite(unittest.TestCase):
             other.close()
 
 
+class ArtistFolders(unittest.TestCase):
+    def test_organised_music_stays_and_loose_music_moves(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        d = load_default(os.path.join(tmp, "data"))
+        d.FOLDER_NAMES["Music"] = "Music"
+        d.read_music_tags = lambda p: {"artist": "Band", "album": "Record", "title": "Song", "track": 1}
+        d.xbmcvfs.listdir = lambda p: ([], [])
+        d.log = lambda m: None
+        dest = "win-lib://removable/D:/"
+        keep = dest + "Music/Band/Singles/2014 - Record/01 - Song.mp3"
+        self.assertEqual(d.plan_for(keep, "01 - Song.mp3", dest)[0], keep)
+        self.assertEqual(d.plan_for(dest + "Music/Band/Record/x.mp3", "x.mp3", dest)[0], dest + "Music/Band/Record/x.mp3")
+        for loose in (dest + "Music/x.mp3", dest + "Music/Band/x.mp3", dest + "Download/x.mp3"):
+            self.assertTrue(d.plan_for(loose, "x.mp3", dest)[0].endswith("Music/Band/Record/01 - Song.mp3"), loose)
+
+
 class Tool(unittest.TestCase):
     """The whole tool, with a real database and backups on a pretend drive."""
     def setUp(self):
@@ -163,11 +196,13 @@ class Tool(unittest.TestCase):
         os.makedirs(self.dbdir)
         self.db = os.path.join(self.dbdir, "MyVideos131.db")
         make_db(self.db)
+        self.music = os.path.join(self.dbdir, "MyMusic83.db")
+        make_music_db(self.music)
         os.makedirs(os.path.join(tmp, "profile"))
         self.sources = os.path.join(tmp, "profile", "sources.xml")
         with open(self.sources, "w") as f:
             f.write("<path>win-lib://removable/E:\\TV\\</path><path>win-lib://removable/F:\\Other\\</path>")
-        for f in ON_DISK:
+        for f in ON_DISK + ["Music/Band/Album/01 - Song.mp3"]:
             p = os.path.join(tmp, "drive-D", f)
             os.makedirs(os.path.dirname(p), exist_ok=True)
             open(p, "w").close()
@@ -234,6 +269,10 @@ class Tool(unittest.TestCase):
         d.xbmcgui.DialogProgress = Progress
         d.save_cache(d.data_file("last_settings.json"),
                      {"src": "win-lib://removable/E:\\\\in/", "dest": "win-lib://removable/E:\\\\"}, verify=False)
+        d.my_device = lambda: "windows"
+        self.rpc_calls = []
+        import missing
+        self.replace(missing, "_rpc", lambda method, params: self.rpc_calls.append(method) or {})
         self.said = []
         test = self
 
@@ -283,10 +322,234 @@ class Tool(unittest.TestCase):
         # Both show up for restoring.
         self.assertEqual(sorted(r[2]["drive"] for r in self.d.letter_backups()), ["D", "E"])
 
+    def query(self, db, sql):
+        c = sqlite3.connect(db)
+        try:
+            return c.execute(sql).fetchone()[0]
+        finally:
+            c.close()
+
+    def test_music_comes_too_and_keeps_its_play_counts(self):
+        self.assertTrue(self.d.fix_drive_letter(self.dlg), self.said)
+        self.assertIn("removable/D:\\Music", self.query(self.music, "SELECT strPath FROM path"))
+        self.assertIn("removable/D:\\Music", self.query(self.music, "SELECT strPath FROM source_path"))
+        self.assertIn("removable/D:\\Music", self.query(self.music, "SELECT url FROM art"))
+        self.assertEqual(self.query(self.music, "SELECT iTimesPlayed FROM song"), 7)
+        for letter in "ED":
+            folder = os.path.join(self.backups(letter), os.listdir(self.backups(letter))[0])
+            self.assertIn("removable/%s:" % letter, self.query(os.path.join(folder, "MyMusic83.db"), "SELECT strPath FROM path"))
+
+    def test_only_music_left_behind_after_the_first_version(self):
+        """Videos were already switched to D: and music wasn't, so the backups hold only the music."""
+        self.d.drive_letter.rewrite_db(self.db, "E", "D")
+        with open(self.sources, "w") as f:
+            f.write("<path>win-lib://removable/D:\\TV\\</path>")
+        self.assertTrue(self.d.fix_drive_letter(self.dlg), self.said)
+        self.assertIn("removable/D:", self.query(self.music, "SELECT strPath FROM path"))
+        self.assertEqual(self.exports, 0)
+        for letter in "ED":
+            names = os.listdir(os.path.join(self.backups(letter), os.listdir(self.backups(letter))[0]))
+            self.assertIn("MyMusic83.db", names)
+            self.assertNotIn("MyVideos131.db", names)
+            self.assertNotIn("videodb.xml", names)
+
+    def test_no_music_library_still_works(self):
+        os.remove(self.music)
+        self.assertTrue(self.d.fix_drive_letter(self.dlg), self.said)
+        self.assertIn("removable/D:/", self.episode())
+
+    def test_says_when_an_up_to_date_backup_exists_and_doesnt_make_another(self):
+        base = os.path.join(self.tmp, "drive-D", "_Kodi library backups")
+        for name, source in (("MyVideos131.db", self.db), ("MyMusic83.db", self.music)):
+            folder = os.path.join(base, "Drive E", "2026-11-05 2010")
+            os.makedirs(folder, exist_ok=True)
+            shutil.copy(source, os.path.join(folder, name))
+            with open(os.path.join(folder, "backup-info.json"), "w") as f:
+                f.write("{}")
+        self.assertTrue(self.d.fix_drive_letter(self.dlg), self.said)
+        self.assertIn("up-to-date backup of your video and music library from 2026-11-05 2010", self.said[0])
+        self.assertEqual(self.exports, 0)
+        self.assertEqual(os.listdir(self.backups("E")), ["2026-11-05 2010"])
+        self.assertEqual(len(os.listdir(self.backups("D"))), 1)
+
+    def test_a_different_backup_doesnt_count(self):
+        folder = os.path.join(self.backups("E"), "2026-11-05 2010")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "MyVideos131.db"), "wb") as f:
+            f.write(b"an older library")
+        with open(os.path.join(folder, "backup-info.json"), "w") as f:
+            f.write("{}")
+        self.assertTrue(self.d.fix_drive_letter(self.dlg), self.said)
+        self.assertIn("will first back up", self.said[0])
+        self.assertEqual(len(os.listdir(self.backups("E"))), 2)
+
+    def test_the_message_names_only_the_library_being_changed(self):
+        self.d.drive_letter.rewrite_db(self.db, "E", "D")
+        self.d.fix_drive_letter(self.dlg)
+        self.assertIn("Kodi's music library points to E:", self.said[0])
+
+    def test_xbox_gets_the_xbox_menu_steps_not_a_quit(self):
+        self.d.my_device = lambda: "xbox"
+        self.assertTrue(self.d.fix_drive_letter(self.dlg), self.said)
+        self.assertEqual(self.built, [])
+        self.assertIn("press the Xbox button", self.said[-1])
+
+    def add_art_tables(self, db, art):
+        c = sqlite3.connect(db)
+        c.executescript("""
+          ALTER TABLE song ADD COLUMN idAlbum INTEGER;
+          CREATE TABLE album (idAlbum INTEGER PRIMARY KEY, strAlbum TEXT);
+          DROP TABLE art;
+          CREATE TABLE art (art_id INTEGER PRIMARY KEY, media_id INTEGER, media_type TEXT, type TEXT, url TEXT);
+          UPDATE song SET idAlbum = 1;""")
+        c.execute("INSERT INTO album VALUES (1, 'Pretend LP')")
+        if art:
+            c.execute("INSERT INTO art (media_id, media_type, type, url) VALUES (1, 'album', 'thumb', ?)", (art,))
+        c.commit()
+        c.close()
+
+    def art_check(self, now, before, disk=()):
+        for f in disk:
+            with open(os.path.join(self.tmp, "drive-D", "Music", "Band", "Album", f), "w"):
+                pass
+        make_copy = os.path.join(self.tmp, "before.db")
+        make_music_db(make_copy, "E")
+        self.add_art_tables(make_copy, before)
+        folder = os.path.join(self.backups("E"), "2026-11-05 2010")
+        os.makedirs(folder)
+        shutil.move(make_copy, os.path.join(folder, "MyMusic83.db"))
+        with open(os.path.join(folder, "backup-info.json"), "w") as f:
+            json.dump({"db": "MyMusic83.db", "drive": "E"}, f)
+        d = self.d
+        d.xbmcgui.DialogProgress = type("P", (), {"create": lambda s, *a: None, "update": lambda s, *a: None,
+                                                  "close": lambda s: None, "iscanceled": lambda s: False})
+        props = {}
+        d.home = lambda: type("W", (), {"getProperty": lambda s, k: props.get(k, ""),
+                                        "setProperty": lambda s, k, v: props.__setitem__(k, v),
+                                        "clearProperty": lambda s, k: props.pop(k, None)})()
+        self.d.drive_letter.rewrite_db(self.music, "E", "D")
+        self.d.save_cache(self.d.data_file("last_settings.json"), {"dest": "win-lib://removable/D:\\\\"}, verify=False)
+        self.add_art_tables(self.music, now)
+        self.dlg.textviewer = lambda title, text: self.said.append(text)
+        return self.d.check_music_art(self.dlg)
+
+    def test_art_kept_and_the_file_is_there(self):
+        art = "win-lib://removable/D:\\Music\\Band\\Album\\cover.jpg"
+        found = self.art_check(art, art.replace("D:", "E:"), disk=["cover.jpg"])
+        self.assertEqual(found["ok"], ["Pretend LP"])
+        self.assertIn("No album lost its art", self.said[-1])
+
+    def test_art_lost_since_the_backup(self):
+        found = self.art_check("", "win-lib://removable/E:\\Music\\Band\\Album\\cover.jpg")
+        self.assertEqual(found["lost"], ["Pretend LP"])
+
+    def test_art_pointing_at_a_missing_file(self):
+        found = self.art_check("win-lib://removable/D:\\Music\\Band\\Album\\gone.jpg", "")
+        self.assertEqual(found["missing_file"], ["Pretend LP"])
+
+    def test_cover_in_the_folder_but_kodi_isnt_using_it(self):
+        self.assertEqual(self.art_check("", "", disk=["Some Name.webp"])["cover_unused"], ["Pretend LP (Some Name.webp)"])
+
+    def test_never_had_art(self):
+        self.assertEqual(self.art_check("", "")["none"], ["Pretend LP"])
+
+    def test_art_inside_a_song_counts_as_art(self):
+        url = "image://music@win-lib%3a%2f%2fremovable%2fD%3a%5cMusic%5cBand%5cAlbum%5c01%20-%20Song.mp3/"
+        self.assertEqual(self.art_check(url, "")["ok"], ["Pretend LP"])
+
+    def test_clicking_twice_doesnt_start_it_twice(self):
+        self.art_check("", "")
+        props = {}
+        self.d.home = lambda: type("W", (), {"getProperty": lambda s, k: props.get(k, ""),
+                                             "setProperty": lambda s, k, v: props.__setitem__(k, v),
+                                             "clearProperty": lambda s, k: props.pop(k, None)})()
+        ran = []
+        tool = self.d.one_at_a_time(lambda dlg: (ran.append(1), tool(dlg), "first")[-1])
+        self.assertEqual(tool(self.dlg), "first")
+        self.assertEqual(ran, [1])
+        self.assertIn("already working", self.said[-1])
+        tool2 = self.d.one_at_a_time(lambda dlg: "again")
+        self.assertEqual(tool2(self.dlg), "again")  # free again afterwards
+
+    def saved_copy(self, stamp, songs):
+        folder = os.path.join(self.backups("D"), stamp)
+        os.makedirs(folder)
+        path = os.path.join(folder, "MyMusic83.db")
+        make_music_db(path, "D")
+        c = sqlite3.connect(path)
+        if not songs:
+            c.execute("DELETE FROM song")
+        c.commit()
+        c.close()
+        with open(os.path.join(folder, "backup-info.json"), "w") as f:
+            json.dump({"db": "MyMusic83.db", "drive": "D"}, f)
+
+    def restore_setup(self):
+        self.art_check_props()
+        self.d.drive_letter.rewrite_db(self.music, "E", "D")
+        self.d.save_cache(self.d.data_file("last_settings.json"), {"dest": "win-lib://removable/D:\\\\"}, verify=False)
+        c = sqlite3.connect(self.music)
+        c.execute("DELETE FROM song")
+        c.commit()
+        c.close()
+        self.saved_copy("2026-11-05 2010", 1)
+
+    def art_check_props(self):
+        props = {}
+        self.d.home = lambda: type("W", (), {"getProperty": lambda s, k: props.get(k, ""),
+                                             "setProperty": lambda s, k, v: props.__setitem__(k, v),
+                                             "clearProperty": lambda s, k: props.pop(k, None)})()
+
+    def test_restore_puts_the_music_library_back(self):
+        self.restore_setup()
+        self.assertEqual(self.query(self.music, "SELECT COUNT(*) FROM song"), 0)
+        self.assertTrue(self.d.restore_music_library(self.dlg), self.said)
+        self.assertEqual(self.query(self.music, "SELECT COUNT(*) FROM song"), 1)
+        self.assertEqual(self.query(self.music, "SELECT iTimesPlayed FROM song"), 7)
+        self.assertIn("Restored: 1 songs", self.said[-1])
+        self.assertEqual(len(os.listdir(self.backups("D"))), 2)  # the empty one was saved first
+
+    @unittest.skipUnless(os.path.exists(os.path.join(os.path.dirname(__file__), "..", "addon", "script.kodisorter", "devtools.py")),
+                         "dev tools aren't in public builds")
+    def test_sending_includes_the_current_library_and_saved_copies(self):
+        self.restore_setup()
+        self.d.devtools.bind(vars(self.d))
+        names = [n for n, _ in self.d.devtools.music_library_files()]
+        self.assertEqual(names, ["music-now.db", "music-D-2026-11-05-2010.db"])
+
+    def test_restore_can_be_cancelled(self):
+        self.restore_setup()
+        self.answer = False
+        self.assertFalse(self.d.restore_music_library(self.dlg))
+        self.assertEqual(self.query(self.music, "SELECT COUNT(*) FROM song"), 0)
+
+    def test_restore_ignores_copies_for_another_letter(self):
+        self.art_check_props()
+        self.d.save_cache(self.d.data_file("last_settings.json"), {"dest": "win-lib://removable/D:\\\\"}, verify=False)
+        self.assertFalse(self.d.restore_music_library(self.dlg))
+        self.assertIn("no saved copies", self.said[-1])
+
+    def test_clean_music_runs_when_the_files_are_there(self):
+        self.d.drive_letter.rewrite_db(self.music, "E", "D")
+        self.assertTrue(self.d.clean_music_library(self.dlg), self.said)
+        self.assertEqual(self.rpc_calls, ["AudioLibrary.Clean"])
+
+    def test_clean_music_refuses_while_the_drive_looks_missing(self):
+        self.assertFalse(self.d.clean_music_library(self.dlg))  # the library says E:, the files are on D:
+        self.assertEqual(self.rpc_calls, [])
+        self.assertIn("wasn't found", self.said[-1])
+
+    def test_clean_music_can_be_cancelled(self):
+        self.d.drive_letter.rewrite_db(self.music, "E", "D")
+        self.answer = False
+        self.assertFalse(self.d.clean_music_library(self.dlg))
+        self.assertEqual(self.rpc_calls, [])
+
     def test_cancel_changes_nothing(self):
         self.answer = False
         self.assertFalse(self.d.fix_drive_letter(self.dlg))
         self.assertIn("removable/E:/", self.episode())
+        self.assertIn("removable/E:", self.query(self.music, "SELECT strPath FROM path"))
         self.assertFalse(os.path.exists(self.backups("E")))
 
     def test_no_change_if_the_backup_cant_be_saved(self):

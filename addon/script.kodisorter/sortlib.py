@@ -16,6 +16,7 @@ SUBS = {".srt", ".ass", ".ssa", ".sub", ".vtt"}
 # Separate audio tracks (usually an English dub shipped next to the video):
 # moved next to their video with the same name, so Kodi offers them as an extra track.
 AUDIO = {".mka", ".ac3", ".eac3", ".dts"}
+MUSIC = {".mp3", ".flac", ".m4a", ".ogg", ".oga", ".opus", ".wav", ".wma", ".aac", ".ape", ".alac"}
 COMICS = {".cbz", ".cbr", ".cb7", ".cbt"}
 # PDFs/EPUBs are usually bills, manuals, receipts: only comics when they sit
 # in a folder whose name says so ("Comics", "Manga", "Nightwarden comics" ...).
@@ -337,6 +338,128 @@ def episode_tag(name):
     stem = SITE_PREFIX_RE.sub("", PurePath(name).stem)
     ep = parse_episode("x " + stem)
     return ep[2].split(" ")[0].upper() if ep else None
+
+
+# Sound that isn't a music album stays where it is.
+NOT_MUSIC_FOLDER_RE = re.compile(r"(?i)(?<![a-z])(?:podcasts?|audio ?books?|recordings?|voice ?(?:notes?|recorder|memos?)|"
+                                 r"call ?recordings?|whatsapp|telegram|ringtones?|notifications?|alarms?|samples?|"
+                                 r"sound ?effects?|sfx)(?![a-z])")
+NOT_MUSIC_GENRE_RE = re.compile(r"(?i)podcast|audio ?book|spoken")
+GENERIC_FOLDER_RE = re.compile(r"(?i)^(?:music|my music|songs|audio|mp3s?|flacs?|albums?|downloads?|download|complete|completed|"
+                               r"incoming|media|new|torrents?|real-debrid|shared?|sdcard|storage|emulated|0|various|misc|"
+                               r"[a-z]:|win-lib:|removable)$")
+MUSIC_ROOT_RE = re.compile(r"(?i)^(?:music|my music|songs|[a-z]:)$")
+DISC_FOLDER_RE = re.compile(r"(?i)^(?:cd|disc|disk)[ ._\-]*(\d{1,2})$")
+# "2014.05.06 - Title" and "2013 - Title" are a date and an album, not an artist and an album.
+DATED_ALBUM_RE = re.compile(r"^(?:19|20)\d{2}(?:[.\-]\d{1,2}){0,2}\s+-\s+(.+)$")
+CATEGORY_FOLDER_RE = re.compile(r"(?i)^(?:albums?|eps?|singles?|lps?|live|compilations?|remix(?:es)?|mixes|mixtapes?|bootlegs?)$")
+ARTIST_ALBUM_RE = re.compile(r"^(?P<artist>[^-]+?)\s+-\s+(?:(?:19|20)\d{2}\s+-\s+)?(?P<album>.+)$")
+TRACK_PREFIX_RE = re.compile(r"^\d{1,3}(?:[ ._\-]+|$)")
+SINGLES = "Singles"
+VARIOUS = "Various Artists"
+
+
+def music_folders(folder):
+    """What a file's folders say: (artist, album, disc), each possibly empty."""
+    parts = [p for p in re.split(r"[\\/]", folder or "") if p]
+    disc = 0
+    if parts:
+        m = DISC_FOLDER_RE.match(parts[-1])
+        if m:
+            disc = int(m.group(1))
+            parts = parts[:-1]
+    parent = parts[-1] if parts else ""
+    grand = parts[-2] if len(parts) > 1 else ""
+    if len(parts) > 2 and CATEGORY_FOLDER_RE.match(grand):  # Artist\\Singles\\Title
+        grand = parts[-3]
+    if not parent or GENERIC_FOLDER_RE.match(parent):
+        return "", "", disc
+    dated = DATED_ALBUM_RE.match(parent)
+    if dated:
+        parent = dated.group(1)
+    else:
+        m = ARTIST_ALBUM_RE.match(parent)
+        if m:
+            return m.group("artist"), m.group("album"), disc
+    if not dated and (not grand or MUSIC_ROOT_RE.match(grand)):
+        return parent, "", disc  # Music\\Artist or E:\\Artist: straight under the root, so it names the artist
+    return ("" if GENERIC_FOLDER_RE.match(grand) else grand), parent, disc
+
+
+def _names(who, credit):
+    """Whether a credit such as "Band & Guest" includes who, as whole words."""
+    return bool(who and credit and re.search(r"(?<![^\W_])%s(?![^\W_])" % re.escape(who), credit, re.I))
+
+
+# Between artists in a credit. "&" and "and" can be inside a band's name, so they only count
+# when looking for the artist that a whole album's credits share.
+ARTIST_SPLIT_RE = re.compile(r"\s*(?:[/;,]|\s(?:feat\.?|ft\.?|featuring)\s)\s*", re.I)
+ALL_ARTISTS_RE = re.compile(r"\s*(?:[/;,&]|\s(?:feat\.?|ft\.?|featuring|and|x|with)\s)\s*", re.I)
+
+
+def main_artist(credit):
+    """The first artist in a credit: "Band/Guest" -> "Band", "Band & Guest" stays as it is."""
+    parts = [p for p in ARTIST_SPLIT_RE.split(credit or "") if p.strip()]
+    return parts[0].strip() if parts else ""
+
+
+def shared_artist(credits):
+    """The artist named in every credit, for an album with guests on each track, or ""."""
+    credits = [c for c in credits if c]
+    if not credits:
+        return ""
+    for name in ALL_ARTISTS_RE.split(credits[0]):
+        if name.strip() and all(_names(name.strip(), c) for c in credits):
+            return name.strip()
+    return ""
+
+
+def plan_music(name, folder="", tags=None, various=False, album_artist=""):
+    """Where a music file belongs: Music/Artist/Album/03 - Title.mp3. Tags come first, then the
+    folders and file name. various: this album has several artists, so keep it in one folder.
+    album_artist: the artist named on every track of this album.
+    Returns (parts or None, "music" or the reason it's left, note)."""
+    tags = tags or {}
+    stem, ext = PurePath(name).stem, PurePath(name).suffix.lower()
+    if name.startswith("."):
+        return None, "hidden / still downloading", ""
+    if from_youtube(folder):
+        return None, "YouTube download that isn't a tutorial - left where it is", ""
+    if tags.get("podcast") or NOT_MUSIC_GENRE_RE.search(tags.get("genre", "")) or NOT_MUSIC_FOLDER_RE.search(folder or ""):
+        return None, "podcast, audiobook or recording - left where it is", ""
+    guessed_artist, guessed_album, guessed_disc = music_folders(folder)
+    bare = TRACK_PREFIX_RE.sub("", stem)
+    named = ARTIST_ALBUM_RE.match(bare)
+    # A folder named after the artist also covers their collaborations: "Band & Guest" in Band's folder.
+    credited = tags.get("artist", "")
+    if not guessed_artist and guessed_album and _names(guessed_album, credited):
+        guessed_artist, guessed_album = guessed_album, ""
+    album = tags.get("album") or guessed_album
+    if tags.get("albumartist"):
+        artist = main_artist(tags["albumartist"])
+    elif guessed_artist and _names(guessed_artist, credited):
+        artist = guessed_artist
+    elif album_artist:
+        artist = album_artist
+    elif album and (tags.get("compilation") or various):
+        artist = VARIOUS
+    else:
+        artist = main_artist(credited) or guessed_artist or (named.group("artist") if named else "")
+    if not artist:
+        return None, "music with no artist - add tags or put it in Artist\\Album folders", ""
+    title = tags.get("title")
+    track, disc = tags.get("track", 0), tags.get("disc", 0) or guessed_disc
+    if title and track:
+        number = "%d-%02d" % (disc, track) if disc > 1 else "%02d" % track
+        file_name = safe("%s - %s" % (number, title)) + ext
+    elif title:
+        file_name = safe(title) + ext
+    else:
+        file_name = safe(stem) + ext
+    note = "" if tags.get("album") or tags.get("artist") or tags.get("albumartist") else "no tags - named from its folders, check it"
+    if album and not tags.get("album") and album.lower() == artist.lower():
+        album = ""  # a folder named after the artist isn't an album
+    return ("Music", safe(artist), safe(album or SINGLES), file_name), "music", note
 
 
 def plan_name(name, folder=""):

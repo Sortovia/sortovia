@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<addon id="script.kodisorter" name="Sortovia" version="1.43.0" provider-name="akaguyver">
+<addon id="script.kodisorter" name="Sortovia" version="1.49.0" provider-name="akaguyver">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>executable</provides>
+  </extension>
+  <extension point="kodi.context.item">
+    <menu id="kodi.core.main">
+      <item library="context.py">
+        <label>32090</label>
+        <visible>String.IsEqual(ListItem.DBTYPE,artist)</visible>
+      </item>
+    </menu>
   </extension>
   <extension point="xbmc.addon.metadata">
     <summary lang="en_GB">Sort and rename downloads into the folders Kodi understands. Formerly Kodi Sorter.</summary>

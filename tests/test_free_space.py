@@ -23,6 +23,7 @@ class FreeSpace(unittest.TestCase):
         vfs.Stat = Stat
         vfs.listdir = lambda p: ([x for x in os.listdir(real(p)) if os.path.isdir(os.path.join(real(p), x))],
                                  [x for x in os.listdir(real(p)) if os.path.isfile(os.path.join(real(p), x))])
+        self.addCleanup(setattr, d.backup, "list_backups", d.backup.list_backups)
         d.backup.list_backups = lambda base=None: [("2026-11-04 1200", {}), ("2026-11-03 1200", {})]
         d.backup.HOME_DIR = "special://home/Kodi library backups/"
         d.load_cache = lambda path: {"dest": "win-lib://removable/E:\\"} if str(path).endswith("last_settings.json") else {}

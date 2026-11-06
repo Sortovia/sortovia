@@ -1,4 +1,4 @@
-"""When a device gives the library drive a new letter, point Kodi's library at the new one.
+"""When a device gives the library drive a new letter, point Kodi's libraries at the new one.
 
 Xbox drive letters depend on what else is plugged in: adding or removing a USB stick can turn
 E: into D:. The files are fine, but Kodi's library, sources and Sortovia's saved folders still
@@ -9,7 +9,8 @@ import re
 # Plain addresses (win-lib://removable/E:\TV) and the encoded form inside artwork addresses.
 _ADDRESS = re.compile(r"(win-lib(?:://|%3a%2f%2f)removable(?:/|%2f))([A-Za-z])(:|%3a)", re.I)
 _FILE = re.compile(r"^(.*[\\/])([^\\/]+)$")
-LIBRARY_COLUMNS = (("episode", "c18"), ("movie", "c22"), ("musicvideo", "c13"))
+VIDEO_FILES = ("SELECT c18 FROM episode", "SELECT c22 FROM movie", "SELECT c13 FROM musicvideo")
+MUSIC_FILES = ("SELECT path.strPath || song.strFileName FROM song JOIN path ON song.idPath = path.idPath",)
 CANDIDATES = "DEFGHIJK"
 SAMPLE = 12
 ENOUGH = 0.8  # a few files can be missing, for example after a bad download
@@ -39,15 +40,25 @@ def _sqlite():
     return sqlite3
 
 
-def library_files(db_path):
-    """The address of every library video that's on a removable drive."""
+def library_files(db_path, queries=VIDEO_FILES):
+    """The address of every library file that's on a removable drive."""
     sqlite3 = _sqlite()
     conn = sqlite3.connect(db_path, timeout=30)
     try:
         out = []
-        for table, column in LIBRARY_COLUMNS:
-            out += [r[0] for r in conn.execute('SELECT "%s" FROM "%s"' % (column, table)) if letter_of(r[0])]
+        for query in queries:
+            out += [r[0] for r in conn.execute(query) if letter_of(r[0])]
         return out
+    finally:
+        conn.close()
+
+
+def uses_letter(db_path, letter):
+    """Whether this database has any folder on that letter."""
+    sqlite3 = _sqlite()
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        return any(letter_of(r[0]) == letter for r in conn.execute("SELECT strPath FROM path"))
     finally:
         conn.close()
 
@@ -98,7 +109,7 @@ def diagnose(files, listdir, candidates=CANDIDATES):
 
 
 def rewrite_db(db_path, old, new):
-    """Change old to new everywhere in Kodi's video database, as one transaction: if anything
+    """Change old to new everywhere in one Kodi database, video or music, as one transaction: if anything
     goes wrong the database stays exactly as it was. Returns how many values changed."""
     sqlite3 = _sqlite()
     changed = [0]
@@ -120,10 +131,8 @@ def rewrite_db(db_path, old, new):
             for column in [r[1] for r in conn.execute('PRAGMA table_info("%s")' % table).fetchall()]:
                 conn.execute('UPDATE "%s" SET "%s" = sortovia_swap("%s") WHERE "%s" LIKE \'%%removable%%\''
                              % (table, column, column, column))
-        for table, column in LIBRARY_COLUMNS:
-            for r in conn.execute('SELECT "%s" FROM "%s"' % (column, table)).fetchall():
-                if letter_of(r[0]) == old:
-                    raise DriveLetterError("Some library entries didn't change. Nothing was changed.")
+        if any(letter_of(r[0]) == old for r in conn.execute("SELECT strPath FROM path").fetchall()):
+            raise DriveLetterError("Some library entries didn't change. Nothing was changed.")
         conn.execute("COMMIT")
     except sqlite3.IntegrityError:
         raise DriveLetterError("Kodi's library already has entries on %s:. Nothing was changed." % new)

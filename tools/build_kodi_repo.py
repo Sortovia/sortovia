@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build the public Kodi repository from the add-ons in ../addon.
 
-  python3 tools/build_kodi_repo.py <clone of kodi-repo>
+  python3 tools/build_kodi_repo.py <clone of kodi-repo> [--with-dev-tools]
 
 Writes into the target folder (a clone of github.com/akaguyver/kodi-repo):
   addons.xml, addons.xml.md5      - what Kodi reads to find updates
@@ -11,6 +11,10 @@ Writes into the target folder (a clone of github.com/akaguyver/kodi-repo):
   index.html                      - the public landing page; its zip link is what
                                     Kodi's file browser sees
   README.md, CHANGELOG.md, LICENSE.txt - the guide and licence, for the GitHub page
+  dev/                            - the same version with the dev tools, for devices that already have them
+
+--with-dev-tools puts the dev tools in the normal zip too. It's only for moving a device onto the
+dev channel, because that's decided by having those tools.
 
 After building: commit and push the target repo. Kodi picks up new versions
 on its next update check. Bump the version in addon.xml for every release.
@@ -23,32 +27,39 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1] / "addon"
 REPO_ID = "repository.akaguyver"
+DEV_ONLY = ("devtools.py", "youtube_test.py")  # the add-on's testing tools, left out of public builds
+
+
+def write_zip(zpath, addon, dev):
+    zpath.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(addon.rglob("*")):
+            if f.is_file() and "__pycache__" not in f.parts and (dev or f.name not in DEV_ONLY):
+                z.write(f, f"{addon.name}/{f.relative_to(addon).as_posix()}")
+        if addon.name == "script.kodisorter":
+            # The guide and version history shown inside the add-on (welcome screen, Help).
+            for doc in ("README.md", "CHANGELOG.md"):
+                z.write(ROOT.parent / doc, f"{addon.name}/resources/{doc}")
+            z.write(ROOT.parent / "LICENSE.txt", f"{addon.name}/LICENSE.txt")
+    (zpath.parent / (zpath.name + ".md5")).write_text(hashlib.md5(zpath.read_bytes()).hexdigest())
 
 
 def version_of(xml):
     return re.search(r'<addon[^>]*\sversion="([^"]+)"', xml).group(1)
 
 
-def build(out: Path):
+def build(out: Path, with_dev=False):
     out.mkdir(parents=True, exist_ok=True)
     entries, links = [], []
     for addon in sorted(p for p in ROOT.iterdir() if (p / "addon.xml").is_file()):
         xml = (addon / "addon.xml").read_text(encoding="utf-8")
         ver = version_of(xml)
         zpath = out / addon.name / f"{addon.name}-{ver}.zip"
-        zpath.parent.mkdir(exist_ok=True)
-        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
-            for f in sorted(addon.rglob("*")):
-                if f.is_file() and "__pycache__" not in f.parts:
-                    z.write(f, f"{addon.name}/{f.relative_to(addon).as_posix()}")
-            if addon.name == "script.kodisorter":
-                # The guide and version history shown inside the add-on (welcome screen, Help).
-                for doc in ("README.md", "CHANGELOG.md"):
-                    z.write(ROOT.parent / doc, f"{addon.name}/resources/{doc}")
-                z.write(ROOT.parent / "LICENSE.txt", f"{addon.name}/LICENSE.txt")
+        write_zip(zpath, addon, with_dev)
         entries.append(re.sub(r"^<\?xml[^>]*\?>\s*", "", xml).strip())
-        (zpath.parent / (zpath.name + ".md5")).write_text(
-            hashlib.md5(zpath.read_bytes()).hexdigest())
+        if addon.name == "script.kodisorter":
+            write_zip(out / "dev" / addon.name / zpath.name, addon, True)
+            dev_entry = entries[-1]
         # Top-level copy of the newest zip of every add-on, so Kodi's
         # "Install from zip file" can pick it straight from the web source.
         for old in out.glob(f"{addon.name}-*.zip"):
@@ -88,6 +99,9 @@ def build(out: Path):
                   + "\n".join(entries) + "\n</addons>\n")
     (out / "addons.xml").write_text(addons_xml, encoding="utf-8")
     (out / "addons.xml.md5").write_text(hashlib.md5(addons_xml.encode("utf-8")).hexdigest())
+    dev_xml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<addons>\n' + dev_entry + "\n</addons>\n"
+    (out / "dev").mkdir(exist_ok=True)
+    (out / "dev" / "addons.xml").write_text(dev_xml, encoding="utf-8")
     (out / ".nojekyll").write_text("")
     page = (ROOT.parent / "tools" / "site_index.html").read_text(encoding="utf-8")
     (out / "index.html").write_text(page.replace("{{ZIP}}", links[0]), encoding="utf-8")
@@ -96,6 +110,7 @@ def build(out: Path):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    args = [a for a in sys.argv[1:] if a != "--with-dev-tools"]
+    if len(args) != 1:
         raise SystemExit(__doc__)
-    build(Path(sys.argv[1]))
+    build(Path(args[0]), "--with-dev-tools" in sys.argv)

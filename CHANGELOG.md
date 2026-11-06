@@ -2,6 +2,64 @@
 
 Newest first. Each line says what the update changed for you.
 
+## 1.49 – Every setting in one place
+- **1.49.0**
+  - **Every setting is now on Kodi's settings page for Sortovia.** **Settings** in Sortovia's menu opens it. Restart Kodi once if its labels look blank.
+  - **Fix music tags** asks whether to choose by **Artist** or **Album**. A quick scan starts from Kodi's own list and reads only what you pick, so a big library doesn't slow it down.
+  - Holding down an artist now reads only that artist's music. A new setting in *Music* skips the question.
+  - **Set artist art from folders**, in *Library*, uses pictures such as `Music\Artist\artist.jpg` and `fanart.jpg`.
+  - If Kodi's picture cache is set to a folder on your drive that doesn't exist, Sortovia creates it.
+
+## 1.48 – Downloads and quicker tag fixes
+- **1.48.0**
+  - **Downloads** now holds **Transfer and sort**, YouTube and Real-Debrid.
+  - **Fix music tags** moves to **File**, because it changes your files, and you can pick whole artists as well as single albums.
+  - **Quick scan** doesn't ask your drive about files it already knows, so repeat runs are much faster. **Full scan** checks every file.
+  - **Hold down an artist in Kodi's music library** to fix that artist's tags. Restart Kodi once if the option doesn't appear.
+  - **Clean the library**, in *Library*, lets you pick TV, Movies or Music.
+
+## 1.47 – A tidier menu
+- **1.47.0**
+  - **The menu is reorganised:** Sort my downloads, YouTube, Real-Debrid, File, Library, Settings, Help. **File** works on your files, and **Library** works on what Kodi lists.
+  - **Organise my folders**, in *File*, replaces the separate tidy items. Tick TV, Movies, Music or Comics.
+  - **Library** is split into Video, Music and Backups.
+  - **Settings and Help are now separate,** and every setting is in Settings.
+
+## 1.46 – Faster music fixes
+- **1.46.0**
+  - **Fix music tags** now asks once at the start, then runs tags, rescan, clean-up and album art on one progress bar.
+  - **Files that haven't changed aren't read again,** so later runs are faster.
+  - **Fixed songs appearing twice after a tag fix.**
+  - A track with no year, or a year of 0000, takes its album's year.
+
+## 1.45 – Music tags
+- **1.45.5** After a music update, Sortovia checks art only on the albums that need it and shows progress, so the result appears much sooner.
+- **1.45.4** **Rescan one album**, in *Kodi library*, brings one album's tag changes into the library without a full scan. **Set album art from folders** now shows progress while it checks your albums.
+- **1.45.3** Safer music updates: Sortovia saves a copy of the music library before a rescan, and notices if Kodi can no longer show songs that are still in its database.
+- **1.45.1**
+  - **Restore the music library**, in *Kodi library*. It puts back a saved copy of Kodi's music library. No music files change.
+  - After **Fix music tags**, Sortovia can update Kodi's library for you. It rescans only the folders that changed, removes songs whose files are gone, and sets album art from folders. It stops before removing anything if the library shrank.
+  - **Fix music tags** shows progress while it finds your files, and **Check music art** also reports how much is in Kodi's music library.
+- **1.45.0**
+  - **Fix music tags (MP3)**, in *Kodi library*. It updates tags to ID3v2.4, joins albums Kodi shows as several, and links collaborations to each artist. You see every change first and pick the albums, the audio stays the same, and files stay where they are. You can undo it.
+  - **Set album art from folders.** It uses the picture in an album's folder when Kodi shows no art, whatever the picture is called.
+  - **Check music art** now shows progress, and clicking twice no longer starts it twice. It also lists albums Kodi shows as more than one.
+  - The menu now stays on screen during an update, with no blank flash.
+
+## 1.44 – Music
+- **1.44.4** Better artist folders: a song credited to several artists goes under the first one, and an album with a guest on each track stays under its main artist instead of Various Artists. **Check music art** now names any image it finds in an album's folder.
+- **1.44.3**
+  - **Music already in folders under an artist now stays where it is,** such as `Music\Artist\Singles\2014 - Title\`. Dates at the start of a folder name are no longer mistaken for an artist.
+  - **Check music art**, in *Kodi library*. It lists albums with no cover art and compares them with your backup from before a drive letter switch. It changes nothing.
+- **1.44.2**
+  - **Clean music library**, in *Kodi library*. It removes songs whose files are gone, and won't run while your drive looks missing.
+  - The menu now comes back by itself after an update, instead of a blank screen.
+  - The drive letter fix says when an up-to-date backup already exists, and doesn't make another. On an Xbox it now tells you how to restart Kodi from the Xbox menu.
+- **1.44.1** Better music folders: a folder named after an artist now counts as the artist, not an album, and collaborations stay in that artist's folder.
+- **1.44.0**
+  - **Sortovia now sorts music.** Songs go to `Music\Artist\Album\03 - Title.mp3`, using the file's own tags, then its folders. Albums by several artists stay together under Various Artists, and cover art goes with the album. Podcasts, audiobooks, recordings and songs with no artist are left where they are. *Tidy my Music folder* sorts music you already have.
+  - **The drive letter fix now includes your music library.** If you ran it on 1.43, run it again to bring your music over.
+
 ## 1.43 – Drive letter changes
 - **1.43.0** **Drive letter changed? Fix the library**, in *Kodi library*. If your drive's letter changes, for example from E: to D:, Sortovia checks your files are on the new letter, saves a library backup for each letter, and points Kodi and Sortovia at the new one. Your shows, watched marks and resume points stay, and no videos are moved. Run it again whenever the letter changes.
 
@@ -11,7 +69,6 @@ Newest first. Each line says what the update changed for you.
 
 ## 1.41 – YouTube test
 - **1.41.0**
-  - **Test YouTube without a phone**, in *Help & settings*. It checks whether this device could download from YouTube by itself, and downloads no videos.
   - **The guide now points to the right cookie extension,** cookies.txt 1.0, which is marked for Firefox on Android.
 
 ## 1.40 – Easier to read, more options

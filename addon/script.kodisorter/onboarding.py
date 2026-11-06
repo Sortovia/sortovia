@@ -10,7 +10,7 @@ import os
 import re
 
 # kind as plan_for reports it (upper case) -> what the person sees
-KINDS = [("TV", "TV episodes"), ("MOVIE", "Movies"), ("COMIC", "Comics"), ("TUTORIAL", "Tutorials")]
+KINDS = [("TV", "TV episodes"), ("MOVIE", "Movies"), ("COMIC", "Comics"), ("TUTORIAL", "Tutorials"), ("MUSIC", "Music")]
 ALL_KINDS = [k for k, _ in KINDS]
 
 
@@ -102,7 +102,7 @@ def changes_since(changelog, old, new):
     return md_to_kodi("\n".join(keep)) if keep else ""
 
 
-_STD = {"TV": "TV", "MOVIE": "Movies", "COMIC": "Comics", "TUTORIAL": "Tutorials"}
+_STD = {"TV": "TV", "MOVIE": "Movies", "COMIC": "Comics", "TUTORIAL": "Tutorials", "MUSIC": "Music"}
 
 
 def _friendly(path):
@@ -179,7 +179,12 @@ class Onboarding(object):
     def wanted(self):
         """Kinds to sort (default: all)."""
         kinds = self.state.get("kinds")
-        return [k for k in kinds if k in ALL_KINDS] if kinds else list(ALL_KINDS)
+        if not kinds:
+            return list(ALL_KINDS)
+        out = [k for k in kinds if k in ALL_KINDS]
+        if "MUSIC" not in out and not self.state.get("music_chosen"):
+            out.append("MUSIC")  # chosen before music could be sorted; the plan still comes first
+        return out
 
     def wanted_line(self):
         w = self.wanted()
@@ -314,6 +319,7 @@ class Onboarding(object):
                 return False if not first else True  # first run: Back keeps "everything"
             if picks:
                 self.state["kinds"] = [KINDS[i][0] for i in picks]
+                self.state["music_chosen"] = True
                 self.save()
                 return True
             dlg.ok(self.heading, "Pick at least one thing to sort.")
@@ -327,7 +333,7 @@ class Onboarding(object):
                  "It always shows you the plan first, and nothing moves until you say so.\n\n"
                  "Sortovia began as a tool for Kodi on an Xbox, with a phone as the hotspot. It's now capable of much more: "
                  "it's built for Kodi on other devices too, and adds comic tools, library backups, Real-Debrid downloads "
-                 "and importing files from your phone.\n\nEvery step is in the guide, under Help & settings.")
+                 "and importing files from your phone.\n\nEvery step is in the guide, under Help.")
         if returning:
             hello = "New in this version: a welcome screen, a guide you can read on the TV, and a choice of what to sort.\n" + hello
         dlg.ok("Welcome to %s" % self.heading, hello)
@@ -340,12 +346,12 @@ class Onboarding(object):
                               "Do you want to use a phone as a download source? It's optional.\n\n"
                               "Sortovia can import files directly from your phone over a Wi-Fi connection. For now, "
                               "YouTube downloads go through a phone too.\n\n"
-                              "Choosing No hides those options. You can change this in Help & settings > Settings.",
+                              "Choosing No hides those options. You can change this in Settings > Settings.",
                               nolabel="No", yeslabel="Yes")
             self.set_phone(bool(phone))
             if phone:
                 dlg.ok(self.heading, "Set the phone up when you're ready. The steps for Android and iPhone are under "
-                                     "Help & settings > How to set up your phone.")
+                                     "Help > How to set up your phone.")
         if dlg.yesno(self.heading, "Read the guide now? (features and how to get started)\n"
                                    "You can open it any time from the menu: Help.",
                      nolabel="Later", yeslabel="Read it"):

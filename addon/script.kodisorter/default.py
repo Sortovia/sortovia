@@ -26,10 +26,15 @@ import xbmcvfs
 # File naming rules (shared with the command-line kodi_sort.py and its tests)
 import backup
 import comics
+try:
+    import devtools  # not in public builds
+except ImportError:
+    devtools = None
 import drive_letter
+import musictags
 import screens
 import vault
-from sortlib import VIDEO, SUBS, AUDIO, episode_tag, sub_lang, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
+from sortlib import VIDEO, SUBS, AUDIO, MUSIC, plan_music, shared_artist, episode_tag, sub_lang, MIN_VIDEO_BYTES, SPECIAL_GUESS_NOTE, CREDITS_NOTE, plan_name, split_year, safe
 
 try:
     ADDON = "Sortovia " + xbmcaddon.Addon().getAddonInfo("version")
@@ -37,27 +42,35 @@ except Exception:
     ADDON = "Sortovia"
 
 
-def setting_on(name):
-    """A switch on the add-on's settings page (resources/settings.xml). Only an explicit
-    "false" turns it off, so a copy without the setting behaves as it always did."""
+SETTINGS_FILE = "settings.json"  # 1.48 only: those choices move back to Kodi's settings page
+
+
+def setting_on(name, default=True):
+    """A switch on the add-on's settings page (resources/settings.xml). A setting Kodi hasn't loaded
+    yet takes default, so most behave as they always did, and one that skips a question stays off."""
     try:
-        return xbmcaddon.Addon().getSetting(name) != "false"
+        value = xbmcaddon.Addon().getSetting(name)
     except Exception:
-        return True
+        return default
+    return value == "true" if value in ("true", "false") else default
 
 
-# The switches, shown in Sortovia's own Settings menu.
-SWITCHES = [("check_updates", "Check for updates when Sortovia opens", "It always asks before installing."),
-            ("auto_backup", "Back up the Kodi library once a day", "Saved on your library drive. Skipped if nothing changed."),
-            ("use_phone", "Use a phone as a download source", "Import files from your phone over Wi-Fi."),
-            ("send_logs", "Copy Kodi's logs to the phone", "Only once a phone is set up."),
-            ("skip_small", "Skip videos under 50 MB as samples", "Tutorials are never skipped. Turn off to sort short "
-             "films and clips too. Files named \"sample\" are always left alone."),
-            ("rename_foreign", "Rename movie titles to your language", "Uses TMDb, and needs a free key.")]
+def set_setting(name, on):
+    xbmcaddon.Addon().setSetting(name, "true" if on else "false")
 
 
-def toggle_setting(name):
-    xbmcaddon.Addon().setSetting(name, "false" if setting_on(name) else "true")
+def bring_settings_back():
+    """Put the choices 1.48 kept in its own file onto Kodi's settings page, and one comic choice with them."""
+    path = data_file(SETTINGS_FILE)
+    saved = load_cache(path) if path and os.path.exists(path) else {}
+    for name, on in saved.items():
+        set_setting(name, on)
+    if path and os.path.exists(path):
+        os.remove(path)
+    pref = load_cache(data_file(COMICS_PREF))
+    if "convert" in pref:
+        set_setting("convert_comics", pref.pop("convert"))
+        save_cache(data_file(COMICS_PREF), pref)
 
 
 RES_RE = re.compile(r"(?<![0-9])(2160|1440|1080|720|576|480|360)[pi](?![a-z0-9])", re.I)
@@ -194,16 +207,17 @@ def size_of(path):
     return n
 
 
-KODI_FOLDERS = ("TV", "Movies", "Comics", "Tutorials")
+KODI_FOLDERS = ("TV", "Movies", "Comics", "Tutorials", "Music")
 # The folder each kind goes into, under the library root. Set per run by
 # resolve_dest: picking E:\\Movies (or "Films", "TV Shows" ...) uses that folder,
 # and the other kinds go to their folders next to it.
-FOLDER_NAMES = {"TV": "TV", "Movies": "Movies", "Comics": "Comics", "Tutorials": "Tutorials"}
+FOLDER_NAMES = {"TV": "TV", "Movies": "Movies", "Comics": "Comics", "Tutorials": "Tutorials", "Music": "Music"}
 FOLDER_SYNONYMS = {
     "TV": ("tv", "tv shows", "tvshows", "tv series", "shows", "series", "television"),
     "Movies": ("movies", "movie", "films", "film"),
     "Comics": ("comics", "comic", "manga", "graphic novels"),
     "Tutorials": ("tutorials", "tutorial", "courses"),
+    "Music": ("music", "songs", "my music"),
 }
 
 
@@ -211,7 +225,7 @@ FOLDER_SYNONYMS = {
 # e.g. {"TV": "win-lib://removable/D:\\My Shows/"}. Set per run from onboarding.json.
 # Kinds without one use <library root>/<FOLDER_NAMES[kind]> as before.
 KIND_DIRS = {}
-ONBOARD_KIND = {"TV": "TV", "MOVIE": "Movies", "COMIC": "Comics", "TUTORIAL": "Tutorials"}
+ONBOARD_KIND = {"TV": "TV", "MOVIE": "Movies", "COMIC": "Comics", "TUTORIAL": "Tutorials", "MUSIC": "Music"}
 
 
 def kind_root(kind, dest):
@@ -754,8 +768,94 @@ def shown_path(path, src):
     return p
 
 
+# ---------- music ----------
+COVER_RE = re.compile(r"(?i)^(?:cover|folder|front|album|albumart)\.(?:jpe?g|png)$")
+MUSIC_SEEN = {}  # folder -> what its music files say, for one run
+
+
+def read_music_tags(path):
+    f = xbmcvfs.File(path)
+    try:
+        def read_at(offset, count):
+            f.seek(offset, 0)
+            return bytes(f.readBytes(count))
+        return musictags.read_tags(read_at, f.size())
+    except Exception as e:
+        log("music tags unreadable: %s: %s" % (base_of(path), e))
+        return {}
+    finally:
+        f.close()
+
+
+def music_folder(folder):
+    """{"tags": {file: tags}, "various": albums with several artists, "album_artist": {album: the artist on
+    every track}, "video_stems": names of videos here}"""
+    if folder not in MUSIC_SEEN:
+        try:
+            names = xbmcvfs.listdir(ensure_slash(folder))[1]
+        except Exception:
+            names = []
+        tags = dict((n, read_music_tags(join(folder, n))) for n in names
+                    if split_name(n)[1].lower() in MUSIC and not n.startswith("."))
+        artists = {}
+        for t in tags.values():
+            if t.get("album") and t.get("artist") and not t.get("albumartist"):
+                artists.setdefault(t["album"].lower(), set()).add(t["artist"])
+        shared = dict((a, shared_artist(sorted(who))) for a, who in artists.items())
+        MUSIC_SEEN[folder] = {"tags": tags, "album_artist": shared,
+                              "various": set(a for a, who in artists.items()
+                                             if len(set(w.lower() for w in who)) > 1 and not shared[a]),
+                              "video_stems": set(split_name(n)[0].lower() for n in names if split_name(n)[1].lower() in VIDEO)}
+    return MUSIC_SEEN[folder]
+
+
+def in_artist_folder(path, dest):
+    """Already at Music\\Artist\\...\\Something\\file: that's someone's own order, so it stays
+    (Kodi reads the tags wherever a song is). Loose files in Music or an artist's folder still move."""
+    root = _norm(ensure_slash(kind_root("Music", dest))).rstrip("/") + "/"
+    full = _norm(path)
+    return full.startswith(root) and full[len(root):].count("/") >= 2
+
+
+def plan_music_file(path, filename, dest):
+    folder = parent_of(path)
+    if in_artist_folder(path, dest):
+        return path, "MUSIC", ""  # the scan counts this as already sorted
+    seen = music_folder(folder)
+    if split_name(filename)[0].lower() in seen["video_stems"]:
+        return None, "audio that belongs to the video with the same name", ""
+    tags = seen["tags"].get(filename)
+    if tags is None:
+        tags = read_music_tags(path)
+    album = (tags.get("album") or "").lower()
+    parts, kind, note = plan_music(filename, folder, tags, album in seen["various"], seen["album_artist"].get(album, ""))
+    log("music plan: %s | tags: artist=%s album=%s albumartist=%s | %s" % (
+        filename, tags.get("artist", "-"), tags.get("album", "-"), tags.get("albumartist", "-"),
+        "/".join(parts[1:]) if parts else kind))
+    if parts is None:
+        return None, kind, ""
+    return from_rel((FOLDER_NAMES["Music"],) + tuple(parts[1:]), dest), "MUSIC", note
+
+
+def plan_cover(path, filename, dest):
+    """A cover image goes with the album in its folder. None if there's no music with it."""
+    folder = parent_of(path)
+    for name in sorted(music_folder(folder)["tags"]):
+        target = plan_music_file(join(folder, name), name, dest)[0]
+        if target:
+            return join(parent_of(target), filename), "MUSIC", ""
+    return None
+
+
 def plan_for(path, filename, dest):
     """Returns (target or None, kind or skip reason, note)."""
+    ext = split_name(filename)[1].lower()
+    if ext in MUSIC:
+        return plan_music_file(path, filename, dest)
+    if COVER_RE.match(filename):
+        cover = plan_cover(path, filename, dest)
+        if cover:
+            return cover
     parts, kind, note = plan_name(filename, parent_of(path))
     if parts is None and kind.startswith("YouTube"):
         return None, kind, ""  # say why, not "too small" (a short YouTube video isn't a sample)
@@ -1608,7 +1708,8 @@ def _fetch(url):
 # GitHub's API serves the file straight from the repo. The Pages site sits
 # behind a cache that can hand out the old addons.xml for ~10 minutes after
 # a release, which looked like "no update" on the Xbox.
-UPDATE_API = "https://api.github.com/repos/akaguyver/kodi-repo/contents/addons.xml"
+UPDATE_CHANNEL = "dev/" if devtools else ""  # a device with the dev tools keeps getting them
+UPDATE_API = "https://api.github.com/repos/akaguyver/kodi-repo/contents/%saddons.xml" % UPDATE_CHANNEL
 
 
 def _fetch_api():
@@ -1633,7 +1734,7 @@ def _fetch_api():
 
 def latest_version():
     """Newest version on GitHub. Raises if it can't be read."""
-    data = _fetch_api() or _fetch(UPDATE_BASE + "addons.xml")
+    data = _fetch_api() or _fetch(UPDATE_BASE + UPDATE_CHANNEL + "addons.xml")
     xml = data.decode("utf-8", "ignore")
     if not xml.strip():
         raise IOError("empty reply from GitHub")
@@ -1690,7 +1791,7 @@ RAW_BASE = "https://raw.githubusercontent.com/akaguyver/kodi-repo/main/"
 def _download_zip(version):
     errors = []
     for base in (RAW_BASE, UPDATE_BASE):
-        url = "%s%s/%s-%s.zip" % (base, ADDON_ID, ADDON_ID, version)
+        url = "%s%s%s/%s-%s.zip" % (base, UPDATE_CHANNEL, ADDON_ID, ADDON_ID, version)
         try:
             data = _fetch(url)
             want = _fetch(url + ".md5").decode("ascii", "ignore").strip().split(" ")[0]
@@ -1774,7 +1875,8 @@ def check_for_update(dlg, manual=False, splash=None):
         log("update failed: %s" % e)
         dlg.ok(ADDON, "Update failed: %s\nNothing was changed. Carrying on with %s." % (e, current))
         return False
-    dlg.ok(ADDON, "Updated to %s.\nOpen Sortovia again to use the new version." % newest)
+    dlg.ok(ADDON, "Updated to %s.\n%s" % (newest, "Open Sortovia again to use the new version." if manual
+                                          else "The menu will now reload with the new version."))
     return True
 
 
@@ -1784,7 +1886,7 @@ COMICS_PREF = "comics.json"  # addon_data: {"convert": bool, "turn": 1|6|8}
 
 def comics_pref():
     p = load_cache(data_file(COMICS_PREF))
-    return {"convert": p.get("convert", True), "turn": p.get("turn", 1)}
+    return {"convert": setting_on("convert_comics"), "turn": p.get("turn", 1)}
 
 
 def _read_exact(url):
@@ -2506,29 +2608,6 @@ def send_problem_report(dlg):
         dlg.ok(ADDON, "Your report code is %s.\nGive it to the developer on the Sortovia GitHub page." % code)
 
 
-def youtube_test(dlg):
-    """Could this device download from YouTube without a phone? See youtube_test.py."""
-    import realdebrid
-    import youtube_test as yt
-    if not dlg.yesno(ADDON, "This test checks whether this device could download from YouTube by itself, without a phone.\n\n"
-                     "It downloads the official yt-dlp tool from GitHub (about 3 MB), checks it against its published "
-                     "checksum, and asks YouTube about one test video. No video is downloaded, and no sign-in or cookies "
-                     "are used. The tool is deleted afterwards.\n\nIt can take up to 3 minutes.",
-                     nolabel="Cancel", yeslabel="Run the test"):
-        return
-    prog = xbmcgui.DialogProgress()
-    prog.create(ADDON, "Starting...")
-    try:
-        folder = xbmcvfs.translatePath("special://temp/")  # for Python's own file functions, not Kodi's
-        works, lines = yt.run(lambda url: realdebrid._http(url, timeout=120), folder, lambda m: prog.update(0, m))
-    finally:
-        _close(prog)
-    for line in lines:
-        log("youtube test: %s" % line)
-    dlg.textviewer("%s - YouTube test" % ADDON, "\n".join(lines) + "\n\nThese results are also in Kodi's log. To share them, "
-                   "use Help & settings > Send a problem report.")
-
-
 def rd_sort(dlg, spath):
     folder = rd_folder(dlg)
     last = load_cache(data_file("last_settings.json"))
@@ -2690,7 +2769,7 @@ def convert_many(dlg, paths, turn):
     for i, p in enumerate(paths):
         if prog.iscanceled():
             stopped = True
-            lines.append("STOPPED by you - %d comic(s) left. Carry on later: Tidy my library folders > "
+            lines.append("STOPPED by you - %d comic(s) left. Carry on later: File > Convert > "
                          "Convert .cbr comics to .cbz." % (len(paths) - i))
             break
         prog.update(int(i * 100 / max(len(paths), 1)), "Comic %d of %d\n%s\n(Cancel = stop after this comic; "
@@ -2723,12 +2802,12 @@ def tidy_comics(dlg, root):
     lines = ["%s  ->  %s/%s" % ("/".join(parts + [name]), series, name) for parts, name, series in moves]
     if docs:
         lines += ["", "Not comics (PDFs an old version filed here) - you choose next:"] + ["  " + n for _, n in docs]
-    dlg.textviewer("%s - tidy the Comics folder" % ADDON, "\n".join(lines))
+    dlg.textviewer("%s - organise the Comics folder" % ADDON, "\n".join(lines))
     done, failed, left = 0, [], set()
     if moves and dlg.yesno(ADDON, "Move %d comic(s) into their series folders?" % len(moves),
                            nolabel="Cancel", yeslabel="Move"):
         prog = xbmcgui.DialogProgress()
-        prog.create(ADDON, "Tidying comics")
+        prog.create(ADDON, "Organising comics")
         for i, (parts, name, series) in enumerate(moves):
             prog.update(int(i * 100 / len(moves)), name)
             src = by_key[(tuple(parts), name)]
@@ -2810,7 +2889,7 @@ def comics_menu(dlg):
     while True:
         pref = comics_pref()
         pick = dlg.select("Comics - %s" % friendly(root),
-                          ["Tidy the folder (each comic into its series folder; merges duplicate folders)",
+                          ["Organise the folder (each comic into its series folder; merges duplicate folders)",
                            "Convert .cbr comics to .cbz (they open much faster)",
                            "Turn pages for a monitor on its side - now: %s (change)" % comics.turn_label(pref["turn"]),
                            "When sorting new comics, convert .cbr to .cbz: %s (change)" % ("yes" if pref["convert"] else "no"),
@@ -2824,7 +2903,7 @@ def comics_menu(dlg):
         elif pick == 2:
             comics_turn(dlg, root)
         elif pick == 3:
-            save_cache(data_file(COMICS_PREF), dict(pref, convert=not pref["convert"]))
+            set_setting("convert_comics", not pref["convert"])
         else:
             dlg.textviewer("%s - comics" % ADDON, comics.__doc__.strip())
 
@@ -3140,7 +3219,7 @@ def remove_old_backups(dlg):
 
 # Sortovia's own saved files that can hold a folder on the library drive.
 SAVED_WITH_FOLDERS = ("last_settings.json", "onboarding.json", "youtube.json", "rd_queue.json", COMICS_PREF, "session.json")
-KODI_FILES_WITH_FOLDERS = ("sources.xml", "favourites.xml")
+KODI_FILES_WITH_FOLDERS = ("sources.xml", "favourites.xml", "advancedsettings.xml")
 
 
 def _swap_bytes(data, old, new):
@@ -3175,6 +3254,31 @@ def _switch_saved_folders(kodi_files, old, new):
     return failed
 
 
+def ensure_picture_cache_folder():
+    """If advancedsettings.xml keeps Kodi's picture cache on a drive, make sure the folder is there. Kodi can't
+    create it, and with no folder it fetches every picture again instead of saving it. Returns what it made."""
+    path = "special://profile/advancedsettings.xml"
+    try:
+        if not xbmcvfs.exists(path):
+            return ""
+        m = re.search(r"<from>\s*special://[^<]*Thumbnails/?\s*</from>\s*<to>\s*(win-lib://[^<]+?)\s*</to>",
+                      backup._read(path).decode("utf-8", "replace"))
+        if not m or not any(_listdir_or_nothing(re.match(r"^win-lib://[^/]*/[A-Za-z]:[\\/]*", m.group(1)).group(0))):
+            return ""  # no such setting, or the drive isn't there
+        folder = ensure_slash(m.group(1))
+        made = ""
+        for sub in "0123456789abcdef":
+            if not xbmcvfs.exists(folder + sub + "/"):
+                xbmcvfs.mkdirs(folder + sub + "/")
+                made = folder
+        if made:
+            log("made Kodi's picture cache folder: %s (restart Kodi to use it)" % friendly(made))
+        return made
+    except Exception as e:
+        log("picture cache folder: %s" % e)
+        return ""
+
+
 def _listdir_or_nothing(path):
     try:
         return xbmcvfs.listdir(path)
@@ -3182,9 +3286,25 @@ def _listdir_or_nothing(path):
         return [], []
 
 
-def _choose_new_letter(dlg, name):
-    """(old, new) once the person agrees, or None after saying why not."""
-    files = drive_letter.library_files(xbmcvfs.translatePath("special://database/" + name))
+def _library_databases():
+    """[(name, bytes, queries for its files)] for Kodi's video and music libraries."""
+    out = []
+    for prefix, queries in ((backup.VIDEO_DB, drive_letter.VIDEO_FILES), (backup.MUSIC_DB, drive_letter.MUSIC_FILES)):
+        name, data = backup.newest_db(prefix)
+        if name:
+            out.append((name, data, queries))
+    return out
+
+
+def _db_path(name):
+    return xbmcvfs.translatePath("special://database/" + name)
+
+
+def _choose_new_letter(dlg, databases):
+    """(old, new, date of a backup that's already up to date) once the person agrees, or None after saying why not."""
+    files = []
+    for name, _, queries in databases:
+        files += drive_letter.library_files(_db_path(name), queries)
     found = drive_letter.diagnose(files, _listdir_or_nothing)
     if not found["moved"]:
         if found["lost"]:
@@ -3194,7 +3314,7 @@ def _choose_new_letter(dlg, name):
             dlg.ok(ADDON, "Nothing to fix: your library's files are on %s:, where Kodi expects them."
                    % ", ".join(found["ok"]))
         else:
-            dlg.ok(ADDON, "Your library has no videos on an external drive, so there's nothing to fix.")
+            dlg.ok(ADDON, "Your library has nothing on an external drive, so there's nothing to fix.")
         return None
     old, hits = found["moved"][0]
     new = hits[0]
@@ -3203,67 +3323,948 @@ def _choose_new_letter(dlg, name):
         if pick < 0:
             return None
         new = hits[pick]
-    if not dlg.yesno(ADDON, "Kodi's library points to %s:, but your files are now on %s:.\n\nSortovia will save a "
-                     "library backup for each letter, then point Kodi at %s:. It won't move or delete any videos."
-                     % (old, new, new), nolabel="Cancel", yeslabel="Fix it"):
+    affected = _on_letter(databases, old)
+    names = _library_names(affected)
+    saved = backup.existing_copy(backup.drive_dir("win-lib://removable/%s:\\" % new), old, affected)
+    first = ("An up-to-date backup of your %s library from %s already exists, so Sortovia won't make another for %s:."
+             % (names, saved, old)) if saved else "Sortovia will first back up your %s library as it is for %s:." % (names, old)
+    if not dlg.yesno(ADDON, "Kodi's %s library points to %s:, but your files are now on %s:.\n\n%s\n\nIt will then point "
+                     "Kodi at %s: and save a copy for %s:. It won't move or delete any files."
+                     % (names, old, new, first, new, new), nolabel="Cancel", yeslabel="Fix it"):
         return None
-    return old, new
+    return old, new, saved
+
+
+def _on_letter(databases, letter):
+    """[(name, bytes)] of the libraries with folders on that letter. Only these are changed and
+    backed up: a copy of any other library wouldn't match the letter it's saved under."""
+    return [(n, d) for n, d, _ in databases if drive_letter.uses_letter(_db_path(n), letter)]
+
+
+def _library_names(databases):
+    kinds = ["video" if n.startswith(backup.VIDEO_DB) else "music" for n, _ in databases]
+    return " and ".join(kinds)
 
 
 def fix_drive_letter(dlg):
-    """Point Kodi and Sortovia at the drive's new letter, keeping a backup for each letter."""
-    name, db = backup.newest_db()
-    if not db:
-        dlg.ok(ADDON, "Couldn't read Kodi's library database. Nothing was changed.")
-        return False
+    """Point Kodi's libraries and Sortovia at the drive's new letter, keeping a backup for each letter."""
     prog = None
     try:
-        letters = _choose_new_letter(dlg, name)
+        databases = _library_databases()
+        if not databases or not all(data for _, data, _ in databases):
+            dlg.ok(ADDON, "Couldn't read Kodi's library database. Nothing was changed.")
+            return False
+        letters = _choose_new_letter(dlg, databases)
         if not letters:
             return False
-        old, new = letters
+        old, new, saved = letters
+        affected = _on_letter(databases, old)
         stamp = time.strftime("%Y-%m-%d %H%M")
         drive = "win-lib://removable/%s:\\" % new
         base = backup.drive_dir(drive)
         prog = xbmcgui.DialogProgress()
-        prog.create(ADDON, "Saving the library backup for %s:...\n(Kodi's export can take a minute)" % old)
-        try:
-            xml = backup.export_xml(work=work_dir(drive))
-        except Exception as e:  # the database copy still protects the library
-            log("drive letter: export failed: %s" % e)
-            xml = None
+        prog.create(ADDON, "Getting ready to switch to %s:..." % new if saved else
+                    "Saving the library backup for %s:...\n(Kodi's export can take a minute)" % old)
+        xml = None
+        if not saved and any(n.startswith(backup.VIDEO_DB) for n, _ in affected):
+            try:
+                xml = backup.export_xml(work=work_dir(drive))
+            except Exception as e:  # the database copy still protects the library
+                log("drive letter: export failed: %s" % e)
         count = backup.counts()
         kodi_files = _kodi_files()
-        backup.save_letter_copy(base, old, stamp, count, xml, name, db, kodi_files)
+        if not saved:
+            backup.save_letter_copy(base, old, stamp, count, xml, affected, kodi_files)
         prog.update(50, "Pointing Kodi at %s:..." % new)
-        changed = drive_letter.rewrite_db(xbmcvfs.translatePath("special://database/" + name), old, new)
-        log("drive letter: %s: to %s:, %d database values changed" % (old, new, changed))
+        done = []
+        for n, _ in affected:
+            try:
+                changed = drive_letter.rewrite_db(_db_path(n), old, new)
+            except drive_letter.DriveLetterError as e:
+                raise drive_letter.DriveLetterError(
+                    "%s%s" % (e, " Already updated: %s. Run this again to finish." % ", ".join(done) if done else ""))
+            done.append(n)
+            log("drive letter: %s %s: to %s:, %d values changed" % (n, old, new, changed))
         failed = _switch_saved_folders(kodi_files, old, new)
         prog.update(80, "Saving the library backup for %s:..." % new)
         second = ""
         try:
-            backup.save_letter_copy(base, new, stamp, count, _swap_bytes(xml, old, new) if xml else None, name,
-                                    backup.newest_db()[1], [(n, _swap_bytes(d, old, new)) for n, d in kodi_files])
+            now = [(n, backup._read("special://database/" + n)) for n, _ in affected]
+            backup.save_letter_copy(base, new, stamp, count, _swap_bytes(xml, old, new) if xml else None, now,
+                                    [(n, _swap_bytes(d, old, new)) for n, d in kodi_files])
         except Exception as e:
             log("drive letter: second backup failed: %s" % e)
             second = "\nThe backup for %s: couldn't be saved, so make one from this menu after restarting." % new
-    except (drive_letter.DriveLetterError, IOError, OSError) as e:
+    except Exception as e:  # stopped before Kodi's libraries were all changed
         log("drive letter: stopped: %s" % e)
-        _close(prog)
-        dlg.ok(ADDON, "Couldn't fix the drive letter: %s" % e)
-        return False
-    except Exception as e:  # for example an unreadable database
-        log("drive letter failed: %s" % e)
         _close(prog)
         dlg.ok(ADDON, "Couldn't fix the drive letter: %s" % e)
         return False
     _close(prog)
     trouble = "\nThese couldn't be updated: %s." % ", ".join(failed) if failed else ""
-    if dlg.yesno(ADDON, "Kodi's library now points to %s:. Backups for both letters are in the _Kodi library backups "
-                 "folder on the drive.%s%s\n\nRestart Kodi so it loads your updated folders. If the letter changes "
-                 "again, run this again. Close Kodi now?" % (new, second, trouble), nolabel="Later", yeslabel="Close Kodi"):
+    done_text = ("Kodi's library now points to %s:. Backups for both letters are in the _Kodi library backups "
+                 "folder on the drive.%s%s\n\n" % (new, second, trouble))
+    if my_device() == "xbox":  # Kodi's own exit often hangs on an Xbox, so don't offer it
+        dlg.ok(ADDON, done_text + "Now restart Kodi so it loads your updated folders: press the Xbox button, highlight "
+               "Kodi, press the Menu button and choose Quit, then open Kodi again. If the letter changes again, run this again.")
+    elif dlg.yesno(ADDON, done_text + "Restart Kodi so it loads your updated folders. If the letter changes again, run "
+                   "this again. Close Kodi now?", nolabel="Later", yeslabel="Close Kodi"):
         xbmc.executebuiltin("Quit")
     return True
+
+
+PROP_MUSIC_BUSY = "kodisorter.music_busy"  # time.time() while a slow music tool runs
+
+
+def one_at_a_time(tool):
+    """Run a slow music tool once: clicking again while it works says so instead of starting another."""
+    def run_it(dlg, *args):
+        try:
+            started = float(home().getProperty(PROP_MUSIC_BUSY) or 0)
+        except ValueError:
+            started = 0
+        if time.time() - started < 3600:
+            dlg.ok(ADDON, "Sortovia is already working on your music. It will show the result when it's done.")
+            return None
+        home().setProperty(PROP_MUSIC_BUSY, str(time.time()))
+        try:
+            return tool(dlg, *args)
+        finally:
+            home().clearProperty(PROP_MUSIC_BUSY)
+    return run_it
+
+
+def _progress(heading):
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, heading)
+
+    def step(done, total, name):
+        if total:
+            prog.update(int(done * 100 / total), "%s\n%d of %d\n%s" % (heading, done + 1, total, name))
+        else:
+            prog.update(0, "%s\n%s" % (heading, name))
+        return prog.iscanceled()
+    return prog, step
+
+
+def _music_albums(name):
+    import musicart
+    return musicart.read_albums(_db_path(name))
+
+
+def _check_music_art(dlg):
+    """Which albums have art, compared with the oldest saved copy of the music library. Changes nothing."""
+    import musicart
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    if not name:
+        dlg.ok(ADDON, "Kodi doesn't have a music library yet, so there's nothing to check.")
+        return None
+    old_copy = data_file("music-before.db")
+    before = None
+    prog, step = _progress("Checking your music art...")
+    try:
+        now = _music_albums(name)
+        copies = [r for r in letter_backups() if backup.MUSIC_DB in (r[2].get("db") or "")]
+        if copies:
+            folder, stamp, info = copies[-1]  # the oldest: from before any switch
+            kept = [n for n in info["db"].split(", ") if n.startswith(backup.MUSIC_DB)][0]
+            with open(old_copy, "wb") as f:
+                f.write(backup._read(folder + stamp + "/" + kept))
+            before = musicart.read_albums(old_copy)
+        found = musicart.compare(now, before, _listdir_or_nothing, step)
+        info = musicart.status(_db_path(name))
+    except Exception as e:
+        log("music art check failed: %s" % e)
+        _close(prog)
+        dlg.ok(ADDON, "Couldn't check your music art: %s\nNothing was changed." % e)
+        return None
+    finally:
+        if old_copy and os.path.exists(old_copy):
+            os.remove(old_copy)
+    _close(prog)
+    text = musicart.report(found, before is not None, info)
+    log("music art check:\n" + text)
+    if (load_cache(data_file("phone.json")).get("dav") or {}).get("pass"):
+        send_logs("music art", files=[("music-art-report.txt", text.encode("utf-8"))])
+    dlg.textviewer("%s - music art" % ADDON, text)
+    return found
+
+
+check_music_art = one_at_a_time(_check_music_art)
+
+
+def _set_music_art(dlg):
+    """Point albums with no art at the picture in their folder. Only Kodi's library changes."""
+    import missing
+    import musicart
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    if not name:
+        dlg.ok(ADDON, "Kodi doesn't have a music library yet.")
+        return 0
+    prog, step = _progress("Checking which albums need art...")
+    try:
+        wanted = musicart.needs_art(_music_albums(name), _listdir_or_nothing, step)
+    except Exception as e:
+        log("set music art: %s" % e)
+        _close(prog)
+        dlg.ok(ADDON, "Couldn't read your music library: %s\nNothing was changed." % e)
+        return 0
+    _close(prog)
+    if not wanted:
+        dlg.ok(ADDON, "Every album with a picture in its folder already has art.")
+        return 0
+    if not dlg.yesno(ADDON, "%d albums have a picture in their folder that Kodi isn't using. Use those as their covers?"
+                     "\n\nNo files are changed or renamed. If you rebuild the music library, run this again."
+                     % len(wanted), nolabel="Cancel", yeslabel="Use them"):
+        return 0
+    done, failed = _apply_music_art(wanted)
+    log("set music art: %d set, %d failed" % (done, len(failed)))
+    dlg.ok(ADDON, "Set art for %d albums.%s Kodi may need a moment to show them." % (
+        done, " These failed: %s." % ", ".join(failed) if failed else ""))
+    return done
+
+
+def _apply_music_art(wanted, step=None):
+    import missing
+    prog = None
+    if step is None:
+        prog, step = _progress("Setting album art...")
+    done, failed = 0, []
+    for i, (album, picture) in enumerate(wanted):
+        if step(i, len(wanted), album["name"]):
+            break
+        try:
+            missing._rpc("AudioLibrary.SetAlbumDetails", {"albumid": album["id"], "art": {"thumb": picture}})
+            done += 1
+        except Exception as e:
+            log("set music art: %s: %s" % (album["name"], e))
+            failed.append(album["name"])
+    _close(prog)
+    return done, failed
+
+
+set_music_art = one_at_a_time(_set_music_art)
+
+
+def _set_artist_art(dlg):
+    """Use pictures in artists' own folders when Kodi has none. Only Kodi's library changes."""
+    import missing
+    import musicart
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    root = library_folder("Music", dlg)
+    if not (name and root):
+        dlg.ok(ADDON, "Kodi doesn't have a music library yet.")
+        return 0
+    prog, step = _progress("Looking for artist pictures...")
+    done, failed = 0, []
+    try:
+        folders = dict((d.lower(), d) for d in _listdir_or_nothing(root)[0])
+        artists = [a for a in musicart.read_artists(_db_path(name)) if a["name"].lower() in folders]
+        for i, artist in enumerate(artists):
+            if step(i, len(artists), artist["name"]):
+                break
+            where = join(root, folders[artist["name"].lower()]) + "/"
+            art = musicart.artist_art_files(_listdir_or_nothing(where)[1])
+            if art:
+                try:
+                    missing._rpc("AudioLibrary.SetArtistDetails", {"artistid": artist["id"],
+                                                                   "art": dict((k, where + v) for k, v in art.items())})
+                    done += 1
+                except Exception as e:
+                    log("set artist art: %s: %s" % (artist["name"], e))
+                    failed.append(artist["name"])
+    except Exception as e:
+        log("set artist art: %s" % e)
+        _close(prog)
+        dlg.ok(ADDON, "Couldn't set artist art: %s\nNothing else was changed." % e)
+        return done
+    _close(prog)
+    log("set artist art: %d set, %d failed" % (done, len(failed)))
+    dlg.ok(ADDON, "Set art for %d artists.%s\n\nPut a picture in an artist's folder to use it, such as %sArtist\\artist.jpg "
+           "and fanart.jpg, then run this again." % (done, " These failed: %s." % ", ".join(failed) if failed else "", friendly(root)))
+    return done
+
+
+set_artist_art = one_at_a_time(_set_artist_art)
+
+
+TAG_BACKUPS = "Tag backups"
+
+
+def _read_id3_head(path):
+    """A file's whole ID3v2 tag, without reading its audio."""
+    import id3write
+    f = xbmcvfs.File(path)
+    try:
+        head = bytes(f.readBytes(10))
+        size = id3write.tag_size(head)
+        if not size:
+            return b""
+        f.seek(0, 0)
+        return bytes(f.readBytes(size))
+    finally:
+        f.close()
+
+
+def _track_info(path, name):
+    """What Fix music tags needs to know about one MP3. {"unsupported": reason} if it can't be changed."""
+    import id3write
+    info = {"name": name, "path": path}
+    try:
+        tag = _read_id3_head(path)
+        if tag:
+            info["version"], frames = id3write.parse(tag)
+            info["artist"] = " / ".join(id3write.text_values(frames, "TPE1" if info["version"] > 2 else "TP1"))
+            info["album"] = "".join(id3write.text_values(frames, "TALB" if info["version"] > 2 else "TAL")[:1])
+            info["albumartist"] = "".join(id3write.text_values(frames, "TPE2" if info["version"] > 2 else "TP2")[:1])
+            info["artists"] = id3write.user_values(frames, "ARTISTS")
+            info["date"] = next(("".join(id3write.text_values(frames, f)[:1]) for f in ("TDRC", "TYER", "TYE")
+                                 if id3write.text_values(frames, f)), "")
+        else:
+            info["unsupported"] = "no ID3v2 tag"
+    except id3write.Unsupported as e:
+        info["unsupported"] = str(e)
+    except Exception as e:
+        info["unsupported"] = "couldn't read it (%s)" % e
+    return info
+
+
+MUSIC_TAG_CACHE = "music_tags.json"  # tags already read: a file that hasn't changed isn't read again
+
+
+def _file_stamp(path):
+    """The size and date of a file, to tell if it changed, or None if they can't be known."""
+    try:
+        st = xbmcvfs.Stat(path)
+        size, when = st.st_size(), st.st_mtime()
+        return [size, when] if size > 0 and when else None
+    except Exception:
+        return None
+
+
+def _music_folders_under(root, path):
+    """The folder names between the Music folder and a file that could name an artist."""
+    import sortlib
+    root_n, folder = _norm(ensure_slash(root)).rstrip("/") + "/", _norm(parent_of(path))
+    if not folder.startswith(root_n):
+        return []
+    depth = len(folder[len(root_n):].split("/"))  # _norm lower-cases, so take the names from the real path
+    parts = [p for p in re.split(r"[\\/]+", parent_of(path)) if p][-depth:]
+    return [p for p in parts[:-1] if not sortlib.CATEGORY_FOLDER_RE.match(p)]
+
+
+def _tag_key(path):
+    """One file written with either slash is one entry in what's remembered."""
+    return re.sub(r"[\\/]+", "/", path).lower()
+
+
+def _plan_music_tags(root, step, quick=False, only=None, credits=()):
+    """([(album, folder, plan, tracks)], [(file, why it's left)], stopped) for the MP3s under root, or just
+    only ([(path, name)]) so a big library isn't listed. quick: trust what was saved about files already
+    seen, without asking the drive about each one. credits: other artist credits, for consistent spelling."""
+    import musicfix
+    files = list(only or [])
+    for p, n in (() if only else walk(root)):  # listing a drive's folders is the slow start, so show it moving
+        if step(0, 0, "Finding your MP3s: %d so far" % len(files)):
+            return [], [], True
+        if split_name(n)[1].lower() == ".mp3" and not n.startswith("."):
+            files.append((p, n))
+    groups, left, stopped = {}, [], False
+    cache_path = data_file(MUSIC_TAG_CACHE)
+    known = load_cache(cache_path) if cache_path else {}
+    fresh = dict(known) if only else {}  # a run over a few files keeps what's known about the others
+    reused = 0
+    for i, (path, name) in enumerate(files):
+        if step(i, len(files), name):
+            stopped = True
+            break
+        entry = known.get(_tag_key(path)) or {}
+        if quick and entry:
+            stamp, info = entry["stamp"], dict(entry["info"], path=path, name=name)
+            reused += 1
+        else:
+            stamp = _file_stamp(path)
+            if stamp and entry.get("stamp") == stamp:
+                info = dict(entry["info"], path=path, name=name)
+                reused += 1
+            else:
+                info = _track_info(path, name)
+        if stamp and not info.get("unsupported"):
+            fresh[_tag_key(path)] = {"stamp": stamp, "info": dict(info, path=path, name=name)}
+        if info.get("unsupported"):
+            left.append((name, info["unsupported"]))
+        elif not info.get("album"):
+            left.append((name, "no album tag"))
+        else:
+            groups.setdefault((parent_of(path), info["album"].lower()), []).append(info)
+    if not stopped and cache_path:
+        save_cache(cache_path, fresh, verify=False)
+    log("tag fix: %s scan, %d files, %d read again" % ("quick" if quick else "full", len(files), len(files) - reused))
+    every = [t for tracks in groups.values() for t in tracks]
+    spellings = musicfix.spellings_from([t.get("artist", "") for t in every] + list(credits),
+                                        sorted(set(f for t in every for f in _music_folders_under(root, t["path"]))))
+    plans = []
+    for (folder, _), tracks in sorted(groups.items()):
+        names = _music_folders_under(root, tracks[0]["path"])
+        plan = musicfix.plan_album(tracks, names, spellings)
+        if plan["changes"]:
+            plans.append((tracks[0]["album"], folder, plan, tracks))
+    return plans, left, stopped
+
+
+def _remember_tracks(paths):
+    """Save what changed files now hold, so a quick scan doesn't rely on old information."""
+    cache_path = data_file(MUSIC_TAG_CACHE)
+    known = load_cache(cache_path)
+    for path in paths:
+        info, stamp = _track_info(path, base_of(path)), _file_stamp(path)
+        if stamp and not info.get("unsupported"):
+            known[_tag_key(path)] = {"stamp": stamp, "info": info}
+        else:
+            known.pop(_tag_key(path), None)
+    save_cache(cache_path, known, verify=False)
+
+
+def _write_checked(path, data):
+    """Write data to path and read it back. On an Xbox nothing can be renamed, so a full copy is kept
+    next to the file until the file itself is confirmed. Returns False and leaves that copy if not."""
+    temp = join(parent_of(path), "." + base_of(path) + ".sortovia.tmp")
+    if not (backup._write(temp, data) and backup._read(temp) == data):
+        xbmcvfs.delete(temp)
+        return False
+    if not (backup._write(path, data) and backup._read(path) == data):
+        log("tag fix: %s wasn't written correctly; a full copy is in %s" % (base_of(path), base_of(temp)))
+        return False
+    xbmcvfs.delete(temp)
+    return True
+
+
+def _apply_music_tags(root, chosen, step):
+    """Write the chosen albums' tags, saving each file's old tag first. Returns (changed, failures, backup folder)."""
+    import id3write
+    base = backup.drive_dir(root) or root
+    folder = "%s%s/%s/" % (base, TAG_BACKUPS, time.strftime("%Y-%m-%d %H%M"))
+    xbmcvfs.mkdirs(folder)
+    jobs = []
+    for album, where, plan, tracks in chosen:
+        by_name = dict((t["name"], t) for t in tracks)
+        jobs += [(album, plan["album_artist"], c, by_name[c["name"]]) for c in plan["changes"]]
+    manifest = []
+    changed, failures, written = 0, [], []
+    for i, (album, main, change, track) in enumerate(jobs):
+        if step(i, len(jobs), track["name"]):
+            break
+        try:
+            data = backup._read(track["path"])
+            new, old = id3write.retag(data, artists=change["artists"], display=change["display"], album_artist=main,
+                                      year=change.get("year"))
+            if new[len(new) - (len(data) - len(old)):] != data[len(old):]:
+                raise id3write.Unsupported("the audio wouldn't have stayed the same")
+            kept = "%04d.id3" % i
+            if not backup._write(folder + kept, old or b""):
+                raise IOError("couldn't save its old tag")
+            manifest.append({"path": track["path"], "tag": kept})
+            if not backup._write(folder + "manifest.json", json.dumps(manifest).encode("utf-8")):
+                raise IOError("couldn't save the undo list")
+            if not _write_checked(track["path"], new):
+                raise IOError("the new file didn't read back the same")
+            changed += 1
+            written.append(track["path"])
+        except Exception as e:
+            log("tag fix: %s: %s" % (track["name"], e))
+            failures.append("%s: %s" % (track["name"], e))
+    _remember_tracks(written)
+    return changed, failures, folder
+
+
+def _music_scanning():
+    try:
+        return bool(xbmc.getCondVisibility("Library.IsScanningMusic"))
+    except AttributeError:  # not inside Kodi
+        return False
+
+
+def _run_music_job(start, limit=1800, is_scan=True):
+    """Start a scan or clean with no dialog of Kodi's and wait for Kodi to say it finished. A scan also
+    counts as finished once Kodi has stopped scanning, in case that message never comes.
+    False if Kodi is closing or it took too long."""
+    finished = []
+    try:
+        class Watch(xbmc.Monitor):
+            def onScanFinished(self, library):
+                if library == "music":
+                    finished.append(library)
+
+            def onCleanFinished(self, library):
+                if library == "music":
+                    finished.append(library)
+        monitor = Watch()
+    except AttributeError:  # not inside Kodi
+        start()
+        return True
+    start()
+    began = time.time()
+    while not finished:
+        if time.time() - began > limit or monitor.waitForAbort(0.5):
+            return False
+        if is_scan and time.time() - began > 5 and not _music_scanning():
+            return True
+    return True
+
+
+def _song_count():
+    """The songs Kodi can show. A scan can leave songs pointing at folder records that have gone: they
+    still count as rows in the database, but they don't appear in the library."""
+    import musicart
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    return musicart.status(_db_path(name))["linked"] if name else 0
+
+
+def _save_music_copy():
+    """Save the music library as it is now, ready for Restore the music library. False if it couldn't be."""
+    dest = load_cache(data_file("last_settings.json")).get("dest") or ""
+    letter = drive_letter.letter_of(dest)
+    name, data = backup.newest_db(backup.MUSIC_DB)
+    if not (letter and name and data):
+        return False
+    backup.save_letter_copy(backup.drive_dir(dest), letter, time.strftime("%Y-%m-%d %H%M"), backup.counts(), None, [(name, data)])
+    return True
+
+
+def _stages(heading):
+    """One progress bar for a whole job. stage(start, end, text) gives a step for that stretch of the bar."""
+    prog = xbmcgui.DialogProgress()
+    prog.create(ADDON, heading)
+
+    def stage(start, end, text):
+        def step(done, total, name):
+            percent = start + (end - start) * done / max(total, 1)
+            prog.update(int(percent), "%s\n%s" % (text, name))
+            return prog.iscanceled()
+        return step
+    return prog, stage
+
+
+def _remove_duplicate_songs_now():
+    import musicart
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    removed = musicart.remove_duplicates(_db_path(name)) if name else 0
+    if removed:
+        log("music update: removed %d duplicate songs" % removed)
+    return removed
+
+
+def _update_music_library(folders, stage, start=0):
+    """Rescan only these folders, remove duplicates, clean, and set any missing art, on one progress bar.
+    Stops before the clean if Kodi can show fewer songs. Returns a sentence saying how it went."""
+    import missing
+    import musicart
+    span = 100 - start
+    at = lambda share: start + span * share // 100
+    stage(at(0), at(5), "Saving a copy of your music library...")(0, 1, "")
+    if not _save_music_copy():
+        log("music update: no copy saved")
+        return "Couldn't save a copy of your music library first, so it wasn't updated."
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    known = musicart.song_folders(_db_path(name))
+    # Kodi's own address for each folder: written any other way, it would add the songs again.
+    targets = sorted(set(known.get(musicart._folder_key(f), f) for f in folders))
+    before = _song_count()
+    scan = stage(at(5), at(50), "Rescanning the changed albums...")
+    for i, folder in enumerate(targets):
+        scan(i, len(targets), base_of(folder.rstrip("\\/")))
+        if not _run_music_job(lambda: missing._rpc("AudioLibrary.Scan", {"directory": folder, "showdialogs": False})):
+            return "Kodi's rescan didn't finish, so nothing was removed from the library."
+    stage(at(50), at(55), "Checking for duplicates...")(0, 1, "")
+    removed = _remove_duplicate_songs_now()
+    after = _song_count()
+    log("music update: %d songs before, %d after, %d folders scanned, %d duplicates removed"
+        % (before, after, len(targets), removed))
+    if after < before:
+        return ("Kodi can now show %d songs, down from %d, so Sortovia stopped before removing anything. Use Restore the "
+                "music library in Library > Backups, pick the newest copy with %d songs, then restart Kodi."
+                % (after, before, before))
+    found = drive_letter.diagnose(drive_letter.library_files(_db_path(name), drive_letter.MUSIC_FILES), _listdir_or_nothing)
+    if found["moved"] or found["lost"]:
+        return "The rescan finished. Some music wasn't found on the drive, so the library wasn't cleaned."
+    stage(at(55), at(75), "Cleaning the library...")(0, 1, "")
+    if not _run_music_job(lambda: missing._rpc("AudioLibrary.Clean", {"showdialogs": False}), limit=180, is_scan=False):
+        return "Kodi's clean-up didn't finish. Your %d songs are still there." % _song_count()
+    changed = set(musicart._folder_key(f) for f in targets)  # checking every album's folder took most of a minute
+    albums = [a for a in _music_albums(name) if not a["art"] or musicart._folder_key(a["folder"]) in changed]
+    wanted = musicart.needs_art(albums, _listdir_or_nothing, stage(at(75), at(90), "Checking album art..."))
+    done, failed = _apply_music_art(wanted, stage(at(90), 100, "Setting album art...")) if wanted else (0, [])
+    log("music update: %d album covers set, %d failed" % (done, len(failed)))
+    return "Your music library is up to date: %d songs. Set art for %d albums." % (_song_count(), done)
+
+
+
+
+def _music_copies(letter):
+    """[(folder, stamp, name of the music database, its song count)] saved for this drive letter, newest first."""
+    import musicart
+    temp = data_file("music-copy.db")
+    out = []
+    for folder, stamp, info in letter_backups():
+        if info.get("drive") != letter or backup.MUSIC_DB not in (info.get("db") or ""):
+            continue
+        name = [n for n in info["db"].split(", ") if n.startswith(backup.MUSIC_DB)][0]
+        try:
+            with open(temp, "wb") as f:
+                f.write(backup._read(folder + stamp + "/" + name))
+            out.append((folder, stamp, name, musicart.status(temp)["song"]))
+        except Exception as e:
+            log("music restore: %s %s: %s" % (stamp, name, e))
+    if os.path.exists(temp):
+        os.remove(temp)
+    return out
+
+
+def _restore_music_library(dlg):
+    """Put a saved copy of the music database back, through SQLite so it's safe while Kodi is open."""
+    import sqlite3
+    if _music_scanning():
+        dlg.ok(ADDON, "Kodi is scanning your music. Try again when it has finished.")
+        return False
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    dest = load_cache(data_file("last_settings.json")).get("dest") or ""
+    letter = drive_letter.letter_of(dest)
+    if not name or not letter:
+        dlg.ok(ADDON, "Couldn't find Kodi's music library or your drive. Nothing was changed.")
+        return False
+    copies = _music_copies(letter)
+    if not copies:
+        dlg.ok(ADDON, "There are no saved copies of your music library for %s:. Nothing was changed." % letter)
+        return False
+    pick = dlg.select("Restore which copy? Now: %d songs" % _song_count(),
+                      ["%s   %d songs" % (c[1], c[3]) for c in copies])
+    if pick < 0:
+        return False
+    folder, stamp, kept, songs = copies[pick]
+    if not dlg.yesno(ADDON, "Replace Kodi's music library (%d songs now) with the copy from %s (%d songs)?\n\nNo music files "
+                     "change. Sortovia saves the current library first."
+                     % (_song_count(), stamp, songs), nolabel="Cancel", yeslabel="Restore"):
+        return False
+    temp = data_file("music-restore.db")
+    try:
+        base = backup.drive_dir(dest)
+        backup.save_letter_copy(base, letter, time.strftime("%Y-%m-%d %H%M"), backup.counts(), None,
+                                [(name, backup._read("special://database/" + name))])
+        with open(temp, "wb") as f:
+            f.write(backup._read(folder + stamp + "/" + kept))
+        source, target = sqlite3.connect(temp), sqlite3.connect(_db_path(name), timeout=30)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+    except Exception as e:
+        log("music restore failed: %s" % e)
+        dlg.ok(ADDON, "Couldn't restore your music library: %s" % e)
+        return False
+    finally:
+        if os.path.exists(temp):
+            os.remove(temp)
+    log("music restore: from %s, %d songs now" % (stamp, _song_count()))
+    dlg.ok(ADDON, "Restored: %d songs. Restart Kodi so it shows them%s." % (
+        _song_count(), ": press the Xbox button, highlight Kodi, press the Menu button and choose Quit, then open Kodi again"
+        if my_device() == "xbox" else ""))
+    return True
+
+
+restore_music_library = one_at_a_time(_restore_music_library)
+
+
+def _rescan_one_album(dlg):
+    """Rescan the one folder picked, to bring tag changes into Kodi's library without a full scan."""
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    if not name:
+        dlg.ok(ADDON, "Kodi doesn't have a music library yet.")
+        return False
+    try:
+        folders = {}
+        for album in _music_albums(name):
+            folders.setdefault(album["folder"], album["name"])
+    except Exception as e:
+        log("rescan one album: %s" % e)
+        dlg.ok(ADDON, "Couldn't read your music library: %s\nNothing was changed." % e)
+        return False
+    rows = sorted(folders.items(), key=lambda r: r[1].lower())
+    pick = dlg.select("Rescan which album?", [r[1] for r in rows])
+    if pick < 0:
+        return False
+    folder, album = rows[pick]
+    log("rescan one album: %s" % album)
+    prog, stage = _stages("Rescanning %s..." % album)
+    try:
+        summary = _update_music_library([folder], stage)
+    except Exception as e:
+        log("rescan one album: %s" % e)
+        summary = "It didn't finish: %s" % e
+    _close(prog)
+    dlg.ok(ADDON, summary)
+    return True
+
+
+rescan_one_album = one_at_a_time(_rescan_one_album)
+
+
+
+
+TAG_MODES = ("Quick scan: fix tags, then update and clean the library",
+             "Full scan: check every file on the drive, then fix, update and clean",
+             "Quick scan: show the changes first, then fix and update",
+             "Quick scan: fix tags only")
+
+
+def _songs_of_artist(songs, artist):
+    import sortlib
+    return [s for s in songs if sortlib._names(artist, s["artist"])]
+
+
+def _pick_music(dlg, songs):
+    """Choose by artist or by album. Returns the songs chosen, or [] if none."""
+    import musicfix
+    how = dlg.select("Fix tags by", ["Artist", "Album"])
+    if how < 0:
+        return []
+    if how == 0:
+        names = {}
+        for s in songs:
+            for n in musicfix.split_artists(s["artist"]):
+                names.setdefault(n.lower(), n)
+        artists = sorted(names.values(), key=lambda n: n.lower())
+        picks = dlg.multiselect("Which artists? Nothing changes until you choose OK.", artists)
+        chosen = []
+        for i in picks or []:
+            chosen += _songs_of_artist(songs, artists[i])
+        return chosen
+    albums = {}
+    for s in songs:
+        albums.setdefault((s["album"].lower(), _tag_key(s["folder"])), []).append(s)
+    rows = sorted(albums, key=lambda k: k)
+    picks = dlg.multiselect("Which albums? Nothing changes until you choose OK.",
+                            ["%s (%d tracks)" % (albums[k][0]["album"], len(albums[k])) for k in rows])
+    return [s for i in picks or [] for s in albums[rows[i]]]
+
+
+def _whole_folders(songs, chosen):
+    """Every MP3 in the folders of the songs chosen, so an album stays consistent: [(path, name)]."""
+    folders = set(_tag_key(s["folder"]) for s in chosen)
+    seen, out = set(), []
+    for s in songs:
+        key = _tag_key(s["folder"] + s["file"])
+        if _tag_key(s["folder"]) in folders and key not in seen:
+            seen.add(key)
+            out.append((s["folder"] + s["file"], s["file"]))
+    return out
+
+
+def _library_mp3s():
+    """The MP3s Kodi lists, from its database, so nothing on the drive is touched. [] if there's no library."""
+    import musicart
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    if not name:
+        return []
+    return [s for s in musicart.library_songs(_db_path(name)) if split_name(s["file"])[1].lower() == ".mp3"]
+
+
+def _plan_rows_as_songs(plans):
+    return [{"file": t["name"], "folder": where, "artist": t.get("artist", ""), "album": album}
+            for album, where, _, tracks in plans for t in tracks]
+
+
+def _fix_music_tags(dlg, artist=""):
+    """Choose how, then by artist or album, then one progress bar for everything. Quick scans start from
+    Kodi's own list and read only what was chosen, so library size doesn't matter. From the artist
+    context menu: only that artist."""
+    import musicfix
+    mode = 0 if artist else dlg.select("Fix music tags (MP3)", list(TAG_MODES))
+    if mode < 0:
+        return 0
+    root = library_folder("Music", dlg)
+    if not root:
+        return 0
+    only = None
+    credits = []
+    picked_first = False
+    try:
+        songs = _library_mp3s() if mode != 1 else []
+    except Exception as e:
+        log("tag fix: Kodi's list couldn't be read: %s" % e)
+        songs = []
+    if songs:  # quick: choose now, and read only that
+        credits = [s["artist"] for s in songs]
+        chosen = _songs_of_artist(songs, artist) if artist else _pick_music(dlg, songs)
+        if not chosen:
+            if artist:
+                dlg.ok(ADDON, "Kodi's library has no MP3s for %s." % artist)
+            return 0
+        only = _whole_folders(songs, chosen)
+        picked_first = True
+    prog, step = _progress("Checking your music tags...")
+    try:
+        plans, left, stopped = _plan_music_tags(root, step, quick=mode != 1, only=only, credits=credits)
+    except Exception as e:
+        log("tag fix: reading failed: %s" % e)
+        _close(prog)
+        dlg.ok(ADDON, "Couldn't read your music: %s\nNothing was changed." % e)
+        return 0
+    _close(prog)
+    if stopped:
+        dlg.ok(ADDON, "Stopped. Nothing was changed.")
+        return 0
+    if artist and not picked_first:
+        plans = _plans_for_artist(plans, artist)
+    text = "\n\n".join(musicfix.preview(album, plan) for album, _, plan, _ in plans)
+    if left:
+        text += "\n\nLeft as they are:\n" + "\n".join("   %s (%s)" % row for row in left)
+    log("tag fix plan: %d albums to change, %d files left\n%s" % (len(plans), len(left), text))
+    if not plans:
+        dlg.ok(ADDON, "%s MP3 tags are already up to date.%s" % (
+            "%s's" % artist if artist else "These" if picked_first else "Your",
+            " %d files were left as they are." % len(left) if left else ""))
+        return 0
+    if mode == 2:
+        dlg.textviewer("%s - planned tag changes" % ADDON, text)
+    if artist:
+        count = sum(len(row[2]["changes"]) for row in plans)
+        if not setting_on("context_auto", False) and not dlg.yesno(
+                ADDON, "Fix tags on %d tracks in %d albums for %s, then update and clean the library?\n\nTo skip this "
+                "question, turn it off in Settings > Music." % (count, len(plans), artist), nolabel="Cancel", yeslabel="Fix them"):
+            return 0
+        final = plans
+    elif picked_first:
+        final = plans
+    else:
+        wanted = set(_tag_key(s["folder"]) for s in _pick_music(dlg, _plan_rows_as_songs(plans)))
+        final = [row for row in plans if _tag_key(row[1]) in wanted]
+    if not final:
+        dlg.ok(ADDON, "Nothing was changed.")
+        return 0
+    tracks = sum(len(c[2]["changes"]) for c in final)
+    update = mode != 3
+    prog, stage = _stages("Fixing your music tags...")
+    summary = ""
+    changed, failures = 0, []
+    try:
+        changed, failures, folder = _apply_music_tags(root, final, stage(0, 50 if update else 100, "Writing tags..."))
+        log("tag fix: %d changed, %d failed, undo data in %s" % (changed, len(failures), friendly(folder)))
+        if update and changed:
+            summary = _update_music_library([where for _, where, _, _ in final], stage, start=50)
+    except Exception as e:
+        log("tag fix: %s" % e)
+        summary = "It didn't finish: %s" % e
+    _close(prog)
+    dlg.ok(ADDON, "Updated tags on %d of %d tracks.%s\n%s\nYou can undo the tags from File." % (
+        changed, tracks, " %d failed: %s." % (len(failures), "; ".join(failures[:4])) if failures else "", summary))
+    return changed
+
+
+def _plans_for_artist(plans, artist):
+    """The albums this artist leads or is credited on. "Band" also matches a credit like "Band/Guest"."""
+    import sortlib
+    return [row for row in plans if sortlib._names(artist, row[2]["album_artist"]) or
+            any(sortlib._names(artist, t.get("artist", "")) for t in row[3])]
+
+
+fix_music_tags = one_at_a_time(_fix_music_tags)
+
+
+def _undo_music_tags(dlg):
+    """Put back the old tags from the newest Fix music tags run."""
+    import id3write
+    root = library_folder("Music", dlg)
+    if not root:
+        return 0
+    parent = "%s%s/" % (backup.drive_dir(root) or root, TAG_BACKUPS)
+    stamps = sorted(backup.list_backups(parent), reverse=True)
+    if not stamps:
+        dlg.ok(ADDON, "There are no tag changes to undo.")
+        return 0
+    stamp = stamps[0][0]
+    folder = parent + stamp + "/"
+    try:
+        manifest = json.loads(backup._read(folder + "manifest.json").decode("utf-8"))
+    except Exception as e:
+        dlg.ok(ADDON, "Couldn't read the undo list: %s\nNothing was changed." % e)
+        return 0
+    if not dlg.yesno(ADDON, "Put back the old tags on %d tracks, from %s?" % (len(manifest), stamp),
+                     nolabel="Cancel", yeslabel="Undo"):
+        return 0
+    prog, step = _progress("Putting back your old tags...")
+    done, failures = 0, []
+    for i, row in enumerate(manifest):
+        if step(i, len(manifest), base_of(row["path"])):
+            break
+        try:
+            if not _write_checked(row["path"], id3write.put_back(backup._read(row["path"]), backup._read(folder + row["tag"]))):
+                raise IOError("the file didn't read back the same")
+            done += 1
+        except Exception as e:
+            log("tag undo: %s: %s" % (base_of(row["path"]), e))
+            failures.append(base_of(row["path"]))
+    _close(prog)
+    if done == len(manifest):
+        xbmcvfs.rmdir(folder, True)
+    _remember_tracks([row["path"] for row in manifest])
+    log("tag undo: %d of %d" % (done, len(manifest)))
+    prog, stage = _stages("Updating Kodi's library...")
+    try:
+        summary = _update_music_library([parent_of(row["path"]) for row in manifest], stage)
+    except Exception as e:
+        log("tag undo: update: %s" % e)
+        summary = "Updating the library didn't finish: %s" % e
+    _close(prog)
+    dlg.ok(ADDON, "Put back %d of %d tracks.%s\n%s" % (done, len(manifest),
+           " These failed: %s." % ", ".join(failures[:8]) if failures else "", summary))
+    return done
+
+
+undo_music_tags = one_at_a_time(_undo_music_tags)
+
+
+CLEAN_KINDS = ("TV", "Movies", "Music")
+
+
+def clean_library(dlg):
+    """Pick what to clean, then clean each in turn."""
+    picks = dlg.multiselect("Clean which library?", list(CLEAN_KINDS))
+    for i in picks or []:
+        {"TV": clean_tv_library, "Movies": fix_wrong_movies, "Music": clean_music_library}[CLEAN_KINDS[i]](dlg)
+
+
+def clean_music_library(dlg):
+    """Kodi's own clean-up for songs whose files are gone, but never while the drive looks missing."""
+    import missing
+    name = backup.newest_db(backup.MUSIC_DB)[0]
+    if not name:
+        dlg.ok(ADDON, "Kodi doesn't have a music library yet, so there's nothing to clean.")
+        return False
+    try:
+        found = drive_letter.diagnose(drive_letter.library_files(_db_path(name), drive_letter.MUSIC_FILES),
+                                      _listdir_or_nothing)
+    except Exception as e:
+        log("music clean: check failed: %s" % e)
+        dlg.ok(ADDON, "Couldn't check your music library: %s\nNothing was changed." % e)
+        return False
+    if found["moved"] or found["lost"]:
+        dlg.ok(ADDON, "Your music on %s: wasn't found there, so cleaning now could remove it from the library. Check the "
+               "drive is plugged in, or use Drive letter changed? Fix the library first. Nothing was changed."
+               % ", ".join([old for old, _ in found["moved"]] + found["lost"]))
+        return False
+    if not dlg.yesno(ADDON, "Remove songs from Kodi's music library when their files are gone?\n\nThis never deletes "
+                     "files. Kodi shows its own progress.", nolabel="Cancel", yeslabel="Clean"):
+        return False
+    try:
+        missing._rpc("AudioLibrary.Clean", {"showdialogs": True})
+    except Exception as e:
+        log("Kodi's music library clean failed: %s" % e)
+        dlg.ok(ADDON, "Kodi couldn't clean the music library: %s" % e)
+        return False
+    return True
+
+
 
 
 def backup_menu(dlg):
@@ -3409,7 +4410,7 @@ def onboarding_state():
                                      data_file("onboarding.json"), me.getAddonInfo("version"), ADDON,
                                      checker=check_library_folder, std_folder=standard_folder,
                                      kodi_lang=_kodi_lang(), device_guess=device_guess(),
-                                     set_phone=lambda on: me.setSetting("use_phone", "true" if on else "false"))
+                                     set_phone=lambda on: set_setting("use_phone", on))
     except Exception as e:
         log("onboarding not available: %s" % e)
         return None
@@ -3645,6 +4646,9 @@ def startup_checks(dlg):
     """Opening Sortovia: update check, welcome screen, library backup check.
     Returns True if an update was installed (the person opens it again)."""
     home().setProperty(PROP_OPENED, str(time.time()))
+    bring_settings_back()
+    if ensure_picture_cache_folder():
+        toast("Made Kodi's picture folder on your drive. Restart Kodi so it saves artwork there.", 6000)
     vault_unlock(dlg)
     if start_up(dlg):
         home().clearProperty(PROP_OPENED)
@@ -3704,7 +4708,7 @@ def new_sort(dlg, spath):
                                 ["Move it to a _Replaced folder (safe - delete later)",
                                  "Delete it"]) == 1
 
-    lang_mode = dlg.select("Video files with NO %s audio track (Help > Your language to change):" % LN(),
+    lang_mode = dlg.select("Video files with NO %s audio track (Settings > Your language to change):" % LN(),
                            ["Leave them on the source drive (skip)",
                             "Move them to a %s folder" % PREF[0].no_folder,
                             "Delete them",
@@ -4539,7 +5543,7 @@ def run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mode
         import traceback
         log_block("ERROR", traceback.format_exc())
         dlg.ok(ADDON, "Something went wrong - nothing more was moved.\n"
-               "You can send the developer a report from Help & settings > Send a problem report.")
+               "You can send the developer a report from Help > Send a problem report.")
     finally:
         COPY_HOOK[0] = STEP_HOOK[0] = None
         home().clearProperty(PROP_RUN)
@@ -4564,6 +5568,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     FOLDER_NAMES.update(names)
     KIND_DIRS.clear()
     DIR_CACHE.clear()
+    MUSIC_SEEN.clear()
     ob = onboarding_state()
     for k, path in ((ob.folders() if ob else {}) or {}).items():
         if ONBOARD_KIND.get(k):
@@ -4572,8 +5577,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     if _norm(root) != _norm(dest):
         log("destination %s is the %s folder: library root %s" % (dest, base_of(dest), root))
     dest = root  # everything below works from the library root
-    where_to = "Destination: movies -> %s, TV -> %s, comics -> %s, tutorials -> %s" % tuple(
-        friendly(kind_root(k, dest)) for k in ("Movies", "TV", "Comics", "Tutorials"))
+    where_to = "Destination: movies -> %s, TV -> %s, comics -> %s, tutorials -> %s, music -> %s" % tuple(
+        friendly(kind_root(k, dest)) for k in ("Movies", "TV", "Comics", "Tutorials", "Music"))
     log(where_to)
     if "://" in src and src.split("://")[0] in ("dav", "davs", "ftp") and not phone_reachable(src):
         dlg.ok(ADDON, "Can't reach %s.\nOn the phone: start sharing (companion app, kodi-share or primitive ftpd), "
@@ -4654,8 +5659,8 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
     specials = {"by_name": load_cache(spec_path), "used": {}, "titles": {}}
     ob = onboarding_state()
     wanted = ob.wanted() if ob else None
-    if ob and len(wanted) < 4:
-        log("sorting only: %s (Help > What to sort)" % ob.wanted_line())
+    if ob and len(wanted) < 5:
+        log("sorting only: %s (Settings > What to sort)" % ob.wanted_line())
     for i, (path, name, arc) in enumerate(files):
         if busy.iscanceled():
             save_cache(cpath, cache)
@@ -4678,9 +5683,9 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
                 leftovers.append(path)  # sample clip: release leftover
             else:
                 video_paths.append(path)
-        if target is not None and wanted is not None and kind in ("TV", "MOVIE", "COMIC", "TUTORIAL") \
+        if target is not None and wanted is not None and kind in ("TV", "MOVIE", "COMIC", "TUTORIAL", "MUSIC") \
                 and kind not in wanted:
-            skipped.append("SKIP  %s  (%s - not ticked in Help > What to sort)" % (label if arc else name, kind.lower()))
+            skipped.append("SKIP  %s  (%s - not ticked in Settings > What to sort)" % (label if arc else name, kind.lower()))
             by_name += 1
             continue
         if target is None and not arc and split_name(name)[1] in SUBS:
@@ -5092,7 +6097,7 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         elif arc in arc_ok:
             report.append("NOTE  %s  (not every video came out OK - archive left where it is)" % name)
     if not cancelled:
-        prog.update(100, "Tidying up: release .nfo files and empty folders")
+        prog.update(100, "Finishing up: release .nfo files and empty folders")
         try:
             if nfo_mode == 4:  # nfos.QUALITY - before the tidy-up parks the release NFOs
                 prog.update(100, "Writing quality tags for movies")
@@ -5135,8 +6140,10 @@ def _run(dlg, spath, src, dest, mode, delete_old, lang_mode, nfo_mode=0, sub_mod
         clear_session(spath)  # finished: nothing to resume next time
     if ok_count and any(it.get("kind") in ("TV", "MOVIE") for it in moved_ok):
         xbmc.executebuiltin("UpdateLibrary(video)")
-    elif ok_count:
+    elif ok_count and not any(it.get("kind") == "MUSIC" for it in moved_ok):
         log("no library update: only tutorials/comics/leftovers changed (they aren't in Kodi's library)")
+    if ok_count and any(it.get("kind") == "MUSIC" for it in moved_ok):
+        xbmc.executebuiltin("UpdateLibrary(music)")
 
 
 # ---------- the menu: categories in a Kodi folder list ----------
@@ -5154,7 +6161,7 @@ def library_folder(kind, dlg=None):
     """The person's TV/Movies/Comics/Tutorials folder: their own one, else the standard
     folder on the last destination. With dlg, asks when neither is known."""
     ob = onboarding_state()
-    key = {"TV": "TV", "Movies": "MOVIE", "Comics": "COMIC", "Tutorials": "TUTORIAL"}[kind]
+    key = {"TV": "TV", "Movies": "MOVIE", "Comics": "COMIC", "Tutorials": "TUTORIAL", "Music": "MUSIC"}[kind]
     own = ((ob.folders() if ob else {}) or {}).get(key)
     last = load_cache(data_file("last_settings.json"))
     folder = own or (last.get("dest") and join(resolve_dest(last["dest"])[0], FOLDER_NAMES.get(kind, kind)))
@@ -5166,11 +6173,31 @@ def library_folder(kind, dlg=None):
     return None
 
 
+ORGANISE_KINDS = ("TV", "Movies", "Music", "Comics")
+
+
+def organise_folders(dlg, spath):
+    """Tick the folders to organise. Each shows its full list before anything moves."""
+    picks = dlg.multiselect("Organise which folders?", list(ORGANISE_KINDS))
+    for i in picks or []:
+        if ORGANISE_KINDS[i] == "Comics":
+            _comics(tidy_comics)(dlg, spath)
+        else:
+            tidy_library(dlg, spath, ORGANISE_KINDS[i])
+
+
 def tidy_library(dlg, spath, kind):
     folder = library_folder(kind, dlg)
     if not folder:
         return
-    if dlg.yesno(ADDON, "Tidy %s?\nEvery video is put into the folders Kodi expects (%s) with names Kodi can "
+    if kind == "Music":
+        if dlg.yesno(ADDON, "Organise %s?\nLoose songs go into Artist\\Album with a clear name. Songs already in folders "
+                     "inside an artist's folder stay where they are. You see the full list first, and nothing is replaced "
+                     "without asking." % friendly(folder),
+                     nolabel="Cancel", yeslabel="Show me the list"):
+            reorganize_folder(dlg, spath, kind, folder)
+        return
+    if dlg.yesno(ADDON, "Organise %s?\nEvery video is put into the folders Kodi expects (%s) with names Kodi can "
                  "read. You see the full list first, nothing is replaced without asking, and subtitles and NFOs "
                  "are left alone." % (friendly(folder), "Show\\Season 01" if kind == "TV" else "Movie (Year)"),
                  nolabel="Cancel", yeslabel="Show me the list"):
@@ -5204,21 +6231,27 @@ def menu_items(name):
             out.append(_item("Resume the sort that didn't finish (%s)" % prev.get("started", "?"),
                              "From %s to %s, with the same choices." % (masked(prev["src"]), prev["dest"]),
                              "DefaultIconInfo.png", action="resume"))
-        out.append(_item("Sort my downloads", "Sort a downloads folder into TV, Movies, Comics and Tutorials.",
-                         "DefaultFolder.png", menu="sort"))
-        if setting_on("use_phone"):
-            out.append(_item("YouTube", "Search YouTube here; your Android phone downloads, then they're sorted "
-                             "into Tutorials. Needs the Termux setup in the guide.",
-                             "DefaultAddonVideo.png", menu="youtube"))
         return out + [
+            _item("Downloads", "Transfer and sort your downloads, YouTube and Real-Debrid.", "DefaultNetwork.png", menu="downloads"),
+            _item("File", "Works on the files themselves: organise folders, fix music tags, comic tools, free up space.",
+                  "DefaultFolder.png", menu="file"),
+            _item("Library", "Works on what Kodi lists: clean, rescan, album art, backups.",
+                  "DefaultTVShows.png", menu="library"),
+            _item("Settings", "Every setting: updates, sorting, music, phone, privacy and movie data.",
+                  "DefaultAddonService.png", action="settings"),
+            _item("Help", "The guide, setup steps, version history and problem reports.",
+                  "DefaultAddonHelper.png", menu="help")] + (
+            [_item("Dev", "Testing tools. Not in public builds.", "DefaultIconInfo.png", menu="dev")] if devtools else [])
+    if name == "downloads":
+        return [_item("Transfer and sort", "Move downloads from a folder or your phone into TV, Movies, Comics, Tutorials "
+                      "and Music.", "DefaultFolder.png", menu="sort")] + (
+            [_item("YouTube", "Search YouTube here; your Android phone downloads, then they're sorted "
+                   "into Tutorials. Needs the Termux setup in the guide.", "DefaultAddonVideo.png", menu="youtube")]
+            if setting_on("use_phone") else []) + [
             _item("Real-Debrid", "Optional, needs a premium account. Download what's in your account straight to "
-                  "your library drive, then sort it.", "DefaultNetwork.png", menu="realdebrid"),
-            _item("Tidy my library folders", "Put what's already in your TV, Movies and Comics folders into the "
-                  "layout Kodi expects. Comics: .cbr to .cbz, turn pages.", "DefaultAddonService.png", menu="tidy"),
-            _item("Kodi library", "Back up and restore the library, clean the TV and movie libraries, missing "
-                  "episodes, where to watch.", "DefaultTVShows.png", menu="library"),
-            _item("Help & settings", "Guide, version history, what to sort, your folders and language, updates, "
-                  "logs.", "DefaultAddonHelper.png", menu="help")]
+                  "your library drive, then sort it.", "DefaultNetwork.png", menu="realdebrid")]
+    if name == "dev" and devtools:
+        return devtools.menu_items()
     if name == "sort":
         out = []
         if last.get("src") and last.get("dest"):
@@ -5269,91 +6302,73 @@ def menu_items(name):
                   "DefaultIconInfo.png", action="rd_history"),
             _item("Sort the Real-Debrid downloads", "Put what's in Downloads\\Real-Debrid into your library, "
                   "with the same choices as your last sort.", "DefaultFolder.png", action="rd_sort")]
-    if name == "tidy":
+    if name == "file":
         pref = comics_pref()
         return [
-            _item("Tidy my TV folder", "Every episode into Show\\Season NN with a name Kodi reads.",
-                  "DefaultTVShows.png", action="tidy_tv"),
-            _item("Tidy my Movies folder", "Every movie into Movie (Year) with a name Kodi reads.",
-                  "DefaultMovies.png", action="tidy_movies"),
-            _item("Tidy my Comics folder", "Each comic into its series folder; merges duplicate folders; offers to "
-                  "move stray PDFs to Documents.", "DefaultAddonPicture.png", action="comics_tidy"),
+            _item("Organise my folders", "Tick TV, Movies, Music or Comics. Each shows its full list before anything "
+                  "moves. Music already in folders under an artist stays where it is.", "DefaultFolder.png", action="organise"),
+            _item("Fix music tags (MP3)", "Updates MP3 tags to ID3v2.4, joins albums Kodi shows as several, and links "
+                  "collaborations to each artist. Pick by artist or album. Files stay where they are.",
+                  "DefaultMusicAlbums.png", action="music_tags"),
+            _item("Undo the last music tag fix", "Puts back the old tags saved by Fix music tags.",
+                  "DefaultMusicAlbums.png", action="music_tags_undo"),
             _item("Convert .cbr comics to .cbz%s" % (" (%d left - carry on)" % len(comics_pending()[0])
                                                     if comics_pending()[0] else ""),
                   "A .cbz opens much faster in Kodi. Pick which ones; Cancel stops after the comic being done.",
                   "DefaultAddonPicture.png", action="comics_convert"),
             _item("Turn comic pages for a monitor on its side (now: %s)" % comics.turn_label(pref["turn"]),
                   "Try one comic first. Upright undoes it.", "DefaultAddonPicture.png", action="comics_turn"),
-            _item("When sorting new comics, convert .cbr to .cbz: %s" % ("yes" if pref["convert"] else "no"),
-                  "Select to switch.", "DefaultAddonService.png", action="comics_auto")]
+            _item("View a text / NFO file", "Reads old DOS-style NFO art correctly.", "DefaultIconInfo.png",
+                  action="nfo"),
+            _item("Free up space", "See what's using this device's storage and clear leftovers "
+                  "(temporary files, old add-on downloads, backups that belong on the drive).", "DefaultAddonService.png",
+                  action="free_space")]
     if name == "library":
+        return [
+            _item("Clean the library", "Pick TV, Movies or Music. Removes entries that are in the wrong place or whose "
+                  "files are gone. Never deletes files.", "DefaultAddonService.png", action="clean_library"),
+            _item("Rescan one album", "Brings one album's changes into Kodi's library without a full scan. Sortovia "
+                  "saves a copy of the library first.", "DefaultMusicAlbums.png", action="music_rescan"),
+            _item("Set album art from folders", "Uses the picture in an album's folder when Kodi shows no art, whatever "
+                  "the picture is called. No files change.", "DefaultMusicAlbums.png", action="music_art_set"),
+            _item("Set artist art from folders", "Uses a picture in the artist's own folder, such as Music\\Artist\\artist.jpg "
+                  "and fanart.jpg, when Kodi shows none. No files change.", "DefaultMusicArtists.png", action="artist_art"),
+            _item("Check music art", "Lists albums with no cover art and compares with your backup from before a drive "
+                  "letter switch. Changes nothing.", "DefaultMusicAlbums.png", action="music_art"),
+            _item("Find missing episodes", "Aired episodes you don't have, from seasons you have.",
+                  "DefaultTVShows.png", action="missing"),
+            _item("Where to watch a show", "Your services, free, or buy/rent (TMDb).", "DefaultTVShows.png",
+                  action="wherewatch"),
+            _item("Backups (last: %s)" % backup_line(), "Back up and restore the video and music libraries.",
+                  "DefaultAddonsUpdates.png", menu="library_backups"),
+            _item("Drive letter changed? Fix the library", "If your drive's letter changed (for example E: to D:), this "
+                  "points your video and music libraries at the new one and keeps a backup for each letter. No files are moved.",
+                  "DefaultHardDisk.png", action="drive_letter")]
+    if name == "library_backups":
         return [
             _item("Back up the library now (last: %s)" % backup_line(), "Kodi's export with watched marks, plus "
                   "its database. It also runs by itself once a day.", "DefaultAddonsUpdates.png", action="backup"),
             _item("Restore a backup", "Pick a date; Sortovia gets it ready, then Kodi's Import library "
                   "puts it back.", "DefaultAddonsUpdates.png", action="restore"),
-            _item("Drive letter changed? Fix the library", "If your drive's letter changed (for example E: to D:), this "
-                  "points Kodi at the new one and keeps a backup for each letter. No videos are moved.",
-                  "DefaultHardDisk.png", action="drive_letter"),
+            _item("Restore the music library", "Puts back a saved copy of Kodi's music library, if it looks wrong or "
+                  "empty. No music files change.", "DefaultAddonsUpdates.png", action="music_restore"),
             _item("List the backups", "When each was made, what was in the library, and where it is.",
                   "DefaultIconInfo.png", action="backups"),
             _item("Remove old library backups", "Frees space. The newest is always kept; the newest two on the "
-                  "drive are kept unless you tick them.", "DefaultAddonService.png", action="remove_backups"),
-            _item("Clean TV library", "Removes entries that aren't TV episodes (files in Movies, Tutorials or a "
-                  "set-aside folder), then entries whose files are gone. Never deletes files.", "DefaultTVShows.png",
-                  action="clean_tv"),
-            _item("Clean movie library", "Removes TV episodes listed as movies (e.g. after a whole drive was scanned "
-                  "as Movies), then entries whose files are gone. Never deletes files.", "DefaultMovies.png",
-                  action="wrong_movies"),
-            _item("Find missing episodes", "Aired episodes you don't have, from seasons you have.",
-                  "DefaultTVShows.png", action="missing"),
-            _item("Where to watch a show", "Your services, free, or buy/rent (TMDb).", "DefaultTVShows.png",
-                  action="wherewatch")]
-    if name == "settings":
-        out = [_item("%s: %s" % (label, "On" if setting_on(key) else "Off"), "Select to change. " + note,
-                     "DefaultAddonService.png", action="toggle_" + key)
-               for key, label, note in SWITCHES if key != "send_logs" or setting_on("use_phone")]
-        on = bool(load_cache(data_file(VAULT_FILE)).get("salt"))
-        return out + [_item("Protect saved passwords and keys with a passcode: %s" % ("On" if on else "Off"),
-                            "Encrypts them on this device. You type the passcode once each time Kodi starts.",
-                            "DefaultAddonService.png", action="vault"),
-                      _item("Set your TMDb key, country and streaming services",
-                            "A free key gives movie titles in your language and Where to watch.",
-                            "DefaultAddonService.png", action="tmdb_settings")]
+                  "drive are kept unless you tick them.", "DefaultAddonService.png", action="remove_backups")]
     if name == "help":
-        return [i for i in [
+        return [
             _item("Read the guide", "Every step and feature, by topic.", "DefaultIconInfo.png", action="guide"),
-            _item("How to set up your phone", "Android and iPhone: import files over Wi-Fi.", "DefaultIconInfo.png",
-                  action="guide_phone"),
-            _item("Test YouTube without a phone", "Checks whether this device could download from YouTube by itself. "
-                  "Downloads no videos.", "DefaultAddonVideo.png", action="youtube_test"),
-            _item("Send a problem report to the developer", "Cleans Kodi's log, shows you what's in it, and sends it "
-                  "if you agree.", "DefaultIconInfo.png", action="problem_report"),
-            _item("Settings", "Updates, backups, your phone, small files, title renaming, passcode, TMDb key.",
-                  "DefaultAddonService.png", menu="settings"),
-            _item("Version history", "What each update added.", "DefaultIconInfo.png", action="history"),
-            _item("What to sort (now: %s)" % (ob.wanted_line() if ob else "everything"),
-                  "TV, Movies, Comics, Tutorials.", "DefaultAddonService.png", action="kinds"),
-            _item("My library folders (now: %s)" % (ob.folders_line() if ob else "standard"),
-                  "Use folders you already have, any name, any drive.", "DefaultFolder.png", action="folders"),
-            _item("Your language (now: %s)" % (ob.language_line() if ob else "English"),
-                  "Audio it looks for, subtitles it keeps, movie title language.", "DefaultAddonService.png",
-                  action="language"),
-            _item("Your device (now: %s)" % (ob.device_line() if ob else "?"), "Sortovia fits its steps to it.",
-                  "DefaultAddonService.png", action="device"),
+            _item("Show the welcome screen again", "", "DefaultIconInfo.png", action="welcome"),
             _item("How to add your folders to Kodi", "TV, Movies and Tutorials as sources, Comics under Pictures - "
                   "the steps for your device.", "DefaultIconInfo.png", action="sources_help"),
+            _item("How to set up your phone", "Android and iPhone: import files over Wi-Fi.", "DefaultIconInfo.png",
+                  action="guide_phone"),
+            _item("Version history", "What each update added.", "DefaultIconInfo.png", action="history"),
             _item("Check for updates now", "Sortovia also checks every time it opens.", "DefaultAddonsUpdates.png",
                   action="update"),
-            _item("Send Kodi's log to my phone now", "The phone must be sharing (companion app or kodi-share). For your own records.", "DefaultNetwork.png",
-                  action="logs"),
-            _item("View a text / NFO file", "Reads old DOS-style NFO art correctly.", "DefaultIconInfo.png",
-                  action="nfo"),
-            _item("Free up space", "See what's using this device's storage and clear leftovers "
-                  "(temporary files, old add-on downloads, backups that belong on the drive).", "DefaultAddonService.png",
-                  action="free_space"),
-            _item("Show the welcome screen again", "", "DefaultIconInfo.png", action="welcome")]
-            if i["action"] != "logs" or setting_on("use_phone")]
+            _item("Send a problem report to the developer", "Cleans Kodi's log, shows you what's in it, and sends it "
+                  "if you agree.", "DefaultIconInfo.png", action="problem_report")]
     return []
 
 
@@ -5426,30 +6441,36 @@ def _welcome(ob, dlg):
     ob.first_run(dlg)
 
 
+ACTION_ARGS = {}  # anything else in the address that started an action
 ACTIONS = {
     "tmdb_settings": lambda dlg, spath: watch_settings(dlg, change=True),
     "running": lambda dlg, spath: running_menu(dlg, home().getProperty(PROP_RUN)),
     "resume": _resume, "same": _same, "new": new_sort,
     "report": lambda dlg, spath: _report(dlg),
-    "tidy_tv": lambda dlg, spath: tidy_library(dlg, spath, "TV"),
-    "tidy_movies": lambda dlg, spath: tidy_library(dlg, spath, "Movies"),
-    "comics_tidy": _comics(tidy_comics), "comics_convert": _comics(comics_convert),
+    "organise": lambda dlg, spath: organise_folders(dlg, spath),
+    "comics_convert": _comics(comics_convert),
     "comics_turn": _comics(comics_turn),
-    "comics_auto": lambda dlg, spath: save_cache(data_file(COMICS_PREF), dict(comics_pref(), convert=not comics_pref()["convert"])),
     "backup": lambda dlg, spath: backup_now(dlg),
     "restore": lambda dlg, spath: restore_backup(dlg),
     "drive_letter": lambda dlg, spath: fix_drive_letter(dlg),
     "remove_backups": lambda dlg, spath: remove_old_backups(dlg),
     "backups": lambda dlg, spath: backups_list(dlg),
-    "wrong_movies": lambda dlg, spath: fix_wrong_movies(dlg),
-    "clean_tv": lambda dlg, spath: clean_tv_library(dlg),
+    "clean_library": lambda dlg, spath: clean_library(dlg),
+    "settings": lambda dlg, spath: xbmcaddon.Addon().openSettings(),
+    "artist_art": lambda dlg, spath: set_artist_art(dlg),
+    "music_tags_artist": lambda dlg, spath: fix_music_tags(dlg, ACTION_ARGS.get("artist", "")),
+    "music_art": lambda dlg, spath: check_music_art(dlg),
+    "music_art_set": lambda dlg, spath: set_music_art(dlg),
+    "music_tags": lambda dlg, spath: fix_music_tags(dlg),
+    "music_tags_undo": lambda dlg, spath: undo_music_tags(dlg),
+    "music_restore": lambda dlg, spath: restore_music_library(dlg),
+    "music_rescan": lambda dlg, spath: rescan_one_album(dlg),
     "missing": lambda dlg, spath: find_missing_episodes(dlg),
     "wherewatch": lambda dlg, spath: where_to_watch_menu(dlg),
     "guide": _ob(lambda ob, dlg: ob.show_guide(dlg, pick=True)), "history": _ob(lambda ob, dlg: ob.show_history(dlg)),
     "kinds": _ob(lambda ob, dlg: ob.choose_kinds(dlg)), "folders": _ob(lambda ob, dlg: ob.choose_folders(dlg)),
     "language": _ob(lambda ob, dlg: ob.choose_language(dlg)), "welcome": _ob(_welcome),
     "update": lambda dlg, spath: check_for_update(dlg, manual=True),
-    "logs": lambda dlg, spath: dlg.ok(ADDON, "Log: %s." % send_logs("manual", dlg)),
     "nfo": lambda dlg, spath: view_text_file(dlg),
     "free_space": lambda dlg, spath: free_space(dlg),
     "device": _ob(lambda ob, dlg: ob.choose_device(dlg)),
@@ -5463,7 +6484,6 @@ ACTIONS = {
     "rd_sort": rd_sort,
     "rd_stop": lambda dlg, spath: home().setProperty(PROP_RD_STOP, "1"),
     "problem_report": lambda dlg, spath: send_problem_report(dlg),
-    "youtube_test": lambda dlg, spath: youtube_test(dlg),
     "vault": lambda dlg, spath: vault_menu(dlg),
     "guide_phone": _ob(lambda ob, dlg: ob.show_guide(dlg, topic="use a phone")),
     "rd_releases": lambda dlg, spath: rd_releases(dlg),
@@ -5472,8 +6492,10 @@ ACTIONS = {
     "rd_watch": lambda dlg, spath: rd_watch(),
 }
 ACTIONS.update(("yt%d" % i, _youtube(i)) for i in range(9))
-ACTIONS.update(("toggle_" + s[0], lambda dlg, spath, key=s[0]: toggle_setting(key)) for s in SWITCHES)
-STARTS_A_RUN = ("resume", "same", "new", "tidy_tv", "tidy_movies", "yt3", "rd_sort")
+if devtools:
+    devtools.bind(globals())
+    ACTIONS.update(devtools.actions())
+STARTS_A_RUN = ("resume", "same", "new", "organise", "yt3", "rd_sort")
 
 
 def _pending_reorganize(dlg, spath):
@@ -5516,6 +6538,7 @@ def plugin_main(argv):
         from urlparse import parse_qs
     q = dict((k, v[0]) for k, v in parse_qs((argv[2] if len(argv) > 2 else "").lstrip("?")).items())
     if q.get("action"):
+        ACTION_ARGS.update(q)
         do_action(q["action"])
         return
     handle = int(argv[1]) if len(argv) > 1 and argv[1].lstrip("-").isdigit() else -1
@@ -5523,7 +6546,9 @@ def plugin_main(argv):
     if name == "root" and startup_due() and not home().getProperty(PROP_RUN):
         if startup_checks(screens.Friendly(xbmcgui.Dialog())):
             import xbmcplugin
-            xbmcplugin.endOfDirectory(handle, succeeded=False)
+            list_menu(handle, name)  # the menu stays on screen, so nothing flashes blank
+            xbmc.sleep(500)
+            xbmc.executebuiltin("Container.Refresh")  # then read it again with the new version
             return
     list_menu(handle, name)
     if name == "root" and rd_queue() and not home().getProperty(PROP_RD_WATCH) and rd_client().signed_in():

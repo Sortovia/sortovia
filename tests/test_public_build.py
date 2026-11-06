@@ -43,6 +43,14 @@ class PublicBuild(unittest.TestCase):
         self.assertEqual(root.findtext(".//assets/fanart"), "resources/media/fanart.png")
         self.assertEqual(self.zip.read("script.kodisorter/icon.png")[:8], b"\x89PNG\r\n\x1a\n")
 
+    def test_the_artist_context_menu_is_declared_with_its_text(self):
+        root = ET.fromstring(self.zip.read("script.kodisorter/addon.xml"))
+        item = root.find("extension[@point='kodi.context.item']/menu/item")
+        self.assertIn("script.kodisorter/" + item.get("library"), self.zip.namelist())
+        self.assertIn("artist", item.find("visible").text)
+        po = self.zip.read("script.kodisorter/resources/language/resource.language.en_gb/strings.po").decode()
+        self.assertIn('msgctxt "#%s"' % item.find("label").text, po)
+
     def test_every_setting_has_its_text_and_a_real_action(self):
         settings = ET.fromstring(self.zip.read("script.kodisorter/resources/settings.xml"))
         po = self.zip.read("script.kodisorter/resources/language/resource.language.en_gb/strings.po").decode()
@@ -55,7 +63,20 @@ class PublicBuild(unittest.TestCase):
             if e.get("type") == "action":
                 self.assertIn('"%s":' % re.search(r"action=(\w+)", e.get("action")).group(1), src)
             else:
-                self.assertIn('setting_on("%s")' % e.get("id"), src)
+                self.assertIn('setting_on("%s"' % e.get("id"), src)
+
+    def test_dev_tools_stay_out_of_the_public_zip(self):
+        names = self.zip.namelist()
+        for dev in ("devtools.py", "youtube_test.py"):
+            self.assertNotIn("script.kodisorter/" + dev, names)
+        src = (ROOT / "addon/script.kodisorter/devtools.py")
+        if src.exists():  # only in the private repo
+            dev_zip = self.tmp / "dev" / "script.kodisorter" / self.name
+            with zipfile.ZipFile(dev_zip) as z:
+                self.assertIn("script.kodisorter/devtools.py", z.namelist())
+            self.assertEqual((dev_zip.parent / (self.name + ".md5")).read_text(),
+                             hashlib.md5(dev_zip.read_bytes()).hexdigest())
+            self.assertIn("script.kodisorter", (self.tmp / "dev" / "addons.xml").read_text())
 
     def test_web_page_keeps_the_link_kodi_reads(self):
         lines = (self.tmp / "index.html").read_text(encoding="utf-8").splitlines()

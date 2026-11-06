@@ -5,6 +5,7 @@ A backup holds:
                     resume points). Kodi can put it back by itself:
                     Settings > Media > Library > Import library.
   MyVideosNNN.db    a copy of Kodi's database file, as a second safety net.
+  (A copy made by the drive letter tool can also hold MyMusicNN.db.)
   backup-info.json  when it was made and how much was in the library.
 
 It's saved on the library drive (_Kodi library backups) and on the phone when
@@ -25,7 +26,7 @@ DRIVE_DIR = "_Kodi library backups"
 KEEP = 5
 EVERY = 24 * 3600          # automatic backup at most once a day
 STAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{4}$")
-DB_RE = re.compile(r"^MyVideos(\d+)\.db$", re.I)
+VIDEO_DB, MUSIC_DB = "MyVideos", "MyMusic"
 DB_MAX = 300 * 1024 * 1024  # a bigger database isn't copied (the XML still is)
 
 RESTORE_HELP = (
@@ -139,13 +140,14 @@ def export_xml(rpc=_rpc, wait=600, sleep=time.sleep, work="special://temp/"):
             pass
 
 
-def newest_db():
-    """(name, bytes) of Kodi's video database file, or (None, None)."""
+def newest_db(prefix=VIDEO_DB):
+    """(name, bytes) of Kodi's video or music database file, or (None, None)."""
+    db_re = re.compile(r"^%s(\d+)\.db$" % prefix, re.I)
     try:
         files = xbmcvfs.listdir("special://database/")[1]
     except Exception:
         return None, None
-    dbs = sorted((int(m.group(1)), f) for f in files for m in [DB_RE.match(f)] if m)
+    dbs = sorted((int(m.group(1)), f) for f in files for m in [db_re.match(f)] if m)
     if not dbs:
         return None, None
     name = dbs[-1][1]
@@ -255,14 +257,14 @@ def letter_bases(base):
         return []
 
 
-def save_letter_copy(base, letter, stamp, counts_now, xml, db_name, db, extra=()):
+def save_letter_copy(base, letter, stamp, counts_now, xml, databases, extra=()):
     """Save a backup whose addresses all use one drive letter, in <base>Drive X/<stamp>/. These sit
     apart from the dated backups, so those coming and going never removes them. Returns the folder."""
     parent = "%sDrive %s/" % (base, letter)
     folder = parent + stamp + "/"
-    info = {"made": stamp, "counts": counts_now, "drive": letter, "xml_bytes": len(xml or b""), "db": db_name,
+    info = {"made": stamp, "counts": counts_now, "drive": letter, "xml_bytes": len(xml or b""), "db": ", ".join(n for n, _ in databases),
             "kodi": xbmc.getInfoLabel("System.BuildVersion")}
-    files = [("backup-info.json", json.dumps(info, indent=1).encode()), (db_name, db)] + list(extra)
+    files = [("backup-info.json", json.dumps(info, indent=1).encode()), ] + list(databases) + list(extra)
     if xml:
         files.append(("videodb.xml", xml))
     xbmcvfs.mkdirs(folder)
@@ -270,6 +272,27 @@ def save_letter_copy(base, letter, stamp, counts_now, xml, db_name, db, extra=()
         raise IOError("couldn't save the backup to %s" % folder)
     _prune(parent)
     return folder
+
+
+def existing_copy(base, letter, databases):
+    """The date of the newest backup already holding exactly these [(name, bytes)] databases, in the
+    letter's own folder or the dated backups, or "" if any of them hasn't been saved as it is now."""
+    newest = ""
+    for name, data in databases:
+        found = ""
+        for parent in ("%sDrive %s/" % (base, letter), base):
+            for stamp, _ in list_backups(parent):
+                path = parent + stamp + "/" + name
+                try:
+                    if xbmcvfs.exists(path) and _read(path) == data:
+                        found = max(found, stamp)
+                        break
+                except Exception:
+                    pass
+        if not found:
+            return ""
+        newest = max(newest, found)
+    return newest
 
 
 RESTORE_DIR = "special://home/Kodi library restore/"

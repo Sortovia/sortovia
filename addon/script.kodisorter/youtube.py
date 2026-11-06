@@ -417,7 +417,7 @@ def menu(dlg, find_ip, creds, log, dest_line=None, only=None):
     c = creds()
     if not c or not c.get("pass"):
         dlg.ok(HEADING, "First set up the phone: start kodi-share in Termux (the guide has the steps), then in Sortovia "
-                        "choose Help & settings > \"Send Kodi's log to my phone now\" and type the password it shows.")
+                        "choose Downloads > Transfer and sort > Choose folders and choices > My phone over Wi-Fi and type the password it shows.")
         return None
     ip = find_ip()
     if not ip:

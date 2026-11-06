@@ -45,6 +45,16 @@ class FirstRun(unittest.TestCase):
             def getSetting(self, k): return settings.get(k, "true")
             def setSetting(self, k, v): settings[k] = v
         sys.modules["xbmcaddon"].Addon = Addon
+
+        class File:  # saved settings really go to disk
+            def __init__(s, p, mode="r"):
+                s.f = open(p, "w" if mode == "w" else "r", encoding="utf-8")
+            def read(s): return s.f.read()
+            def write(s, t):
+                s.f.write(t)
+                return True
+            def close(s): s.f.close()
+        d.xbmcvfs.File = File
         props = self.props = {}
 
         class Win:
@@ -78,7 +88,7 @@ class FirstRun(unittest.TestCase):
     def test_first_start_never_searches_the_network_for_a_phone(self):
         self.assertFalse(self.d.startup_checks(Dlg()))
         self.assertEqual(self.searched, [])
-        self.settings["use_phone"] = "true"  # even with the helper on, until a phone is set up
+        self.d.set_setting("use_phone", True)  # even with the helper on, until a phone is set up
         self.assertEqual(self.d.send_logs("end"), "phone share not set up")
         self.assertEqual(self.d.send_logs("backup", files=[]), "phone share not set up")
         self.assertEqual(self.searched, [])
@@ -89,9 +99,8 @@ class FirstRun(unittest.TestCase):
 
     def test_welcome_answer_no_hides_the_phone_options(self):
         self.d.startup_checks(Dlg(phone=False))
-        self.assertEqual(self.settings.get("use_phone"), "false")
-        self.assertNotIn("YouTube", [i["label"] for i in self.d.menu_items("root")])
-        self.assertNotIn("Send Kodi's log to my phone now", [i["label"] for i in self.d.menu_items("help")])
+        self.assertFalse(self.d.setting_on("use_phone"))
+        self.assertNotIn("YouTube", [i["label"] for i in self.d.menu_items("downloads")])
         dlg = Dlg()
         self.d.new_sort(dlg, None)  # goes straight to choosing a folder
         self.assertFalse([s for s in dlg.shown if "My phone" in s])
@@ -99,8 +108,8 @@ class FirstRun(unittest.TestCase):
     def test_welcome_answer_yes_keeps_them_and_says_where_the_steps_are(self):
         dlg = Dlg(phone=True)
         self.d.startup_checks(dlg)
-        self.assertEqual(self.settings.get("use_phone"), "true")
-        self.assertIn("YouTube", [i["label"] for i in self.d.menu_items("root")])
+        self.assertTrue(self.d.setting_on("use_phone"))
+        self.assertIn("YouTube", [i["label"] for i in self.d.menu_items("downloads")])
         self.assertTrue([s for s in dlg.shown if "How to set up your phone" in s])
 
     def test_update_check_switch(self):
@@ -118,16 +127,22 @@ class FirstRun(unittest.TestCase):
         self.assertIn("off", self.d.send_logs("start"))
         self.assertEqual(self.searched, [])
 
-    def test_settings_menu_shows_and_flips_each_switch(self):
-        labels = lambda: [i["label"] for i in self.d.menu_items("settings")]
-        self.assertTrue(all(l.endswith(": On") for l in labels()[:4]))
-        self.d.ACTIONS["toggle_check_updates"](None, None)
-        self.assertEqual(self.settings["check_updates"], "false")
-        self.assertIn("Check for updates when Sortovia opens: Off", labels())
-        self.d.ACTIONS["toggle_check_updates"](None, None)
-        self.assertEqual(self.settings["check_updates"], "true")
-        self.d.ACTIONS["toggle_use_phone"](None, None)
-        self.assertFalse([l for l in labels() if "logs" in l])  # nothing to copy logs to
+    def test_settings_from_1_48_move_to_kodis_page(self):
+        with open(os.path.join(self.data, "settings.json"), "w") as f:
+            json.dump({"skip_small": False, "check_updates": True}, f)
+        with open(os.path.join(self.data, "comics.json"), "w") as f:
+            json.dump({"convert": False, "turn": 6}, f)
+        self.d.bring_settings_back()
+        self.assertEqual(self.settings, {"skip_small": "false", "check_updates": "true", "convert_comics": "false"})
+        self.assertFalse(os.path.exists(os.path.join(self.data, "settings.json")))
+        self.assertEqual(self.d.comics_pref(), {"convert": False, "turn": 6})
+
+    def test_settings_opens_kodis_page(self):
+        opened = []
+        sys.modules["xbmcaddon"].Addon.openSettings = lambda s: opened.append(1)
+        self.d.ACTIONS["settings"](None, None)
+        self.assertEqual(opened, [1])
+        self.assertEqual([i["action"] for i in self.d.menu_items("root") if i["label"] == "Settings"], ["settings"])
 
     def test_small_videos_are_sorted_when_the_switch_is_off(self):
         self.d.size_of = lambda p: 1024
@@ -148,7 +163,7 @@ class FirstRun(unittest.TestCase):
         self.assertFalse(re.search(r'"NO ENGLISH|folder name says English', src))
 
     def test_no_screen_assumes_an_xbox(self):
-        for name in ("root", "sort", "tidy", "library", "help", "settings"):
+        for name in ("root", "downloads", "sort", "file", "library", "library_backups", "help"):
             for it in self.d.menu_items(name):
                 self.assertNotIn("Xbox", it["label"] + str(it.get("plot", "")), it)
                 self.assertNotIn("on the phone's hotspot", it["label"], it)

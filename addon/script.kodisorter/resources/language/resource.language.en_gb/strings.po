@@ -1,3 +1,4 @@
+# Sortovia
 msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
@@ -23,6 +24,14 @@ msgctxt "#32004"
 msgid "Rename movie titles to your language"
 msgstr ""
 
+msgctxt "#32005"
+msgid "Your language"
+msgstr ""
+
+msgctxt "#32006"
+msgid "Your device"
+msgstr ""
+
 msgctxt "#32010"
 msgid "Phone"
 msgstr ""
@@ -32,7 +41,7 @@ msgid "Use a phone as a download source"
 msgstr ""
 
 msgctxt "#32012"
-msgid "Copy Kodi's logs to the phone when Sortovia runs"
+msgid "Copy Kodi's logs to the phone"
 msgstr ""
 
 msgctxt "#32020"
@@ -40,6 +49,42 @@ msgid "Movie data (TMDb)"
 msgstr ""
 
 msgctxt "#32021"
-msgid "Set your free TMDb key, country and streaming services"
+msgid "Set your TMDb key, country and streaming services"
+msgstr ""
+
+msgctxt "#32030"
+msgid "Sorting"
+msgstr ""
+
+msgctxt "#32031"
+msgid "What to sort"
+msgstr ""
+
+msgctxt "#32032"
+msgid "My library folders"
+msgstr ""
+
+msgctxt "#32033"
+msgid "When sorting new comics, convert .cbr to .cbz"
+msgstr ""
+
+msgctxt "#32040"
+msgid "Music"
+msgstr ""
+
+msgctxt "#32041"
+msgid "Holding down an artist fixes tags without asking"
+msgstr ""
+
+msgctxt "#32050"
+msgid "Privacy"
+msgstr ""
+
+msgctxt "#32051"
+msgid "Protect saved passwords and keys with a passcode"
+msgstr ""
+
+msgctxt "#32090"
+msgid "Fix this artist's music tags (Sortovia)"
 msgstr ""
 

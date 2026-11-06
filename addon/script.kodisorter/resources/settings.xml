@@ -3,12 +3,25 @@
   <category label="32000">
     <setting id="check_updates" type="bool" label="32001" default="true"/>
     <setting id="auto_backup" type="bool" label="32002" default="true"/>
+    <setting type="action" label="32005" action="RunPlugin(plugin://script.kodisorter/?action=language)" option="close"/>
+    <setting type="action" label="32006" action="RunPlugin(plugin://script.kodisorter/?action=device)" option="close"/>
+  </category>
+  <category label="32030">
+    <setting type="action" label="32031" action="RunPlugin(plugin://script.kodisorter/?action=kinds)" option="close"/>
+    <setting type="action" label="32032" action="RunPlugin(plugin://script.kodisorter/?action=folders)" option="close"/>
     <setting id="skip_small" type="bool" label="32003" default="true"/>
     <setting id="rename_foreign" type="bool" label="32004" default="true"/>
+    <setting id="convert_comics" type="bool" label="32033" default="true"/>
+  </category>
+  <category label="32040">
+    <setting id="context_auto" type="bool" label="32041" default="false"/>
   </category>
   <category label="32010">
     <setting id="use_phone" type="bool" label="32011" default="true"/>
     <setting id="send_logs" type="bool" label="32012" default="true" enable="eq(-1,true)"/>
+  </category>
+  <category label="32050">
+    <setting type="action" label="32051" action="RunPlugin(plugin://script.kodisorter/?action=vault)" option="close"/>
   </category>
   <category label="32020">
     <setting type="action" label="32021" action="RunPlugin(plugin://script.kodisorter/?action=tmdb_settings)" option="close"/>

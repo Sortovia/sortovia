@@ -15,6 +15,7 @@ E:\
 ├── TV\Show Name (Year)\Season 01\Show Name (Year) S01E02.mkv
 ├── Movies\Movie Name (Year)\Movie Name (Year).mkv
 ├── Comics\Series\<original file>.cbz
+├── Music\Artist\Album\03 - Title.mp3
 └── Tutorials\AutoCAD\<original file>.mp4
 ```
 
@@ -57,11 +58,11 @@ From then on, Sortovia offers its own updates when it opens. You can turn that o
 
 The first time it opens, a welcome screen asks a few short questions: what device this is, what you want to sort, your
 language, whether you already have library folders, and whether you want to use a phone. You can change every answer later
-in **Help & settings**.
+in **Help**.
 
 Then:
 
-1. Open **Sort my downloads → Choose folders and choices**.
+1. Open **Downloads → Transfer and sort → Choose folders and choices**.
 2. **Where are the downloads?** Pick a folder or drive.
 3. **Where do they go?** Pick the drive that holds your library (for example `E:\`), or your Movies or TV folder.
 4. Answer the questions about better copies, audio language, NFOs, subtitles and leftovers. If you're unsure, the first
@@ -72,7 +73,7 @@ Then:
 ### Then show Kodi the new folders
 
 Kodi only lists folders you've added as sources. Add **each folder on its own**. In Sortovia,
-**Help & settings → How to add your folders to Kodi** has the steps for your device.
+**Help → How to add your folders to Kodi** has the steps for your device.
 
 | Folder | Where to add it | "This directory contains" |
 |---|---|---|
@@ -80,6 +81,7 @@ Kodi only lists folders you've added as sources. Add **each folder on its own**.
 | `Movies` | Videos → Files → Add videos | Movies |
 | `Tutorials` | Videos → Files → Add videos | None |
 | `Comics` | Pictures | (not asked) |
+| `Music` | Music → Files → Add music | (not asked) |
 
 > **Don't add a whole drive (such as `E:\`) as one source with a content type.** It overrides the folders inside it, and
 > Kodi can remove your shows from the library and scan them as movies.
@@ -90,13 +92,13 @@ Kodi only lists folders you've added as sources. Add **each folder on its own**.
 win-lib://removable/E:\TV\
 ```
 
-**If your drive's letter changes** (for example, plugging in or removing a USB stick turns `E:` into `D:`), your files are safe and don't need downloading again. Don't run Clean library. Instead, open **Kodi library → Drive letter changed? Fix the library**. Sortovia checks your files really are on the new letter, saves a library backup for each letter in `_Kodi library backups`, and points Kodi and Sortovia at the new letter. Then restart Kodi. Run it again whenever the letter changes.
+**If your drive's letter changes** (for example, plugging in or removing a USB stick turns `E:` into `D:`), your files are safe and don't need downloading again. Don't run Clean library. Instead, open **Library → Drive letter changed? Fix the library**. Sortovia checks your files really are on the new letter, saves a library backup for each letter in `_Kodi library backups`, and points Kodi's video and music libraries and Sortovia at the new letter. Then restart Kodi. Run it again whenever the letter changes.
 
 ---
 
 ## Settings
 
-Open **Help & settings → Settings**.
+Open **Settings**.
 
 | Setting | What it does | Starts as |
 |---|---|---|
@@ -147,7 +149,7 @@ The Sortovia companion app sets up Kodi Share for you, with no commands to type.
 1. On the phone, open **akaguyver.github.io/kodi-repo/app** and follow the steps to install it.
 2. Open it and allow the **Phone settings** it asks for.
 3. Tap **Start sharing**. That's all it takes to start the share, and the app shows the password.
-4. In Sortovia, choose **Sort my downloads → Choose folders and choices → My phone over Wi-Fi**, and type the password.
+4. In Sortovia, choose **Downloads → Transfer and sort → Choose folders and choices → My phone over Wi-Fi**, and type the password.
 
 ### Android: Termux (also gives you YouTube downloads)
 
@@ -236,7 +238,7 @@ exactly, including the `https://` and the last `/`, and that your Kodi device is
 of browsing.
 
 **My shows disappeared from the library or appeared as movies.** A source probably covers the whole drive. Remove that source,
-add `TV` and `Movies` separately with the right content types, and scan again. **Kodi library → Clean movie library** removes
+add `TV` and `Movies` separately with the right content types, and scan again. **Library → Clean the library → Movies** removes
 TV episodes wrongly listed as movies. Sortovia never deletes your video files for this.
 
 **Kodi closed in the middle of a sort.** Open Sortovia and choose **Resume**.
@@ -250,7 +252,7 @@ it has no audio in your language, or a better copy already exists.
 **The Firefox extension won't install.** Use the exact steps under *Download from YouTube*, including **Download link** and
 **Install extension from file**.
 
-**Something else.** Use **Help & settings → Send a problem report to the developer**. Sortovia removes passwords, keys and addresses from
+**Something else.** Use **Help → Send a problem report to the developer**. Sortovia removes passwords, keys and addresses from
 Kodi's log, shows you exactly what's in it, and only sends it if you agree. It goes on paste.kodi.tv, Kodi's public log site, and can include
 file and folder names. Then scan the QR code with your phone to send the developer the link, which needs a free GitHub account.
 
@@ -273,7 +275,7 @@ Sortovia has no accounts of its own, no ads and no analytics. It connects only t
 
 When the phone is set up, Sortovia looks for it by briefly checking the addresses on your local network.
 
-**Your passwords and keys** stay on your own device, in Kodi's add-on data. To encrypt them, turn on **Help & settings → Settings → Protect saved
+**Your passwords and keys** stay on your own device, in Kodi's add-on data. To encrypt them, turn on **Settings → Protect saved
 passwords and keys with a passcode**. You type the passcode once each time Kodi starts. It can't be recovered: if you forget it, you erase those
 saved details and enter them again, and your files aren't affected. Without a passcode, they're stored as plain text.
 
@@ -286,6 +288,8 @@ saved details and enter them again, and your files aren't affected. Without a pa
 - Movies (a title plus a year) go to `Movies\Title (Year)\`. With a TMDb key, a movie named in another
   language can be renamed to your language, including Russian titles written in Latin letters. You can turn this off in Settings.
 - OVAs, specials, and opening/ending credits clips go to Season 00, which is Kodi's Specials.
+- Music (`.mp3`, `.flac`, `.m4a`, `.ogg`, `.opus` and more) goes to `Music\Artist\Album\`, named from the file's tags, then its folders. Albums by several artists go under `Various Artists`, and cover art moves with the album. Songs already in folders inside an artist's folder, podcasts, audiobooks, recordings and songs with no artist are left alone. Add `Music` to Kodi under **Music → Files → Add music**.
+- **Fix music tags (MP3)**, in *File*, updates tags to ID3v2.4 and gives each album one album artist and each collaboration an `ARTISTS` tag. Then Kodi shows one album, listed under each artist if **Settings → Media → Music → Show song and album artists** is on. You see every change first, and can undo it. **Set album art from folders** uses the picture in an album's folder when Kodi shows no art.
 - Comics (`.cbz/.cbr/.cb7/.cbt`, plus PDFs/EPUBs inside a "Comics" or "Manga" folder) go to `Comics\Series\`.
   `.cbr` comics become `.cbz`, which Kodi opens much faster. The Comics menu also tidies an existing Comics folder and
   can turn pages for a monitor stood on its side.
@@ -324,7 +328,7 @@ saved details and enter them again, and your files aren't affected. Without a pa
   your site's rules, because some private trackers don't allow debrid services.
 
 **Library extras**
-- *Kodi library → Back up*: Kodi's library export (with watched marks) plus its database file, saved on the library drive
+- *Library → Backups → Back up the library now*: Kodi's library export (with watched marks) plus its database file, saved on the library drive
   (`_Kodi library backups`) and your phone if you use one. Sortovia only backs up the library when changes have been made to it. It warns you if the library suddenly shrinks. *Restore a backup* gets one
   ready for Kodi's Import library.
 - *Clean TV library / Clean movie library*: removes entries that are in the wrong library, never files.
@@ -338,7 +342,7 @@ saved details and enter them again, and your files aren't affected. Without a pa
 
 ## Version history
 
-In Sortovia: **Help & settings → Version history**.
+In Sortovia: **Help → Version history**.
 
 ## How it's built
 

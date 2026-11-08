@@ -12,8 +12,9 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python: ["3.8", "3.12"]  # Kodi 19-21 ship Python 3.8 or newer
+        python: ["3.10", "3.12"]  # the oldest and a recent Python that GitHub's runners still offer
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

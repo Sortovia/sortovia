@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in Sortovia didn't work as it should.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Sortovia version
+      description: Shown at the top of Sortovia's menu, or in Kodi under Add-ons > My add-ons.
+      placeholder: "1.49.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and Kodi version
+      placeholder: "Xbox Series S, Kodi 21.1"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Kodi log
+      description: >
+        Help > Send a problem report in Sortovia, or upload kodi.log with Kodi's Logfile Uploader and paste the link.
+        Check it first: file names in the log can show what's in your library.
+      render: text
